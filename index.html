@@ -27,6 +27,7 @@
     // --- Centralized API Configuration ---
     // Netlify function endpoint
     const NETLIFY_API_URL = '/.netlify/functions/myapi';
+    const MENU_DECODER_API_URL = '/.netlify/functions/menu-decoder';
     
     // PDF Generation Utility
     const generatePDF = (title, content, filename) => {
@@ -1088,10 +1089,10 @@ Respond ONLY with a valid JSON object in this format:
             ],
           };
 
-          const response = await fetch(NETLIFY_API_URL, {
+          const response = await fetch(MENU_DECODER_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contents: payload.contents })
+            body: JSON.stringify(payload)
           });
 
           if (!response.ok) {
@@ -1341,7 +1342,7 @@ Respond ONLY with a valid JSON object in this format:
           const response = await fetch(NETLIFY_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: prompt })
+            body: JSON.stringify({ contents: payload.contents })
           });
 
           if (!response.ok) {
@@ -3790,9 +3791,3 @@ ${habits.map(habit => {
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </body>
 </html>
-
-
-
-
-
-
