@@ -28,6 +28,37 @@
     // Netlify function endpoint
     const NETLIFY_API_URL = '/.netlify/functions/myapi';
     
+    // Direct Gemini API with basic obfuscation
+    const getDirectGeminiConfig = () => {
+      // Basic obfuscation - Base64 encoded parts
+      const apiParts = [
+        'aHR0cHM6Ly9nZW5lcmF0aXZlbGFuZ3VhZ2UuZ29vZ2xlYXBpcy5jb20=', // https://generativelanguage.googleapis.com
+        'djFiZXRh', // v1beta
+        'bW9kZWxzL2dlbWluaS0xLjUtZmxhc2g=', // models/gemini-1.5-flash
+        'Z2VuZXJhdGVDb250ZW50', // generateContent
+      ];
+      
+      // Your obfuscated API key parts
+      const keyParts = [
+        'QUl6YVN5QllodmZt',           // AIzaSyBYhvfm
+        'SnhYMl9UX214eGhQNmUxVQ==',   // JxX2_T_mxxhP6e1U
+        'SVdkSnpnQ2J5MDg='            // IWdJzgCby08
+      ];
+      
+      const baseUrl = atob(apiParts[0]);
+      const version = atob(apiParts[1]);
+      const model = atob(apiParts[2]);
+      const action = atob(apiParts[3]);
+      const apiKey = keyParts.map(part => atob(part)).join('');
+      
+      return {
+        url: `${baseUrl}/${version}/${model}:${action}?key=${apiKey}`,
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      };
+    };
+    
     // PDF Generation Utility
     const generatePDF = (title, content, filename) => {
       const { jsPDF } = window.jspdf;
@@ -1088,9 +1119,11 @@ Respond ONLY with a valid JSON object in this format:
             ],
           };
 
-          const response = await fetch(NETLIFY_API_URL, {
+          // Use direct Gemini API with obfuscation
+          const geminiConfig = getDirectGeminiConfig();
+          const response = await fetch(geminiConfig.url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: geminiConfig.headers,
             body: JSON.stringify(payload)
           });
 
@@ -3790,8 +3823,6 @@ ${habits.map(habit => {
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </body>
 </html>
-
-
 
 
 
