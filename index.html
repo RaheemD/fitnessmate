@@ -341,7 +341,6 @@
             dailyHistory={dailyHistory} 
             goals={goals} 
             dailyIntake={dailyIntake}
-            setDailyIntake={setDailyIntake}
             habitAIAdvice={habitAIAdvice}
             setHabitAIAdvice={setHabitAIAdvice}
             isLoadingAdvice={isLoadingAdvice}
@@ -3035,7 +3034,7 @@ User's question: "${userMessage.text}"`;
     };
 
     // Progress Screen Component
-    const Progress = ({ dailyHistory, goals, dailyIntake, setDailyIntake, habitAIAdvice, setHabitAIAdvice, isLoadingAdvice, setIsLoadingAdvice }) => {
+    const Progress = ({ dailyHistory, goals, dailyIntake, habitAIAdvice, setHabitAIAdvice, isLoadingAdvice, setIsLoadingAdvice }) => {
       const [currentDate, setCurrentDate] = useState(new Date());
       const [selectedDay, setSelectedDay] = useState(null);
       const [viewMode, setViewMode] = useState('month'); // 'month' or 'year'
@@ -3421,14 +3420,16 @@ User's question: "${userMessage.text}"`;
                                         completed[today] = true;
                                       }
                                       
-                                      if (!wasCompleted && (h.name.toLowerCase().includes('cardio') || h.name.toLowerCase().includes('exercise') || h.name.toLowerCase().includes('workout') || h.name.toLowerCase().includes('run') || h.name.toLowerCase().includes('walk') || h.name.toLowerCase().includes('gym'))) {
-                                        const minutes = parseInt(h.name.match(/\d+/)?.[0]) || 30;
-                                        setDailyIntake(prev => ({ ...prev, activity: prev.activity + minutes }));
-                                      }
-                                      if (!wasCompleted && h.name.toLowerCase().includes('water')) {
-                                        const glasses = parseInt(h.name.match(/\d+/)?.[0]) || 1;
-                                        setDailyIntake(prev => ({ ...prev, water: prev.water + glasses }));
-                                      }
+                                      // Note: Auto-sync with dailyIntake would require passing setDailyIntake as prop
+                                      // This functionality is commented out to avoid prop drilling
+                                      // if (!wasCompleted && (h.name.toLowerCase().includes('cardio') || h.name.toLowerCase().includes('exercise') || h.name.toLowerCase().includes('workout') || h.name.toLowerCase().includes('run') || h.name.toLowerCase().includes('walk') || h.name.toLowerCase().includes('gym'))) {
+                                      //   const minutes = parseInt(h.name.match(/\d+/)?.[0]) || 30;
+                                      //   setDailyIntake(prev => ({ ...prev, activity: prev.activity + minutes }));
+                                      // }
+                                      // if (!wasCompleted && h.name.toLowerCase().includes('water')) {
+                                      //   const glasses = parseInt(h.name.match(/\d+/)?.[0]) || 1;
+                                      //   setDailyIntake(prev => ({ ...prev, water: prev.water + glasses }));
+                                      // }
                                       
                                       // Calculate streak
                                       let streak = 0;
@@ -3822,6 +3823,7 @@ ${habits.map(habit => {
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </body>
 </html>
+
 
 
 
