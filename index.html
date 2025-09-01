@@ -2965,7 +2965,7 @@ User's question: "${userMessage.text}"`;
 
           <div className="flex-grow overflow-y-auto p-4 rounded-2xl shadow-md relative" 
                style={{
-                 backgroundColor: '#f8fafc',
+                 backgroundColor: isDarkMode ? '#1f2937' : '#f8fafc',
                  backgroundImage: `
                    radial-gradient(circle at 25px 25px, rgba(59, 130, 246, 0.15) 6px, transparent 6px),
                    radial-gradient(circle at 75px 75px, rgba(168, 85, 247, 0.12) 8px, transparent 8px),
@@ -3823,7 +3823,6 @@ ${habits.map(habit => {
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </body>
 </html>
-
 
 
 
