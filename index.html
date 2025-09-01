@@ -95,12 +95,13 @@
       doc.save(filename);
     };
 
-    // Enhanced Text-to-Speech Function with Pause/Resume
+    // Enhanced Text-to-Speech Function with Mobile-Safe Pause/Resume
     const speechController = {
       isPlaying: false,
       isPaused: false,
       currentUtterance: null,
       activeButton: null, // Track which button is currently active
+      currentText: null, // Store current text for mobile fallback
       
       speak: function(text, buttonRef = null) {
         if ('speechSynthesis' in window) {
@@ -110,20 +111,41 @@
           }
           
           if (this.isPaused && this.activeButton === buttonRef) {
-            // Resume paused speech from same button
-            window.speechSynthesis.resume();
-            this.isPaused = false;
-            this.isPlaying = true;
-            return 'resume';
+            // Try to resume paused speech
+            try {
+              window.speechSynthesis.resume();
+              // Check if resume actually worked (mobile fallback)
+              setTimeout(() => {
+                if (window.speechSynthesis.paused) {
+                  // Resume failed, restart speech
+                  this.restartSpeech();
+                } else {
+                  this.isPaused = false;
+                  this.isPlaying = true;
+                }
+              }, 100);
+              return 'resume';
+            } catch (error) {
+              console.warn('Resume failed, restarting speech:', error);
+              this.restartSpeech();
+              return 'play';
+            }
           } else if (this.isPlaying && this.activeButton === buttonRef) {
-            // Pause current speech from same button
-            window.speechSynthesis.pause();
-            this.isPaused = true;
-            this.isPlaying = false;
-            return 'pause';
+            // Pause current speech
+            try {
+              window.speechSynthesis.pause();
+              this.isPaused = true;
+              this.isPlaying = false;
+              return 'pause';
+            } catch (error) {
+              console.warn('Pause failed:', error);
+              this.stop();
+              return 'stop';
+            }
           } else {
             // Start new speech
-            window.speechSynthesis.cancel();
+            this.stop();
+            this.currentText = text; // Store for mobile fallback
             const utterance = new SpeechSynthesisUtterance(text);
             utterance.rate = 0.9;
             
@@ -138,6 +160,12 @@
               this.isPaused = false;
               this.currentUtterance = null;
               this.activeButton = null;
+              this.currentText = null;
+            };
+            
+            utterance.onerror = (event) => {
+              console.error('Speech synthesis error:', event);
+              this.stop();
             };
             
             this.currentUtterance = utterance;
@@ -152,12 +180,49 @@
         }
       },
       
+      // Mobile fallback: restart speech from current position
+      restartSpeech: function() {
+        if (this.currentText && this.activeButton) {
+          this.stop();
+          const utterance = new SpeechSynthesisUtterance(this.currentText);
+          utterance.rate = 0.9;
+          
+          utterance.onstart = () => {
+            this.isPlaying = true;
+            this.isPaused = false;
+          };
+          
+          utterance.onend = () => {
+            this.isPlaying = false;
+            this.isPaused = false;
+            this.currentUtterance = null;
+            this.activeButton = null;
+            this.currentText = null;
+          };
+          
+          this.currentUtterance = utterance;
+          window.speechSynthesis.speak(utterance);
+          this.isPlaying = true;
+        }
+      },
+      
       stop: function() {
         window.speechSynthesis.cancel();
         this.isPlaying = false;
         this.isPaused = false;
         this.currentUtterance = null;
         this.activeButton = null;
+        this.currentText = null;
+      },
+      
+      // Check if speech is actually playing (mobile-safe)
+      isActuallyPlaying: function() {
+        return window.speechSynthesis.speaking && !window.speechSynthesis.paused;
+      },
+      
+      // Check if speech is actually paused (mobile-safe)
+      isActuallyPaused: function() {
+        return window.speechSynthesis.paused;
       }
     };
 
@@ -1776,74 +1841,34 @@ Respond ONLY with a valid JSON object:
         
         text += "Enjoy your healthy meals!";
         
-        // Use female voice for meal planning
-        if ('speechSynthesis' in window) {
-          if (speechController.isPaused && speechController.activeButton === buttonId) {
-            // Resume paused speech
-            window.speechSynthesis.resume();
-            speechController.isPaused = false;
-            speechController.isPlaying = true;
-            setButtonText('⏸️ Pause Reading');
-          } else if (speechController.isPlaying && speechController.activeButton === buttonId) {
-            // Pause current speech
-            window.speechSynthesis.pause();
-            speechController.isPaused = true;
-            speechController.isPlaying = false;
-            setButtonText('▶️ Resume Reading');
-          } else {
-            // Stop any ongoing speech and start new speech with female voice
-            speechController.stop();
-            
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.rate = 0.9;
-            
-            // Set female voice
-            const voices = window.speechSynthesis.getVoices();
-            const femaleVoice = voices.find(voice => 
-              voice.name.toLowerCase().includes('female') || 
-              voice.name.toLowerCase().includes('woman') ||
-              voice.name.toLowerCase().includes('zira') ||
-              voice.name.toLowerCase().includes('hazel') ||
-              voice.name.toLowerCase().includes('susan') ||
-              voice.name.toLowerCase().includes('samantha') ||
-              (voice.gender && voice.gender.toLowerCase() === 'female')
-            );
-            
-            if (femaleVoice) {
-              utterance.voice = femaleVoice;
-            }
-            
-            utterance.onstart = () => {
-              speechController.isPlaying = true;
-              speechController.isPaused = false;
-              speechController.activeButton = buttonId;
-            };
-            
-            utterance.onend = () => {
-              speechController.isPlaying = false;
-              speechController.isPaused = false;
-              speechController.currentUtterance = null;
-              speechController.activeButton = null;
-              setButtonText('🔊 Read Full Meal Plan');
-            };
-            
-            speechController.currentUtterance = utterance;
-            window.speechSynthesis.speak(utterance);
-            speechController.isPlaying = true;
-            speechController.activeButton = buttonId;
-            setButtonText('⏸️ Pause Reading');
-          }
-        } else {
-          alert('Text-to-speech not supported in this browser');
+        // Use the enhanced speechController
+        const action = speechController.speak(text, buttonId);
+        
+        // Update button text based on action
+        if (action === 'play') {
+          setButtonText('⏸️ Pause Reading');
+        } else if (action === 'pause') {
+          setButtonText('▶️ Resume Reading');
+        } else if (action === 'resume') {
+          setButtonText('⏸️ Pause Reading');
+        } else if (action === 'stop' || action === 'error') {
+          setButtonText('🔊 Read Full Meal Plan');
         }
         
-        // Check if speech ended
+        // Enhanced state monitoring with mobile-safe checks
         const checkEnd = setInterval(() => {
-          if (!speechController.isPlaying && !speechController.isPaused) {
+          if (!speechController.isActuallyPlaying() && !speechController.isActuallyPaused()) {
+            setButtonText('🔊 Read Full Meal Plan');
+            clearInterval(checkEnd);
+          } else if (speechController.activeButton !== buttonId) {
+            // Another button took control
             setButtonText('🔊 Read Full Meal Plan');
             clearInterval(checkEnd);
           }
         }, 500);
+        
+        // Clear interval after 5 minutes to prevent memory leaks
+        setTimeout(() => clearInterval(checkEnd), 300000);
       };
       
       return (
@@ -1859,7 +1884,7 @@ Respond ONLY with a valid JSON object:
     // Workout Plan Voice Button Component
     const WorkoutPlanVoiceButton = ({ workoutPlan }) => {
       const [buttonText, setButtonText] = useState('🔊 Read Full Workout Plan');
-      const buttonId = 'workout-plan-button'; // Unique identifier
+      const buttonId = 'workout-plan-button';
       
       const handleVoiceControl = () => {
         let text = "Here is your complete workout plan. ";
@@ -1872,23 +1897,34 @@ Respond ONLY with a valid JSON object:
         
         text += "Great job on your workout plan!";
         
+        // Use the enhanced speechController
         const action = speechController.speak(text, buttonId);
         
+        // Update button text based on action
         if (action === 'play') {
           setButtonText('⏸️ Pause Reading');
         } else if (action === 'pause') {
           setButtonText('▶️ Resume Reading');
         } else if (action === 'resume') {
           setButtonText('⏸️ Pause Reading');
+        } else if (action === 'stop' || action === 'error') {
+          setButtonText('🔊 Read Full Workout Plan');
         }
         
-        // Check if speech ended and reset button text
+        // Enhanced state monitoring with mobile-safe checks
         const checkEnd = setInterval(() => {
-          if (!speechController.isPlaying && !speechController.isPaused) {
+          if (!speechController.isActuallyPlaying() && !speechController.isActuallyPaused()) {
+            setButtonText('🔊 Read Full Workout Plan');
+            clearInterval(checkEnd);
+          } else if (speechController.activeButton !== buttonId) {
+            // Another button took control
             setButtonText('🔊 Read Full Workout Plan');
             clearInterval(checkEnd);
           }
         }, 500);
+        
+        // Clear interval after 5 minutes to prevent memory leaks
+        setTimeout(() => clearInterval(checkEnd), 300000);
       };
       
       return (
