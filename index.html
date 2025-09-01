@@ -95,83 +95,51 @@
       doc.save(filename);
     };
 
-    // Enhanced Text-to-Speech Function with Mobile-Safe Pause/Resume
+    // Enhanced Mobile-Friendly Speech Controller with Chunking
     const speechController = {
       isPlaying: false,
       isPaused: false,
       currentUtterance: null,
-      activeButton: null, // Track which button is currently active
-      currentText: null, // Store current text for mobile fallback
+      activeButton: null,
+      currentChunks: [],
+      currentChunkIndex: 0,
       
-      speak: function(text, buttonRef = null) {
+      // Break text into logical chunks for better mobile control
+      createChunks: function(text, type = 'general') {
+        if (type === 'meal') {
+          // Split meal plans by meals and sections
+          return text.split(/(?=For breakfast|For lunch|For dinner|Ingredients needed|Instructions:)/)
+            .filter(chunk => chunk.trim().length > 0)
+            .map(chunk => chunk.trim());
+        } else if (type === 'workout') {
+          // Split workout plans by exercises
+          return text.split(/(?=Exercise \d+:)/)
+            .filter(chunk => chunk.trim().length > 0)
+            .map(chunk => chunk.trim());
+        } else {
+          // General chunking by sentences (fallback)
+          return text.match(/[^.!?]+[.!?]+/g) || [text];
+        }
+      },
+      
+      speak: function(text, buttonRef = null, contentType = 'general') {
         if ('speechSynthesis' in window) {
-          // If starting new speech from a different button, stop current speech
+          // Stop any existing speech from other buttons
           if (buttonRef && this.activeButton && this.activeButton !== buttonRef) {
             this.stop();
           }
           
           if (this.isPaused && this.activeButton === buttonRef) {
-            // Try to resume paused speech
-            try {
-              window.speechSynthesis.resume();
-              // Check if resume actually worked (mobile fallback)
-              setTimeout(() => {
-                if (window.speechSynthesis.paused) {
-                  // Resume failed, restart speech
-                  this.restartSpeech();
-                } else {
-                  this.isPaused = false;
-                  this.isPlaying = true;
-                }
-              }, 100);
-              return 'resume';
-            } catch (error) {
-              console.warn('Resume failed, restarting speech:', error);
-              this.restartSpeech();
-              return 'play';
-            }
+            // Resume from current chunk
+            this.resumeFromChunk();
+            return 'resume';
           } else if (this.isPlaying && this.activeButton === buttonRef) {
             // Pause current speech
-            try {
-              window.speechSynthesis.pause();
-              this.isPaused = true;
-              this.isPlaying = false;
-              return 'pause';
-            } catch (error) {
-              console.warn('Pause failed:', error);
-              this.stop();
-              return 'stop';
-            }
+            this.pauseCurrentChunk();
+            return 'pause';
           } else {
-            // Start new speech
-            this.stop();
-            this.currentText = text; // Store for mobile fallback
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.rate = 0.9;
-            
-            utterance.onstart = () => {
-              this.isPlaying = true;
-              this.isPaused = false;
-              this.activeButton = buttonRef;
-            };
-            
-            utterance.onend = () => {
-              this.isPlaying = false;
-              this.isPaused = false;
-              this.currentUtterance = null;
-              this.activeButton = null;
-              this.currentText = null;
-            };
-            
-            utterance.onerror = (event) => {
-              console.error('Speech synthesis error:', event);
-              this.stop();
-            };
-            
-            this.currentUtterance = utterance;
-            window.speechSynthesis.speak(utterance);
-            this.isPlaying = true;
-            this.activeButton = buttonRef;
+            // Start new speech with chunking
+            this.startChunkedSpeech(text, buttonRef, contentType);
             return 'play';
           }
         } else {
@@ -180,30 +148,95 @@
         }
       },
       
-      // Mobile fallback: restart speech from current position
-      restartSpeech: function() {
-        if (this.currentText && this.activeButton) {
+      startChunkedSpeech: function(text, buttonRef, contentType) {
+        this.stop();
+        this.currentChunks = this.createChunks(text, contentType);
+        this.currentChunkIndex = 0;
+        this.activeButton = buttonRef;
+        this.playCurrentChunk();
+      },
+      
+      playCurrentChunk: function() {
+        if (this.currentChunkIndex >= this.currentChunks.length) {
+          // All chunks completed
           this.stop();
-          const utterance = new SpeechSynthesisUtterance(this.currentText);
-          utterance.rate = 0.9;
-          
-          utterance.onstart = () => {
-            this.isPlaying = true;
-            this.isPaused = false;
-          };
-          
-          utterance.onend = () => {
-            this.isPlaying = false;
-            this.isPaused = false;
-            this.currentUtterance = null;
-            this.activeButton = null;
-            this.currentText = null;
-          };
-          
-          this.currentUtterance = utterance;
-          window.speechSynthesis.speak(utterance);
-          this.isPlaying = true;
+          return;
         }
+        
+        const chunk = this.currentChunks[this.currentChunkIndex];
+        const utterance = new SpeechSynthesisUtterance(chunk);
+        utterance.rate = 0.9;
+        utterance.pitch = 1;
+        
+        // Select best voice for mobile
+        const voices = window.speechSynthesis.getVoices();
+        const preferredVoice = voices.find(voice => 
+          voice.lang.startsWith('en') && (voice.localService || voice.default)
+        );
+        if (preferredVoice) {
+          utterance.voice = preferredVoice;
+        }
+        
+        utterance.onstart = () => {
+          this.isPlaying = true;
+          this.isPaused = false;
+        };
+        
+        utterance.onend = () => {
+          if (!this.isPaused) {
+            // Move to next chunk
+            this.currentChunkIndex++;
+            setTimeout(() => this.playCurrentChunk(), 300); // Small pause between chunks
+          }
+        };
+        
+        utterance.onerror = (event) => {
+          console.error('Speech error:', event);
+          // Try next chunk on error
+          this.currentChunkIndex++;
+          setTimeout(() => this.playCurrentChunk(), 500);
+        };
+        
+        this.currentUtterance = utterance;
+        window.speechSynthesis.speak(utterance);
+        this.isPlaying = true;
+      },
+      
+      pauseCurrentChunk: function() {
+        if (this.currentUtterance) {
+          window.speechSynthesis.cancel(); // Stop current chunk completely
+          this.isPaused = true;
+          this.isPlaying = false;
+        }
+      },
+      
+      resumeFromChunk: function() {
+        if (this.isPaused) {
+          this.isPaused = false;
+          this.playCurrentChunk(); // Resume from current chunk
+        }
+      },
+      
+      // Navigation controls
+      nextChunk: function() {
+        if (this.currentChunkIndex < this.currentChunks.length - 1) {
+          window.speechSynthesis.cancel();
+          this.currentChunkIndex++;
+          this.playCurrentChunk();
+        }
+      },
+      
+      previousChunk: function() {
+        if (this.currentChunkIndex > 0) {
+          window.speechSynthesis.cancel();
+          this.currentChunkIndex--;
+          this.playCurrentChunk();
+        }
+      },
+      
+      repeatChunk: function() {
+        window.speechSynthesis.cancel();
+        this.playCurrentChunk();
       },
       
       stop: function() {
@@ -212,17 +245,22 @@
         this.isPaused = false;
         this.currentUtterance = null;
         this.activeButton = null;
-        this.currentText = null;
+        this.currentChunks = [];
+        this.currentChunkIndex = 0;
       },
       
-      // Check if speech is actually playing (mobile-safe)
+      // Status helpers
+      getCurrentProgress: function() {
+        if (this.currentChunks.length === 0) return { current: 0, total: 0, text: '' };
+        return {
+          current: this.currentChunkIndex + 1,
+          total: this.currentChunks.length,
+          text: this.currentChunks[this.currentChunkIndex] || ''
+        };
+      },
+      
       isActuallyPlaying: function() {
-        return window.speechSynthesis.speaking && !window.speechSynthesis.paused;
-      },
-      
-      // Check if speech is actually paused (mobile-safe)
-      isActuallyPaused: function() {
-        return window.speechSynthesis.paused;
+        return this.isPlaying && window.speechSynthesis.speaking && !window.speechSynthesis.paused;
       }
     };
 
@@ -1816,74 +1854,108 @@ Respond ONLY with a valid JSON object:
       );
     };
 
-    // Meal Plan Voice Button Component
+    // Enhanced Meal Plan Voice Button
     const MealPlanVoiceButton = ({ mealPlan }) => {
-      const [buttonText, setButtonText] = useState('🔊 Read Full Meal Plan');
+      const [buttonText, setButtonText] = useState('🔊 Listen to Meal Plan');
+      const [progress, setProgress] = useState({ current: 0, total: 0 });
       const buttonId = 'meal-plan-button';
       
       const handleVoiceControl = () => {
         let text = "Here is your complete meal plan. ";
         
-        // Breakfast
+        // Format text for better chunking
         text += `For breakfast, you will have ${mealPlan.breakfast.name}. `;
         text += "Ingredients needed: " + mealPlan.breakfast.ingredients.join(", ") + ". ";
         text += "Instructions: " + mealPlan.breakfast.instructions.join(". ") + ". ";
         
-        // Lunch
         text += `For lunch, you will have ${mealPlan.lunch.name}. `;
         text += "Ingredients needed: " + mealPlan.lunch.ingredients.join(", ") + ". ";
         text += "Instructions: " + mealPlan.lunch.instructions.join(". ") + ". ";
         
-        // Dinner
         text += `For dinner, you will have ${mealPlan.dinner.name}. `;
         text += "Ingredients needed: " + mealPlan.dinner.ingredients.join(", ") + ". ";
         text += "Instructions: " + mealPlan.dinner.instructions.join(". ") + ". ";
         
         text += "Enjoy your healthy meals!";
         
-        // Use the enhanced speechController
-        const action = speechController.speak(text, buttonId);
+        const action = speechController.speak(text, buttonId, 'meal');
         
-        // Update button text based on action
+        // Update button text
         if (action === 'play') {
-          setButtonText('⏸️ Pause Reading');
+          setButtonText('⏸️ Pause');
         } else if (action === 'pause') {
-          setButtonText('▶️ Resume Reading');
+          setButtonText('▶️ Resume');
         } else if (action === 'resume') {
-          setButtonText('⏸️ Pause Reading');
-        } else if (action === 'stop' || action === 'error') {
-          setButtonText('🔊 Read Full Meal Plan');
+          setButtonText('⏸️ Pause');
         }
         
-        // Enhanced state monitoring with mobile-safe checks
-        const checkEnd = setInterval(() => {
-          if (!speechController.isActuallyPlaying() && !speechController.isActuallyPaused()) {
-            setButtonText('🔊 Read Full Meal Plan');
-            clearInterval(checkEnd);
-          } else if (speechController.activeButton !== buttonId) {
-            // Another button took control
-            setButtonText('🔊 Read Full Meal Plan');
-            clearInterval(checkEnd);
+        // Monitor progress
+        const progressInterval = setInterval(() => {
+          const currentProgress = speechController.getCurrentProgress();
+          setProgress(currentProgress);
+          
+          if (!speechController.isActuallyPlaying() && !speechController.isPaused) {
+            setButtonText('🔊 Listen to Meal Plan');
+            setProgress({ current: 0, total: 0 });
+            clearInterval(progressInterval);
           }
         }, 500);
         
-        // Clear interval after 5 minutes to prevent memory leaks
-        setTimeout(() => clearInterval(checkEnd), 300000);
+        setTimeout(() => clearInterval(progressInterval), 300000);
       };
       
       return (
-        <button
-          onClick={handleVoiceControl}
-          className="mb-4 mx-auto block bg-blue-500 text-white py-2 px-4 rounded-lg hover:bg-blue-600"
-        >
-          {buttonText}
-        </button>
+        <div className="mb-4">
+          <button
+            onClick={handleVoiceControl}
+            className="w-full bg-blue-500 text-white py-3 px-4 rounded-lg hover:bg-blue-600 mb-2"
+          >
+            {buttonText}
+          </button>
+          
+          {progress.total > 0 && (
+            <div className="text-sm text-gray-600 dark:text-gray-400 text-center">
+              Section {progress.current} of {progress.total}
+              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 mt-1">
+                <div 
+                  className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${(progress.current / progress.total) * 100}%` }}
+                ></div>
+              </div>
+            </div>
+          )}
+          
+          {speechController.activeButton === buttonId && (
+            <div className="flex gap-2 mt-2">
+              <button 
+                onClick={() => speechController.previousChunk()}
+                className="flex-1 bg-gray-500 text-white py-1 px-2 rounded text-sm hover:bg-gray-600"
+              >
+                ⏮️ Previous
+              </button>
+              <button 
+                onClick={() => speechController.repeatChunk()}
+                className="flex-1 bg-gray-500 text-white py-1 px-2 rounded text-sm hover:bg-gray-600"
+              >
+                🔄 Repeat
+              </button>
+              <button 
+                onClick={() => speechController.nextChunk()}
+                className="flex-1 bg-gray-500 text-white py-1 px-2 rounded text-sm hover:bg-gray-600"
+              >
+                ⏭️ Next
+              </button>
+            </div>
+          )}
+        </div>
       );
     };
 
-    // Workout Plan Voice Button Component
+    // Enhanced Workout Plan Voice Button Component with Navigation
     const WorkoutPlanVoiceButton = ({ workoutPlan }) => {
       const [buttonText, setButtonText] = useState('🔊 Read Full Workout Plan');
+      const [showControls, setShowControls] = useState(false);
+      const [progress, setProgress] = useState({ current: 0, total: 0 });
       const buttonId = 'workout-plan-button';
       
       const handleVoiceControl = () => {
@@ -1897,43 +1969,90 @@ Respond ONLY with a valid JSON object:
         
         text += "Great job on your workout plan!";
         
-        // Use the enhanced speechController
-        const action = speechController.speak(text, buttonId);
+        // Use the enhanced speechController with workout content type
+        const action = speechController.speak(text, buttonId, 'workout');
         
-        // Update button text based on action
+        // Update button text and show controls
         if (action === 'play') {
           setButtonText('⏸️ Pause Reading');
+          setShowControls(true);
         } else if (action === 'pause') {
           setButtonText('▶️ Resume Reading');
         } else if (action === 'resume') {
           setButtonText('⏸️ Pause Reading');
         } else if (action === 'stop' || action === 'error') {
           setButtonText('🔊 Read Full Workout Plan');
+          setShowControls(false);
         }
         
-        // Enhanced state monitoring with mobile-safe checks
-        const checkEnd = setInterval(() => {
-          if (!speechController.isActuallyPlaying() && !speechController.isActuallyPaused()) {
+        // Monitor progress and state
+        const checkProgress = setInterval(() => {
+          const currentProgress = speechController.getCurrentProgress();
+          setProgress(currentProgress);
+          
+          if (!speechController.isActuallyPlaying() && !speechController.isPaused) {
             setButtonText('🔊 Read Full Workout Plan');
-            clearInterval(checkEnd);
+            setShowControls(false);
+            clearInterval(checkProgress);
           } else if (speechController.activeButton !== buttonId) {
-            // Another button took control
             setButtonText('🔊 Read Full Workout Plan');
-            clearInterval(checkEnd);
+            setShowControls(false);
+            clearInterval(checkProgress);
           }
         }, 500);
         
-        // Clear interval after 5 minutes to prevent memory leaks
-        setTimeout(() => clearInterval(checkEnd), 300000);
+        // Clear interval after 5 minutes
+        setTimeout(() => clearInterval(checkProgress), 300000);
       };
       
       return (
-        <button
-          onClick={handleVoiceControl}
-          className="mb-4 mx-auto block bg-blue-500 text-white py-2 px-4 rounded-lg hover:bg-blue-600"
-        >
-          {buttonText}
-        </button>
+        <div className="mb-4 text-center">
+          <button
+            onClick={handleVoiceControl}
+            className="bg-blue-500 text-white py-2 px-4 rounded-lg hover:bg-blue-600 mb-2"
+          >
+            {buttonText}
+          </button>
+          
+          {showControls && (
+            <div className="bg-gray-100 dark:bg-gray-700 p-3 rounded-lg">
+              <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                Exercise {progress.current} of {progress.total}
+              </div>
+              <div className="flex justify-center gap-2">
+                <button
+                  onClick={() => {
+                    speechController.previousChunk();
+                    setButtonText('⏸️ Pause Reading');
+                  }}
+                  className="bg-gray-500 text-white px-3 py-1 rounded text-sm hover:bg-gray-600"
+                  disabled={progress.current <= 1}
+                >
+                  ⏮️ Previous
+                </button>
+                <button
+                  onClick={() => {
+                    speechController.repeatChunk();
+                    setButtonText('⏸️ Pause Reading');
+                  }}
+                  className="bg-orange-500 text-white px-3 py-1 rounded text-sm hover:bg-orange-600"
+                >
+                  🔄 Repeat
+                </button>
+                <button
+                  onClick={() => {
+                    speechController.nextChunk();
+                    setButtonText('⏸️ Pause Reading');
+                  }}
+                  className="bg-gray-500 text-white px-3 py-1 rounded text-sm hover:bg-gray-600"
+                  disabled={progress.current >= progress.total}
+                >
+                  ⏭️ Next
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       );
     };
 
