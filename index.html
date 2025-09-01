@@ -95,6 +95,77 @@
       doc.save(filename);
     };
 
+    // Enhanced Text-to-Speech Function with Pause/Resume
+    const speechController = {
+      isPlaying: false,
+      isPaused: false,
+      currentUtterance: null,
+      activeButton: null, // Track which button is currently active
+      
+      speak: function(text, buttonRef = null) {
+        if ('speechSynthesis' in window) {
+          // If starting new speech from a different button, stop current speech
+          if (buttonRef && this.activeButton && this.activeButton !== buttonRef) {
+            this.stop();
+          }
+          
+          if (this.isPaused && this.activeButton === buttonRef) {
+            // Resume paused speech from same button
+            window.speechSynthesis.resume();
+            this.isPaused = false;
+            this.isPlaying = true;
+            return 'resume';
+          } else if (this.isPlaying && this.activeButton === buttonRef) {
+            // Pause current speech from same button
+            window.speechSynthesis.pause();
+            this.isPaused = true;
+            this.isPlaying = false;
+            return 'pause';
+          } else {
+            // Start new speech
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 0.9;
+            
+            utterance.onstart = () => {
+              this.isPlaying = true;
+              this.isPaused = false;
+              this.activeButton = buttonRef;
+            };
+            
+            utterance.onend = () => {
+              this.isPlaying = false;
+              this.isPaused = false;
+              this.currentUtterance = null;
+              this.activeButton = null;
+            };
+            
+            this.currentUtterance = utterance;
+            window.speechSynthesis.speak(utterance);
+            this.isPlaying = true;
+            this.activeButton = buttonRef;
+            return 'play';
+          }
+        } else {
+          alert('Text-to-speech not supported in this browser');
+          return 'error';
+        }
+      },
+      
+      stop: function() {
+        window.speechSynthesis.cancel();
+        this.isPlaying = false;
+        this.isPaused = false;
+        this.currentUtterance = null;
+        this.activeButton = null;
+      }
+    };
+
+    // Simple Text-to-Speech Function (for backward compatibility)
+    const speakText = (text) => {
+      speechController.speak(text);
+    };
+
     // --- Default Goal Data ---
     const defaultGoals = {
       calories: 2000,
@@ -1670,6 +1741,156 @@ Respond ONLY with a valid JSON object:
       );
     };
 
+    // Meal Plan Voice Button Component
+    const MealPlanVoiceButton = ({ mealPlan }) => {
+      const [buttonText, setButtonText] = useState('🔊 Read Full Meal Plan');
+      const buttonId = 'meal-plan-button';
+      
+      const handleVoiceControl = () => {
+        let text = "Here is your complete meal plan. ";
+        
+        // Breakfast
+        text += `For breakfast, you will have ${mealPlan.breakfast.name}. `;
+        text += "Ingredients needed: " + mealPlan.breakfast.ingredients.join(", ") + ". ";
+        text += "Instructions: " + mealPlan.breakfast.instructions.join(". ") + ". ";
+        
+        // Lunch
+        text += `For lunch, you will have ${mealPlan.lunch.name}. `;
+        text += "Ingredients needed: " + mealPlan.lunch.ingredients.join(", ") + ". ";
+        text += "Instructions: " + mealPlan.lunch.instructions.join(". ") + ". ";
+        
+        // Dinner
+        text += `For dinner, you will have ${mealPlan.dinner.name}. `;
+        text += "Ingredients needed: " + mealPlan.dinner.ingredients.join(", ") + ". ";
+        text += "Instructions: " + mealPlan.dinner.instructions.join(". ") + ". ";
+        
+        text += "Enjoy your healthy meals!";
+        
+        // Use female voice for meal planning
+        if ('speechSynthesis' in window) {
+          if (speechController.isPaused && speechController.activeButton === buttonId) {
+            // Resume paused speech
+            window.speechSynthesis.resume();
+            speechController.isPaused = false;
+            speechController.isPlaying = true;
+            setButtonText('⏸️ Pause Reading');
+          } else if (speechController.isPlaying && speechController.activeButton === buttonId) {
+            // Pause current speech
+            window.speechSynthesis.pause();
+            speechController.isPaused = true;
+            speechController.isPlaying = false;
+            setButtonText('▶️ Resume Reading');
+          } else {
+            // Stop any ongoing speech and start new speech with female voice
+            speechController.stop();
+            
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 0.9;
+            
+            // Set female voice
+            const voices = window.speechSynthesis.getVoices();
+            const femaleVoice = voices.find(voice => 
+              voice.name.toLowerCase().includes('female') || 
+              voice.name.toLowerCase().includes('woman') ||
+              voice.name.toLowerCase().includes('zira') ||
+              voice.name.toLowerCase().includes('hazel') ||
+              voice.name.toLowerCase().includes('susan') ||
+              voice.name.toLowerCase().includes('samantha') ||
+              (voice.gender && voice.gender.toLowerCase() === 'female')
+            );
+            
+            if (femaleVoice) {
+              utterance.voice = femaleVoice;
+            }
+            
+            utterance.onstart = () => {
+              speechController.isPlaying = true;
+              speechController.isPaused = false;
+              speechController.activeButton = buttonId;
+            };
+            
+            utterance.onend = () => {
+              speechController.isPlaying = false;
+              speechController.isPaused = false;
+              speechController.currentUtterance = null;
+              speechController.activeButton = null;
+              setButtonText('🔊 Read Full Meal Plan');
+            };
+            
+            speechController.currentUtterance = utterance;
+            window.speechSynthesis.speak(utterance);
+            speechController.isPlaying = true;
+            speechController.activeButton = buttonId;
+            setButtonText('⏸️ Pause Reading');
+          }
+        } else {
+          alert('Text-to-speech not supported in this browser');
+        }
+        
+        // Check if speech ended
+        const checkEnd = setInterval(() => {
+          if (!speechController.isPlaying && !speechController.isPaused) {
+            setButtonText('🔊 Read Full Meal Plan');
+            clearInterval(checkEnd);
+          }
+        }, 500);
+      };
+      
+      return (
+        <button
+          onClick={handleVoiceControl}
+          className="mb-4 mx-auto block bg-blue-500 text-white py-2 px-4 rounded-lg hover:bg-blue-600"
+        >
+          {buttonText}
+        </button>
+      );
+    };
+
+    // Workout Plan Voice Button Component
+    const WorkoutPlanVoiceButton = ({ workoutPlan }) => {
+      const [buttonText, setButtonText] = useState('🔊 Read Full Workout Plan');
+      const buttonId = 'workout-plan-button'; // Unique identifier
+      
+      const handleVoiceControl = () => {
+        let text = "Here is your complete workout plan. ";
+        
+        workoutPlan.exercises.forEach((exercise, index) => {
+          text += `Exercise ${index + 1}: ${exercise.name}. `;
+          text += `You will do ${exercise.sets} sets of ${exercise.reps} repetitions. `;
+          text += `Instructions: ${exercise.instructions}. `;
+        });
+        
+        text += "Great job on your workout plan!";
+        
+        const action = speechController.speak(text, buttonId);
+        
+        if (action === 'play') {
+          setButtonText('⏸️ Pause Reading');
+        } else if (action === 'pause') {
+          setButtonText('▶️ Resume Reading');
+        } else if (action === 'resume') {
+          setButtonText('⏸️ Pause Reading');
+        }
+        
+        // Check if speech ended and reset button text
+        const checkEnd = setInterval(() => {
+          if (!speechController.isPlaying && !speechController.isPaused) {
+            setButtonText('🔊 Read Full Workout Plan');
+            clearInterval(checkEnd);
+          }
+        }, 500);
+      };
+      
+      return (
+        <button
+          onClick={handleVoiceControl}
+          className="mb-4 mx-auto block bg-blue-500 text-white py-2 px-4 rounded-lg hover:bg-blue-600"
+        >
+          {buttonText}
+        </button>
+      );
+    };
+
     // Meal Planner Screen Component
     const MealPlanner = ({ goals, mealPlan, setMealPlan, isLoading, setIsLoading, error, setError }) => {
       const [activeTab, setActiveTab] = useState('planner'); // 'planner', 'pantry', or 'menu'
@@ -1844,6 +2065,10 @@ Format:
               {mealPlan && (
                 <div className="animate-fade-in">
                   <button onClick={() => setMealPlan(null)} className="mb-4 text-pink-500 font-semibold">&larr; Back to Preferences</button>
+                  
+                  {/* Voice Button with Pause/Resume */}
+                  <MealPlanVoiceButton mealPlan={mealPlan} />
+                  
                   <div className="space-y-6">
                     <MealPlanDisplay mealType="Breakfast" meal={mealPlan.breakfast} />
                     <MealPlanDisplay mealType="Lunch" meal={mealPlan.lunch} />
@@ -2768,6 +2993,10 @@ Format:
               {workoutPlan && (
                 <div className="animate-fade-in">
                   <button onClick={() => setWorkoutPlan(null)} className="mb-4 text-pink-500 font-semibold">&larr; Back to Preferences</button>
+                  
+                  {/* Voice Button with Pause/Resume */}
+                  <WorkoutPlanVoiceButton workoutPlan={workoutPlan} />
+                  
                   <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-md">
                     <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200 mb-4">{workoutPlan.plan_name}</h2>
                     <div className="space-y-4">
@@ -3824,7 +4053,6 @@ ${habits.map(habit => {
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </body>
 </html>
-
 
 
 
