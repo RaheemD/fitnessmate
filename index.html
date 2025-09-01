@@ -923,6 +923,14 @@
         setError(null);
         try {
           const base64ImageData = await fileToBase64(file);
+          
+          // Convert to full data URL for persistent storage
+          const reader = new FileReader();
+          const imageDataUrl = await new Promise((resolve) => {
+            reader.onload = (e) => resolve(e.target.result);
+            reader.readAsDataURL(file);
+          });
+          
           const prompt = `Analyze the food in this image.
 1. Identify the main dish.
 2. Break it down into primary ingredients and estimate calories for each.
@@ -967,7 +975,9 @@ Respond ONLY with a valid JSON object in this format:
           const textResponse = result.candidates[0].content.parts[0].text || '';
           const jsonString = textResponse.replace(/```json|```/g, '').trim();
           const data = JSON.parse(jsonString);
-          data.image = previewUrl;
+          
+          // Use the persistent data URL instead of the temporary blob URL
+          data.image = imageDataUrl;
           setScanResult(data);
         } catch (err) {
           console.error("Gemini API call failed:", err);
