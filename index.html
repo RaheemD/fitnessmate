@@ -2815,7 +2815,7 @@ Format:
     };
 
     // AI Coach Screen Component
-    const Coach = ({ dailyIntake, recentMeals, goals, messages, setMessages }) => {
+    const Coach = ({ dailyIntake, recentMeals, goals, messages, setMessages, isDarkMode }) => {
       const [input, setInput] = useState('');
       const [isLoading, setIsLoading] = useState(false);
       const chatEndRef = useRef(null);
