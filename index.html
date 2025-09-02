@@ -14,6 +14,14 @@
   </script>
 </head>
 <body class="bg-gray-50 dark:bg-gray-900">
+  <!-- Hidden Netlify Form for Support -->
+  <form name="support-form" netlify hidden>
+    <input type="text" name="full-name" />
+    <input type="email" name="email" />
+    <input type="text" name="subject" />
+    <textarea name="message"></textarea>
+  </form>
+  
   <div id="root"></div>
 
   <!-- React + ReactDOM + Babel (for JSX in-browser) -->
@@ -594,6 +602,15 @@
         return saved ? JSON.parse(saved) : true;
       });
       const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+      const [showSupportModal, setShowSupportModal] = useState(false);
+      const [supportForm, setSupportForm] = useState({
+        fullName: '',
+        email: '',
+        subject: '',
+        message: ''
+      });
+      const [isSubmittingSupport, setIsSubmittingSupport] = useState(false);
+      const [supportSubmissionStatus, setSupportSubmissionStatus] = useState(null);
       const fileInputRef = useRef(null);
 
       // Save profile picture to localStorage whenever it changes
@@ -640,6 +657,81 @@
 
       const closePrivacyModal = () => {
         setShowPrivacyModal(false);
+      };
+
+      const openSupportModal = () => {
+        setShowSupportModal(true);
+        setSupportSubmissionStatus(null);
+      };
+
+      const closeSupportModal = () => {
+        setShowSupportModal(false);
+        setSupportForm({ fullName: '', email: '', subject: '', message: '' });
+        setSupportSubmissionStatus(null);
+      };
+
+      const handleSupportFormChange = (field, value) => {
+        setSupportForm(prev => ({ ...prev, [field]: value }));
+      };
+
+      const validateEmail = (email) => {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        return emailRegex.test(email);
+      };
+
+      const handleSupportSubmit = async (e) => {
+        e.preventDefault();
+        
+        // Validation
+        if (!supportForm.fullName.trim()) {
+          alert('Please enter your full name.');
+          return;
+        }
+        
+        if (!supportForm.email.trim() || !validateEmail(supportForm.email)) {
+          alert('Please enter a valid email address.');
+          return;
+        }
+        
+        if (!supportForm.subject.trim()) {
+          alert('Please enter a subject.');
+          return;
+        }
+        
+        if (!supportForm.message.trim()) {
+          alert('Please enter your message.');
+          return;
+        }
+
+        setIsSubmittingSupport(true);
+        
+        try {
+          // Create form data for Netlify
+          const formData = new FormData();
+          formData.append('form-name', 'support-form');
+          formData.append('full-name', supportForm.fullName);
+          formData.append('email', supportForm.email);
+          formData.append('subject', supportForm.subject);
+          formData.append('message', supportForm.message);
+          
+          const response = await fetch('/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams(formData).toString()
+          });
+          
+          if (response.ok) {
+            setSupportSubmissionStatus('success');
+            setSupportForm({ fullName: '', email: '', subject: '', message: '' });
+          } else {
+            throw new Error('Form submission failed');
+          }
+        } catch (error) {
+          console.error('Support form submission error:', error);
+          setSupportSubmissionStatus('error');
+        } finally {
+          setIsSubmittingSupport(false);
+        }
       };
 
       const generateAIAvatar = async () => {
@@ -799,6 +891,14 @@
                 Privacy
               </button>
               
+              {/* New Support Button */}
+              <button 
+                onClick={openSupportModal}
+                className="w-full text-left p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 transition-colors"
+              >
+                Support
+              </button>
+              
               {/* Existing Dark Mode toggle */}
               <div className="flex justify-between items-center p-3">
                 <span className="text-gray-700 dark:text-gray-300">Dark Mode</span>
@@ -889,6 +989,131 @@
                   >
                     Got it!
                   </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Support Modal */}
+          {showSupportModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full max-h-[80vh] overflow-y-auto">
+                {/* Modal Header */}
+                <div className="flex justify-between items-center p-6 border-b border-gray-200 dark:border-gray-700">
+                  <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200 flex items-center">
+                    🎧 Support
+                  </h2>
+                  <button 
+                    onClick={closeSupportModal}
+                    className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 text-2xl font-bold transition-colors"
+                  >
+                    ×
+                  </button>
+                </div>
+                
+                {/* Modal Content */}
+                <div className="p-6">
+                  {supportSubmissionStatus === 'success' ? (
+                    <div className="text-center space-y-4">
+                      <div className="text-6xl">✅</div>
+                      <h3 className="text-xl font-bold text-green-600 dark:text-green-400">Message Sent!</h3>
+                      <p className="text-gray-600 dark:text-gray-400">
+                        Thank you for contacting us. We'll get back to you within 24 hours.
+                      </p>
+                      <button 
+                        onClick={closeSupportModal}
+                        className="w-full bg-gradient-to-r from-green-500 to-green-600 text-white py-3 px-4 rounded-xl font-semibold hover:from-green-600 hover:to-green-700 transition-all duration-200 shadow-lg"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  ) : (
+                    <form onSubmit={handleSupportSubmit} className="space-y-4">
+                      {/* Hidden Netlify form field */}
+                      <input type="hidden" name="form-name" value="support-form" />
+                      
+                      {/* Full Name */}
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                          Full Name *
+                        </label>
+                        <input
+                          type="text"
+                          name="full-name"
+                          value={supportForm.fullName}
+                          onChange={(e) => handleSupportFormChange('fullName', e.target.value)}
+                          className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 transition-all"
+                          placeholder="Enter your full name"
+                          required
+                        />
+                      </div>
+                      
+                      {/* Email */}
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                          Email Address *
+                        </label>
+                        <input
+                          type="email"
+                          name="email"
+                          value={supportForm.email}
+                          onChange={(e) => handleSupportFormChange('email', e.target.value)}
+                          className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 transition-all"
+                          placeholder="Enter your email address"
+                          required
+                        />
+                      </div>
+                      
+                      {/* Subject */}
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                          Subject *
+                        </label>
+                        <input
+                          type="text"
+                          name="subject"
+                          value={supportForm.subject}
+                          onChange={(e) => handleSupportFormChange('subject', e.target.value)}
+                          className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 transition-all"
+                          placeholder="Brief description of your issue"
+                          required
+                        />
+                      </div>
+                      
+                      {/* Message */}
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                          Message *
+                        </label>
+                        <textarea
+                          name="message"
+                          value={supportForm.message}
+                          onChange={(e) => handleSupportFormChange('message', e.target.value)}
+                          rows={4}
+                          className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 transition-all resize-none"
+                          placeholder="Please describe your issue or question in detail..."
+                          required
+                        ></textarea>
+                      </div>
+                      
+                      {supportSubmissionStatus === 'error' && (
+                        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+                          <p className="text-red-800 dark:text-red-200 text-sm font-medium">
+                            ❌ Failed to send message. Please try again or contact us directly.
+                          </p>
+                        </div>
+                      )}
+                      
+                      {/* Submit Button */}
+                      <button 
+                        type="submit"
+                        disabled={isSubmittingSupport}
+                        className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white py-3 px-4 rounded-xl font-semibold hover:from-purple-600 hover:to-pink-600 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed transition-all duration-200 shadow-lg"
+                      >
+                        {isSubmittingSupport ? '📤 Sending...' : '📤 Send Message'}
+                      </button>
+                    </form>
+                  )}
                 </div>
               </div>
             </div>
