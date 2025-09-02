@@ -196,32 +196,6 @@
     // --- Helper Components ---
 
 
-    // --- Error Boundary Component ---
-    class ErrorBoundary extends React.Component {
-      constructor(props) {
-        super(props);
-        this.state = { hasError: false };
-      }
-
-      static getDerivedStateFromError(error) {
-        return { hasError: true };
-      }
-
-      componentDidCatch(error, errorInfo) {
-        console.error('Error caught by boundary:', error, errorInfo);
-      }
-
-      render() {
-        if (this.state.hasError) {
-          return React.createElement('div', {
-            className: 'p-6 text-center'
-          }, 'Something went wrong. Please refresh the page.');
-        }
-
-        return this.props.children;
-      }
-    }
-
     // --- Main App Component ---
     function App() {
       const [screen, setScreen] = useState('dashboard'); // 'dashboard', 'scan', 'profile', 'planner', 'workout', 'coach', 'progress'
@@ -281,14 +255,11 @@
         localStorage.setItem('fitmate-dark-mode', isDarkMode.toString());
       }, [isDarkMode]);
 
-      // Function to request notification permission when user interacts
-      const requestNotificationPermission = () => {
+      useEffect(() => {
         if ('Notification' in window && Notification.permission === 'default') {
-          Notification.requestPermission().then(permission => {
-            console.log('Notification permission:', permission);
-          });
+          Notification.requestPermission();
         }
-      };
+      }, []);
 
       const toggleDarkMode = () => {
         setIsDarkMode(prev => !prev);
@@ -652,29 +623,17 @@
         localStorage.setItem('notificationsEnabled', JSON.stringify(notificationsEnabled));
       }, [notificationsEnabled]);
 
-      const toggleNotifications = async () => {
-        if (!notificationsEnabled) {
-          // Request permission when enabling notifications
-          if ('Notification' in window) {
-            try {
-              const permission = await Notification.requestPermission();
-              if (permission === 'granted') {
-                setNotificationsEnabled(true);
-                alert('✅ Notifications enabled! You\'ll receive fitness reminders and updates.');
-              } else {
-                alert('❌ Notification permission denied. Please enable in browser settings.');
-              }
-            } catch (error) {
-              console.error('Notification permission error:', error);
-              alert('❌ Could not enable notifications. Please check browser settings.');
-            }
+      const toggleNotifications = () => {
+        setNotificationsEnabled(prev => {
+          const newValue = !prev;
+          // Show user feedback
+          if (newValue) {
+            alert('✅ Notifications enabled! You\'ll receive fitness reminders and updates.');
           } else {
-            alert('❌ Notifications not supported in this browser.');
+            alert('🔕 Notifications disabled. You won\'t receive any alerts.');
           }
-        } else {
-          setNotificationsEnabled(false);
-          alert('🔕 Notifications disabled. You won\'t receive any alerts.');
-        }
+          return newValue;
+        });
       };
 
       const handleGoalChange = (key, value) => {
@@ -747,24 +706,25 @@
         setIsSubmittingSupport(true);
         
         try {
-          // Create proper form data for Netlify
+          // Create URLSearchParams directly for Netlify form submission
+          const formData = new URLSearchParams();
+          formData.append('form-name', 'support-form');
+          formData.append('full-name', supportForm.fullName);
+          formData.append('email', supportForm.email);
+          formData.append('subject', supportForm.subject);
+          formData.append('message', supportForm.message);
+          
           const response = await fetch('/', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({
-              'form-name': 'support-form',
-              'full-name': supportForm.fullName,
-              'email': supportForm.email,
-              'subject': supportForm.subject,
-              'message': supportForm.message
-            }).toString()
+            body: formData.toString()
           });
           
           if (response.ok) {
             setSupportSubmissionStatus('success');
             setSupportForm({ fullName: '', email: '', subject: '', message: '' });
           } else {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            throw new Error('Form submission failed');
           }
         } catch (error) {
           console.error('Support form submission error:', error);
@@ -4252,11 +4212,7 @@ ${habits.map(habit => {
           setIsActive(false);
           onLogActivity({ minutes: duration });
           if ('Notification' in window && Notification.permission === "granted") {
-            try {
-              new Notification("Activity Complete!", { body: `Great job! You've logged ${duration} minutes.` });
-            } catch (error) {
-              console.error('Notification error:', error);
-            }
+            new Notification("Activity Complete!", { body: `Great job! You've logged ${duration} minutes.` });
           }
         }
         return () => clearTimeout(timerRef.current);
@@ -4294,12 +4250,12 @@ ${habits.map(habit => {
     const WaterTracker = ({ onLogWater, dailyIntake, goals }) => {
       useEffect(() => {
         const interval = setInterval(() => {
-          if ('Notification' in window && Notification.permission === "granted" && notificationsEnabled) {
+          if ('Notification' in window && Notification.permission === "granted") {
             new Notification("Stay Hydrated!", { body: "Time for a glass of water to keep you going." });
           }
         }, 2 * 60 * 60 * 1000); // Remind every 2 hours
         return () => clearInterval(interval);
-      }, [notificationsEnabled]);
+      }, []);
 
       return (
         <div>
@@ -4534,11 +4490,7 @@ ${habits.map(habit => {
 
     // --- Mount App ---
     const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(
-      <ErrorBoundary>
-        <App />
-      </ErrorBoundary>
-    );
+    root.render(<App />);
   </script>
   <!-- PDF Generation Library -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
