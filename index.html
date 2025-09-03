@@ -112,6 +112,45 @@
         return () => unsubscribe();
       }, []);
 
+      const createInitialUserDocument = async (user) => {
+        if (!db) return;
+        
+        try {
+          await db.collection('users').doc(user.uid).set({
+            // Basic user info
+            displayName: user.displayName || 'User',
+            email: user.email,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            
+            // Profile data
+            goals: JSON.parse(localStorage.getItem('goals') || '{}'),
+            profilePicture: localStorage.getItem('profilePicture') || '',
+            notificationsEnabled: JSON.parse(localStorage.getItem('notificationsEnabled') || 'true'),
+            darkMode: JSON.parse(localStorage.getItem('fitmate-dark-mode') || 'false'),
+            
+            // Fitness data
+            dailyIntake: JSON.parse(localStorage.getItem('dailyIntake') || '{"calories":0,"protein":0,"carbs":0,"fat":0,"activity":0,"water":0}'),
+            recentMeals: JSON.parse(localStorage.getItem('recentMeals') || '[]'),
+            dailyHistory: JSON.parse(localStorage.getItem('dailyHistory') || '{}'),
+            
+            // AI and coaching data
+            coachMessages: JSON.parse(localStorage.getItem('coachMessages') || '[{"text":"Hello! I\'m your AI Health Coach. Ask me anything about your nutrition or meals.","sender":"ai"}]'),
+            habitAIAdvice: localStorage.getItem('habitAIAdvice') || '',
+            habits: JSON.parse(localStorage.getItem('habits') || '[]'),
+            
+            // AI-generated content
+            mealPlan: JSON.parse(localStorage.getItem('mealPlan') || 'null'),
+            workoutPlan: JSON.parse(localStorage.getItem('workoutPlan') || 'null'),
+            scanResult: JSON.parse(localStorage.getItem('scanResult') || 'null'),
+            formAnalysis: JSON.parse(localStorage.getItem('formAnalysis') || 'null')
+          });
+          console.log('✅ Comprehensive user document created in Firestore');
+        } catch (error) {
+          console.error('Error creating initial user document:', error);
+        }
+      };
+
       const syncUserData = async (user) => {
         if (!db) {
           console.log('Firestore not available - data will be stored locally only');
@@ -122,23 +161,34 @@
           const userDoc = await db.collection('users').doc(user.uid).get();
           if (userDoc.exists) {
             const userData = userDoc.data();
-            // Sync data to localStorage
+            
+            // Sync all user data to localStorage
             if (userData.goals) localStorage.setItem('goals', JSON.stringify(userData.goals));
             if (userData.profilePicture) localStorage.setItem('profilePicture', userData.profilePicture);
             if (userData.notificationsEnabled !== undefined) {
               localStorage.setItem('notificationsEnabled', JSON.stringify(userData.notificationsEnabled));
             }
+            
+            // Sync additional user data
+            if (userData.dailyIntake) localStorage.setItem('dailyIntake', JSON.stringify(userData.dailyIntake));
+            if (userData.recentMeals) localStorage.setItem('recentMeals', JSON.stringify(userData.recentMeals));
+            if (userData.dailyHistory) localStorage.setItem('dailyHistory', JSON.stringify(userData.dailyHistory));
+            if (userData.coachMessages) localStorage.setItem('coachMessages', JSON.stringify(userData.coachMessages));
+            if (userData.habitAIAdvice) localStorage.setItem('habitAIAdvice', userData.habitAIAdvice);
+            if (userData.habits) localStorage.setItem('habits', JSON.stringify(userData.habits));
+            if (userData.darkMode !== undefined) localStorage.setItem('fitmate-dark-mode', userData.darkMode.toString());
+            
+            // Sync AI-generated content
+            if (userData.mealPlan) localStorage.setItem('mealPlan', JSON.stringify(userData.mealPlan));
+            if (userData.workoutPlan) localStorage.setItem('workoutPlan', JSON.stringify(userData.workoutPlan));
+            if (userData.scanResult) localStorage.setItem('scanResult', JSON.stringify(userData.scanResult));
+            if (userData.formAnalysis) localStorage.setItem('formAnalysis', JSON.stringify(userData.formAnalysis));
+            
+            console.log('✅ All user data synced from Firestore');
           } else {
             console.log('No user document found, creating new one');
-            // Create initial user document
-            await db.collection('users').doc(user.uid).set({
-              displayName: user.displayName || 'User',
-              email: user.email,
-              createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-              goals: JSON.parse(localStorage.getItem('goals') || '{}'),
-              profilePicture: localStorage.getItem('profilePicture') || '',
-              notificationsEnabled: JSON.parse(localStorage.getItem('notificationsEnabled') || 'true')
-            });
+            // Create comprehensive initial user document
+            await createInitialUserDocument(user);
           }
         } catch (error) {
           if (error.code === 'permission-denied') {
@@ -254,12 +304,11 @@
           console.error('Error updating user data:', error);
           
           if (error.code === 'not-found') {
-            // Document doesn't exist, create it
+            // Document doesn't exist, create it with comprehensive data
             try {
-              await db.collection('users').doc(user.uid).set({
-                displayName: user.displayName || 'User',
-                email: user.email,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+              await createInitialUserDocument(user);
+              // Then update with the new data
+              await db.collection('users').doc(user.uid).update({
                 ...data,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
               });
@@ -267,6 +316,91 @@
             } catch (createError) {
               console.error('Error creating user document:', createError);
             }
+          }
+        }
+      };
+
+      const syncAllDataToFirestore = async () => {
+        if (!user || !db) return;
+        
+        try {
+          const allLocalData = {
+            goals: JSON.parse(localStorage.getItem('goals') || '{}'),
+            profilePicture: localStorage.getItem('profilePicture') || '',
+            notificationsEnabled: JSON.parse(localStorage.getItem('notificationsEnabled') || 'true'),
+            dailyIntake: JSON.parse(localStorage.getItem('dailyIntake') || '{}'),
+            recentMeals: JSON.parse(localStorage.getItem('recentMeals') || '[]'),
+            dailyHistory: JSON.parse(localStorage.getItem('dailyHistory') || '{}'),
+            coachMessages: JSON.parse(localStorage.getItem('coachMessages') || '[]'),
+            habitAIAdvice: localStorage.getItem('habitAIAdvice') || '',
+            habits: JSON.parse(localStorage.getItem('habits') || '[]'),
+            darkMode: JSON.parse(localStorage.getItem('fitmate-dark-mode') || 'false'),
+            mealPlan: JSON.parse(localStorage.getItem('mealPlan') || 'null'),
+            workoutPlan: JSON.parse(localStorage.getItem('workoutPlan') || 'null'),
+            scanResult: JSON.parse(localStorage.getItem('scanResult') || 'null'),
+            formAnalysis: JSON.parse(localStorage.getItem('formAnalysis') || 'null'),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+          };
+          
+          await db.collection('users').doc(user.uid).set(allLocalData, { merge: true });
+          console.log('✅ All local data synced to Firestore');
+        } catch (error) {
+          console.error('Error syncing all data to Firestore:', error);
+        }
+      };
+
+      // Sync daily intake data
+      const syncDailyIntake = async (dailyIntake) => {
+        if (user && db) {
+          try {
+            await updateUserData({ 
+              dailyIntake,
+              lastIntakeUpdate: firebase.firestore.FieldValue.serverTimestamp()
+            });
+          } catch (error) {
+            console.error('Error syncing daily intake:', error);
+          }
+        }
+      };
+
+      // Sync meals data
+      const syncMealsData = async (recentMeals) => {
+        if (user && db) {
+          try {
+            await updateUserData({ 
+              recentMeals,
+              lastMealsUpdate: firebase.firestore.FieldValue.serverTimestamp()
+            });
+          } catch (error) {
+            console.error('Error syncing meals data:', error);
+          }
+        }
+      };
+
+      // Sync daily history
+      const syncDailyHistory = async (dailyHistory) => {
+        if (user && db) {
+          try {
+            await updateUserData({ 
+              dailyHistory,
+              lastHistoryUpdate: firebase.firestore.FieldValue.serverTimestamp()
+            });
+          } catch (error) {
+            console.error('Error syncing daily history:', error);
+          }
+        }
+      };
+
+      // Sync AI-generated content
+      const syncAIContent = async (contentType, content) => {
+        if (user && db) {
+          try {
+            await updateUserData({ 
+              [contentType]: content,
+              [`last${contentType}Update`]: firebase.firestore.FieldValue.serverTimestamp()
+            });
+          } catch (error) {
+            console.error(`Error syncing ${contentType}:`, error);
           }
         }
       };
@@ -279,6 +413,11 @@
         signIn,
         signOut,
         updateUserData,
+        syncAllDataToFirestore,
+        syncDailyIntake,
+        syncMealsData,
+        syncDailyHistory,
+        syncAIContent,
         setAuthError
       };
 
@@ -518,7 +657,12 @@
           document.documentElement.classList.remove('dark');
         }
         localStorage.setItem('fitmate-dark-mode', isDarkMode.toString());
-      }, [isDarkMode]);
+        
+        // Sync dark mode preference to Firebase
+        if (user) {
+          updateUserData({ darkMode: isDarkMode });
+        }
+      }, [isDarkMode, user]);
 
       useEffect(() => {
         if ('Notification' in window && Notification.permission === 'default') {
@@ -583,38 +727,67 @@
         localStorage.setItem('lastSavedDate', today);
       }, []);
 
-      // --- useEffect Hooks for Data Persistence ---
-      useEffect(() => { localStorage.setItem('goals', JSON.stringify(goals)); }, [goals]);
-      useEffect(() => { localStorage.setItem('dailyIntake', JSON.stringify(dailyIntake)); }, [dailyIntake]);
-      useEffect(() => { localStorage.setItem('recentMeals', JSON.stringify(recentMeals)); }, [recentMeals]);
-      useEffect(() => { localStorage.setItem('dailyHistory', JSON.stringify(dailyHistory)); }, [dailyHistory]);
-      useEffect(() => { localStorage.setItem('coachMessages', JSON.stringify(coachMessages)); }, [coachMessages]);
-      useEffect(() => { localStorage.setItem('habitAIAdvice', habitAIAdvice); }, [habitAIAdvice]);
+      // --- Enhanced Data Persistence with Firebase Sync ---
+      const { user, updateUserData, syncDailyIntake, syncMealsData, syncDailyHistory, syncAIContent } = useAuth();
       
-      // --- AI State Persistence ---
+      useEffect(() => { 
+        localStorage.setItem('goals', JSON.stringify(goals));
+        if (user) updateUserData({ goals });
+      }, [goals, user, updateUserData]);
+      
+      useEffect(() => { 
+        localStorage.setItem('dailyIntake', JSON.stringify(dailyIntake));
+        if (user) syncDailyIntake(dailyIntake);
+      }, [dailyIntake, user, syncDailyIntake]);
+      
+      useEffect(() => { 
+        localStorage.setItem('recentMeals', JSON.stringify(recentMeals));
+        if (user) syncMealsData(recentMeals);
+      }, [recentMeals, user, syncMealsData]);
+      
+      useEffect(() => { 
+        localStorage.setItem('dailyHistory', JSON.stringify(dailyHistory));
+        if (user) syncDailyHistory(dailyHistory);
+      }, [dailyHistory, user, syncDailyHistory]);
+      
+      useEffect(() => { 
+        localStorage.setItem('coachMessages', JSON.stringify(coachMessages));
+        if (user) updateUserData({ coachMessages });
+      }, [coachMessages, user, updateUserData]);
+      
+      useEffect(() => { 
+        localStorage.setItem('habitAIAdvice', habitAIAdvice);
+        if (user) updateUserData({ habitAIAdvice });
+      }, [habitAIAdvice, user, updateUserData]);
+      
+      // --- AI State Persistence with Firebase Sync ---
       useEffect(() => {
         if (scanResult) {
           localStorage.setItem('scanResult', JSON.stringify(scanResult));
+          if (user) syncAIContent('scanResult', scanResult);
         }
-      }, [scanResult]);
+      }, [scanResult, user, syncAIContent]);
       
       useEffect(() => {
         if (mealPlan) {
           localStorage.setItem('mealPlan', JSON.stringify(mealPlan));
+          if (user) syncAIContent('mealPlan', mealPlan);
         }
-      }, [mealPlan]);
+      }, [mealPlan, user, syncAIContent]);
       
       useEffect(() => {
         if (workoutPlan) {
           localStorage.setItem('workoutPlan', JSON.stringify(workoutPlan));
+          if (user) syncAIContent('workoutPlan', workoutPlan);
         }
-      }, [workoutPlan]);
+      }, [workoutPlan, user, syncAIContent]);
       
       useEffect(() => {
         if (formAnalysis) {
           localStorage.setItem('formAnalysis', JSON.stringify(formAnalysis));
+          if (user) syncAIContent('formAnalysis', formAnalysis);
         }
-      }, [formAnalysis]);
+      }, [formAnalysis, user, syncAIContent]);
 
       // Function to add a new meal to the log
       const handleLogMeal = (mealData) => {
