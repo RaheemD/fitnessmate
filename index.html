@@ -3685,18 +3685,15 @@ Respond ONLY with a valid JSON object in this format:
         setError(null);
         setWorkoutPlan(null);
         try {
-          const prompt = `Create a workout plan based on these user preferences:
-- Fitness Goal: ${preferences.goal || 'General Fitness'}
-- Workout Type: ${preferences.type || 'Full Body'}
-- Experience Level: ${preferences.level || 'Beginner'}
-- Available Equipment: ${preferences.equipment.join(', ') || 'None (Bodyweight)'}
-Provide a response as a valid JSON object. The plan should have a name and a list of exercises. Each exercise must include a name, sets, reps, and instructions.
-Format:
+          const prompt = `Create a ${preferences.type || 'Full Body'} workout for ${preferences.goal || 'General Fitness'}.
+Level: ${preferences.level || 'Beginner'}
+Equipment: ${preferences.equipment.join(', ') || 'Bodyweight'}
+
+Respond ONLY with a valid JSON object in this exact format:
 {
-  "plan_name": "Personalized Workout Plan Name",
+  "plan_name": "Workout Plan Name",
   "exercises": [
-    {"name": "...", "sets": "...", "reps": "...", "instructions": "..."},
-    {"name": "...", "sets": "...", "reps": "...", "instructions": "..."}
+    {"name": "Exercise Name", "sets": "3", "reps": "10-12", "instructions": "How to perform this exercise"}
   ]
 }`;
 
@@ -3707,7 +3704,8 @@ Format:
             headers: geminiConfig.headers,
             body: JSON.stringify({
               contents: [{ parts: [{ text: prompt }] }]
-            })
+            }),
+            signal: AbortSignal.timeout(25000) // 25 second timeout
           });
 
           if (!response.ok) {
@@ -3716,8 +3714,25 @@ Format:
 
           const result = await response.json();
           const textResponse = result.candidates[0].content.parts[0].text || '';
-          const jsonString = textResponse.replace(/```json|```/g, '').trim();
+          
+          // Better JSON extraction and validation
+          let jsonString = textResponse.replace(/```json|```/g, '').trim();
+          
+          // Remove any text before the first { and after the last }
+          const firstBrace = jsonString.indexOf('{');
+          const lastBrace = jsonString.lastIndexOf('}');
+          
+          if (firstBrace !== -1 && lastBrace !== -1) {
+            jsonString = jsonString.substring(firstBrace, lastBrace + 1);
+          }
+          
           const data = JSON.parse(jsonString);
+          
+          // Validate the structure
+          if (!data.plan_name || !data.exercises || !Array.isArray(data.exercises)) {
+            throw new Error('Invalid workout plan structure');
+          }
+          
           setWorkoutPlan(data);
         } catch (err) {
           console.error("Workout plan generation failed:", err);
