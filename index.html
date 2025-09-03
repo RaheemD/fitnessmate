@@ -2748,12 +2748,24 @@ Respond ONLY with a valid JSON object:
         setMealPlan(null);
         try {
           const prompt = `Create a ${preferences.diet || 'Standard'} ${preferences.cuisine || 'Any'} meal plan for ${preferences.calories} calories.
-JSON format: {"breakfast":{"name":"","ingredients":[""],"instructions":[""],"calories":400},"lunch":{"name":"","ingredients":[""],"instructions":[""],"calories":500},"dinner":{"name":"","ingredients":[""],"instructions":[""],"calories":600}}`;
+Allergies: ${preferences.allergies.join(', ') || 'None'}
 
-          const response = await fetch(NETLIFY_API_URL, {
+Respond ONLY with a valid JSON object in this exact format:
+{
+  "breakfast": {"name": "Meal Name", "ingredients": ["ingredient1", "ingredient2"], "instructions": ["step1", "step2"]},
+  "lunch": {"name": "Meal Name", "ingredients": ["ingredient1", "ingredient2"], "instructions": ["step1", "step2"]},
+  "dinner": {"name": "Meal Name", "ingredients": ["ingredient1", "ingredient2"], "instructions": ["step1", "step2"]}
+}`;
+
+          // Use direct Gemini API with obfuscation (same as Menu Decoder)
+          const geminiConfig = getDirectGeminiConfig();
+          const response = await fetch(geminiConfig.url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: prompt })
+            headers: geminiConfig.headers,
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }]
+            }),
+            signal: AbortSignal.timeout(25000) // 25 second timeout
           });
 
           if (!response.ok) {
@@ -2762,8 +2774,25 @@ JSON format: {"breakfast":{"name":"","ingredients":[""],"instructions":[""],"cal
 
           const result = await response.json();
           const textResponse = result.candidates[0].content.parts[0].text || '';
-          const jsonString = textResponse.replace(/```json|```/g, '').trim();
+          
+          // Better JSON extraction and validation
+          let jsonString = textResponse.replace(/```json|```/g, '').trim();
+          
+          // Remove any text before the first { and after the last }
+          const firstBrace = jsonString.indexOf('{');
+          const lastBrace = jsonString.lastIndexOf('}');
+          
+          if (firstBrace !== -1 && lastBrace !== -1) {
+            jsonString = jsonString.substring(firstBrace, lastBrace + 1);
+          }
+          
           const data = JSON.parse(jsonString);
+          
+          // Validate the structure
+          if (!data.breakfast || !data.lunch || !data.dinner) {
+            throw new Error('Invalid meal plan structure');
+          }
+          
           setMealPlan(data);
         } catch (err) {
           console.error("Meal plan generation failed:", err);
@@ -3671,10 +3700,14 @@ Format:
   ]
 }`;
 
-          const response = await fetch(NETLIFY_API_URL, {
+          // Use direct Gemini API with obfuscation
+          const geminiConfig = getDirectGeminiConfig();
+          const response = await fetch(geminiConfig.url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt })
+            headers: geminiConfig.headers,
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }]
+            })
           });
 
           if (!response.ok) {
