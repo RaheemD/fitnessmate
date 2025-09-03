@@ -2214,7 +2214,8 @@ Respond ONLY with a valid JSON object in this format:
           const response = await fetch(NETLIFY_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: prompt })
+            body: JSON.stringify({ prompt: prompt }),
+            signal: AbortSignal.timeout(25000) // 25 second timeout
           });
 
           if (!response.ok) {
@@ -2746,18 +2747,8 @@ Respond ONLY with a valid JSON object:
         setError(null);
         setMealPlan(null);
         try {
-          const prompt = `Create a one-day meal plan based on these preferences:
-- Cuisine: ${preferences.cuisine || 'Any'}
-- Diet: ${preferences.diet || 'Standard'}
-- Calorie Target: ${preferences.calories} kcal
-- Allergies: ${preferences.allergies.join(', ') || 'None'}
-Provide a response as a valid JSON object with breakfast, lunch, and dinner. Each meal should have a name, ingredients list, and instructions. The total calories for the day should be approximately ${preferences.calories}.
-Format:
-{
-  "breakfast": {"name": "...", "ingredients": ["..."], "instructions": ["..."]},
-  "lunch": {"name": "...", "ingredients": ["..."], "instructions": ["..."]},
-  "dinner": {"name": "...", "ingredients": ["..."], "instructions": ["..."]}
-}`;
+          const prompt = `Create a ${preferences.diet || 'Standard'} ${preferences.cuisine || 'Any'} meal plan for ${preferences.calories} calories.
+JSON format: {"breakfast":{"name":"","ingredients":[""],"instructions":[""],"calories":400},"lunch":{"name":"","ingredients":[""],"instructions":[""],"calories":500},"dinner":{"name":"","ingredients":[""],"instructions":[""],"calories":600}}`;
 
           const response = await fetch(NETLIFY_API_URL, {
             method: 'POST',
