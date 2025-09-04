@@ -744,25 +744,60 @@
 
       // --- Enhanced Data Persistence with Firebase Sync ---
       const { user, updateUserData, syncDailyIntake, syncMealsData, syncDailyHistory, syncAIContent } = useAuth();
+      const isRemoteSyncRef = useRef(false);
+
+      // Realtime listener to reflect remote changes into UI/localStorage
+      useEffect(() => {
+        if (!user || !db) return;
+        const userRef = db.ref(`users/${user.uid}`);
+        const handle = (snapshot) => {
+          const userData = snapshot.val();
+          if (!userData) return;
+
+          // Update localStorage from remote
+          if (userData.goals) localStorage.setItem('goals', JSON.stringify(userData.goals));
+          if (userData.profilePicture) localStorage.setItem('profilePicture', userData.profilePicture);
+          if (userData.notificationsEnabled !== undefined) localStorage.setItem('notificationsEnabled', JSON.stringify(userData.notificationsEnabled));
+          if (userData.darkMode !== undefined) localStorage.setItem('fitmate-dark-mode', userData.darkMode.toString());
+          if (userData.dailyIntake) localStorage.setItem('dailyIntake', JSON.stringify(userData.dailyIntake));
+          if (userData.recentMeals) localStorage.setItem('recentMeals', JSON.stringify(userData.recentMeals));
+          if (userData.dailyHistory) localStorage.setItem('dailyHistory', JSON.stringify(userData.dailyHistory));
+          if (userData.coachMessages) localStorage.setItem('coachMessages', JSON.stringify(userData.coachMessages));
+          if (userData.habitAIAdvice) localStorage.setItem('habitAIAdvice', userData.habitAIAdvice);
+          if (userData.habits) localStorage.setItem('habits', JSON.stringify(userData.habits));
+          if (userData.mealPlan) localStorage.setItem('mealPlan', JSON.stringify(userData.mealPlan));
+          if (userData.workoutPlan) localStorage.setItem('workoutPlan', JSON.stringify(userData.workoutPlan));
+          if (userData.scanResult) localStorage.setItem('scanResult', JSON.stringify(userData.scanResult));
+          if (userData.formAnalysis) localStorage.setItem('formAnalysis', JSON.stringify(userData.formAnalysis));
+
+          // Prevent feedback loop: mark update as remote, then refresh UI
+          isRemoteSyncRef.current = true;
+          window.dispatchEvent(new CustomEvent('userDataSynced'));
+          setTimeout(() => { isRemoteSyncRef.current = false; }, 300);
+        };
+
+        userRef.on('value', handle);
+        return () => userRef.off('value', handle);
+      }, [user]);
       
       useEffect(() => { 
         localStorage.setItem('goals', JSON.stringify(goals));
-        if (user) updateUserData({ goals });
+        if (user && !isRemoteSyncRef.current) updateUserData({ goals });
       }, [goals, user, updateUserData]);
       
       useEffect(() => { 
         localStorage.setItem('dailyIntake', JSON.stringify(dailyIntake));
-        if (user) syncDailyIntake(dailyIntake);
+        if (user && !isRemoteSyncRef.current) syncDailyIntake(dailyIntake);
       }, [dailyIntake, user, syncDailyIntake]);
       
       useEffect(() => { 
         localStorage.setItem('recentMeals', JSON.stringify(recentMeals));
-        if (user) syncMealsData(recentMeals);
+        if (user && !isRemoteSyncRef.current) syncMealsData(recentMeals);
       }, [recentMeals, user, syncMealsData]);
       
       useEffect(() => { 
         localStorage.setItem('dailyHistory', JSON.stringify(dailyHistory));
-        if (user) syncDailyHistory(dailyHistory);
+        if (user && !isRemoteSyncRef.current) syncDailyHistory(dailyHistory);
       }, [dailyHistory, user, syncDailyHistory]);
       
       useEffect(() => { 
@@ -1108,6 +1143,13 @@
       useEffect(() => {
         localStorage.setItem('profilePicture', profilePicture);
       }, [profilePicture]);
+
+      // Sync profile picture to Firebase when user is authenticated
+      useEffect(() => {
+        if (user && profilePicture) {
+          updateUserData({ profilePicture });
+        }
+      }, [profilePicture, user]);
 
       // Save notifications setting to localStorage
       useEffect(() => {
