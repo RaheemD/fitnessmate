@@ -4626,7 +4626,18 @@ Respond ONLY with a valid JSON object in this exact format:
           const carbProgress = ((dailyIntake.carbs / goals.carbs) * 100).toFixed(0);
           const fatProgress = ((dailyIntake.fat / goals.fat) * 100).toFixed(0);
           const activityProgress = ((dailyIntake.activity / goals.activity) * 100).toFixed(0);
-          const waterProgress = ((dailyIntake.water / goals.water) * 100).toFixed(0);
+          // Consolidate hydration: combine dashboard water with completed water habit for today
+          const todayStr = new Date().toISOString().split('T')[0];
+          const waterHabitGlassesCtx = habits ? habits.reduce((max, h) => {
+            const isWater = /\b(drink)?\s*\d+\s*(glass|glasses)\s*of\s*water\b|\bwater\b|\bhydrate\b/i.test(h.name || '');
+            const doneToday = h.completed && h.completed[todayStr];
+            if (!isWater || !doneToday) return max;
+            const m = (h.name || '').match(/(\d+)\s*(glass|glasses)/i);
+            const g = m ? parseInt(m[1], 10) : 0;
+            return Math.max(max, g);
+          }, 0) : 0;
+          const effectiveWaterCtx = Math.max(dailyIntake.water || 0, waterHabitGlassesCtx || 0);
+          const waterProgress = ((effectiveWaterCtx / goals.water) * 100).toFixed(0);
           
           // Identify areas needing attention
           const lowAreas = [];
@@ -5277,6 +5288,18 @@ User's question: "${userMessage.text}"`;
                       try {
                         // Get habits data for context
                         const habitsContext = habits.map(h => `${h.name} (${h.streak} day streak)`);
+
+                        // Consolidate hydration: combine dashboard water with completed water habit for today
+                        const _today = new Date().toISOString().split('T')[0];
+                        const waterHabitGlasses = habits.reduce((max, h) => {
+                          const isWater = /\b(drink)?\s*\d+\s*(glass|glasses)\s*of\s*water\b|\bwater\b|\bhydrate\b/i.test(h.name);
+                          const doneToday = h.completed && h.completed[_today];
+                          if (!isWater || !doneToday) return max;
+                          const m = h.name.match(/(\d+)\s*(glass|glasses)/i);
+                          const g = m ? parseInt(m[1], 10) : 0;
+                          return Math.max(max, g);
+                        }, 0);
+                        const effectiveWater = Math.max(dailyIntake.water || 0, waterHabitGlasses || 0);
                         
                         // Create prompt for the AI
                         let prompt = `You are an AI Habit Coach. Analyze user data and provide smart recommendations.
@@ -5292,7 +5315,7 @@ ${habits.map(habit => {
 • Calories: ${dailyIntake.calories}/${goals.calories} (${((dailyIntake.calories / goals.calories) * 100).toFixed(0)}%)
 • Protein: ${dailyIntake.protein}g/${goals.protein}g (${((dailyIntake.protein / goals.protein) * 100).toFixed(0)}%)
 • Activity: ${dailyIntake.activity}/${goals.activity}min (${((dailyIntake.activity / goals.activity) * 100).toFixed(0)}%)
-• Water: ${dailyIntake.water}/${goals.water} glasses (${((dailyIntake.water / goals.water) * 100).toFixed(0)}%)
+• Water: ${Math.min(effectiveWater, goals.water)}/${goals.water} glasses (${Math.min(100, ((effectiveWater / goals.water) * 100)).toFixed(0)}%)
 
 **INSTRUCTIONS:**
 1. If habits are completed today, congratulate and suggest maintaining momentum
