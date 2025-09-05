@@ -4625,18 +4625,7 @@ Respond ONLY with a valid JSON object in this exact format:
           const proteinProgress = ((dailyIntake.protein / goals.protein) * 100).toFixed(0);
           const carbProgress = ((dailyIntake.carbs / goals.carbs) * 100).toFixed(0);
           const fatProgress = ((dailyIntake.fat / goals.fat) * 100).toFixed(0);
-          // Consolidate activity: combine dashboard activity with completed activity habit for today
-          const todayStrAct = new Date().toISOString().split('T')[0];
-          const activityHabitMinutesCtx = habits ? habits.reduce((max, h) => {
-            const isActivity = /(cardio|exercise|workout|run|walk|gym)/i.test(h.name || '');
-            const done = h.completed && h.completed[todayStrAct];
-            if (!isActivity || !done) return max;
-            const m = (h.name || '').match(/(\d+)\s*(min|mins|minutes)/i) || (h.name || '').match(/(\d+)/);
-            const mins = m ? parseInt(m[1], 10) : 30;
-            return Math.max(max, mins);
-          }, 0) : 0;
-          const effectiveActivityCtx = Math.max(dailyIntake.activity || 0, activityHabitMinutesCtx || 0);
-          const activityProgress = ((effectiveActivityCtx / goals.activity) * 100).toFixed(0);
+          const activityProgress = ((dailyIntake.activity / goals.activity) * 100).toFixed(0);
           // Consolidate hydration: combine dashboard water with completed water habit for today
           const todayStr = new Date().toISOString().split('T')[0];
           const waterHabitGlassesCtx = habits ? habits.reduce((max, h) => {
@@ -4669,7 +4658,7 @@ Daily Intake vs Goals:
 - Protein: ${dailyIntake.protein}g/${goals.protein}g (${proteinProgress}%)
 - Carbs: ${dailyIntake.carbs}g/${goals.carbs}g (${carbProgress}%)
 - Fat: ${dailyIntake.fat}g/${goals.fat}g (${fatProgress}%)
-- Activity: ${Math.min(effectiveActivityCtx, goals.activity)}/${goals.activity} mins (${Math.min(100, Number(activityProgress))}%)
+- Activity: ${dailyIntake.activity}/${goals.activity} mins (${activityProgress}%)
 - Water: ${dailyIntake.water}/${goals.water} glasses (${waterProgress}%)
 
 Recent meals: ${mealContext || 'None logged'}
@@ -5312,18 +5301,6 @@ User's question: "${userMessage.text}"`;
                         }, 0);
                         const effectiveWater = Math.max(dailyIntake.water || 0, waterHabitGlasses || 0);
                         
-                        // Consolidate activity: include completed activity habit for today
-                        const _todayAct = new Date().toISOString().split('T')[0];
-                        const activityHabitMins = habits.reduce((max, h) => {
-                          const isAct = /(cardio|exercise|workout|run|walk|gym)/i.test(h.name || '');
-                          const done = h.completed && h.completed[_todayAct];
-                          if (!isAct || !done) return max;
-                          const m = (h.name || '').match(/(\d+)\s*(min|mins|minutes)/i) || (h.name || '').match(/(\d+)/);
-                          const mins = m ? parseInt(m[1], 10) : 30;
-                          return Math.max(max, mins);
-                        }, 0);
-                        const effectiveActivity = Math.max(dailyIntake.activity || 0, activityHabitMins || 0);
-
                         // Create prompt for the AI
                         let prompt = `You are an AI Habit Coach. Analyze user data and provide smart recommendations.
 
@@ -5337,7 +5314,7 @@ ${habits.map(habit => {
 **DAILY PROGRESS:**
 • Calories: ${dailyIntake.calories}/${goals.calories} (${((dailyIntake.calories / goals.calories) * 100).toFixed(0)}%)
 • Protein: ${dailyIntake.protein}g/${goals.protein}g (${((dailyIntake.protein / goals.protein) * 100).toFixed(0)}%)
-• Activity: ${Math.min(effectiveActivity, goals.activity)}/${goals.activity}min (${Math.min(100, ((effectiveActivity / goals.activity) * 100)).toFixed(0)}%)
+• Activity: ${dailyIntake.activity}/${goals.activity}min (${((dailyIntake.activity / goals.activity) * 100).toFixed(0)}%)
 • Water: ${Math.min(effectiveWater, goals.water)}/${goals.water} glasses (${Math.min(100, ((effectiveWater / goals.water) * 100)).toFixed(0)}%)
 
 **INSTRUCTIONS:**
@@ -5786,7 +5763,6 @@ ${habits.map(habit => {
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </body>
 </html>
-
 
 
 
