@@ -4510,6 +4510,7 @@ User's question: "${userMessage.text}"`;
 
     // Progress Screen Component
     const Progress = ({ dailyHistory, goals, dailyIntake, habitAIAdvice, setHabitAIAdvice, isLoadingAdvice, setIsLoadingAdvice }) => {
+      const { updateUserData, user } = useAuth();
       const [currentDate, setCurrentDate] = useState(new Date());
       const [selectedDay, setSelectedDay] = useState(null);
       const [viewMode, setViewMode] = useState('month'); // 'month' or 'year'
@@ -4528,10 +4529,14 @@ User's question: "${userMessage.text}"`;
         return `${year}-${month}-${day}`;
       };
 
-      // Save habits to localStorage whenever they change
+      // Save habits to localStorage and sync with Firebase whenever they change
       useEffect(() => {
         localStorage.setItem('habits', JSON.stringify(habits));
-      }, [habits]);
+        // Sync with Firebase if user is authenticated
+        if (user && updateUserData) {
+          updateUserData({ habits });
+        }
+      }, [habits, user, updateUserData]);
 
       const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
       const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
