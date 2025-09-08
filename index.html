@@ -28,6 +28,12 @@
     <textarea name="message"></textarea>
   </form>
   
+  <!-- Background Music Audio Element -->
+  <audio id="background-music" loop preload="auto">
+    <source src="./Gym.mp3" type="audio/mpeg">
+    Your browser does not support the audio element.
+  </audio>
+  
   <div id="root"></div>
 
   <!-- React + ReactDOM + Babel (for JSX in-browser) -->
@@ -1216,13 +1222,38 @@
         fetchQuote();
       }, []);
 
-      // Calculate Health Score
+      // Calculate Health Score with Enhanced Workout Integration
       const calculateHealthScore = () => {
         if (!dailyIntake) return 0;
+        
+        // Base scores
         const calorieScore = Math.max(0, 100 - Math.abs(dailyIntake.calories - goals.calories) / goals.calories * 100);
         const activityScore = Math.min(100, (dailyIntake.activity / goals.activity) * 100);
         const waterScore = Math.min(100, (dailyIntake.water / goals.water) * 100);
-        return Math.round((calorieScore * 0.5) + (activityScore * 0.3) + (waterScore * 0.2));
+        
+        // Enhanced workout quality score
+        const workoutHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+        const today = new Date().toDateString();
+        const todaysWorkouts = workoutHistory.filter(w => new Date(w.timestamp).toDateString() === today);
+        
+        let workoutQualityScore = 0;
+        if (todaysWorkouts.length > 0) {
+          const avgCompletionRate = todaysWorkouts.reduce((sum, w) => sum + w.completionRate, 0) / todaysWorkouts.length;
+          const totalWorkoutTime = todaysWorkouts.reduce((sum, w) => sum + w.duration, 0);
+          
+          // Bonus for structured workouts vs just activity minutes
+          const structuredWorkoutBonus = todaysWorkouts.length * 10; // 10 points per completed workout
+          const completionBonus = avgCompletionRate > 80 ? 20 : avgCompletionRate > 60 ? 10 : 0;
+          const consistencyBonus = totalWorkoutTime >= 30 ? 15 : totalWorkoutTime >= 15 ? 10 : 5;
+          
+          workoutQualityScore = Math.min(100, structuredWorkoutBonus + completionBonus + consistencyBonus);
+        }
+        
+        // Weighted calculation with workout quality factor
+        const baseScore = (calorieScore * 0.4) + (activityScore * 0.25) + (waterScore * 0.15);
+        const enhancedScore = baseScore + (workoutQualityScore * 0.2);
+        
+        return Math.round(Math.min(100, enhancedScore));
       };
 
       const healthScore = calculateHealthScore();
@@ -1326,6 +1357,10 @@
         const saved = localStorage.getItem('notificationsEnabled');
         return saved ? JSON.parse(saved) : true;
       });
+      const [backgroundMusicEnabled, setBackgroundMusicEnabled] = useState(() => {
+        const saved = localStorage.getItem('backgroundMusicEnabled');
+        return saved ? JSON.parse(saved) : false;
+      });
       const [showPrivacyModal, setShowPrivacyModal] = useState(false);
       const [showSupportModal, setShowSupportModal] = useState(false);
       const [showAccountModal, setShowAccountModal] = useState(false);
@@ -1356,6 +1391,38 @@
         localStorage.setItem('notificationsEnabled', JSON.stringify(notificationsEnabled));
       }, [notificationsEnabled]);
 
+      // Save background music setting to localStorage
+      useEffect(() => {
+        localStorage.setItem('backgroundMusicEnabled', JSON.stringify(backgroundMusicEnabled));
+      }, [backgroundMusicEnabled]);
+
+      // Initialize background music on component mount
+      useEffect(() => {
+        const audio = document.getElementById('background-music');
+        if (audio && backgroundMusicEnabled) {
+          // Set volume to a reasonable level
+          audio.volume = 0.3;
+          audio.play().catch(e => console.log('Audio autoplay failed:', e));
+        }
+      }, []);
+
+      // Control background music when setting changes
+      useEffect(() => {
+        const audio = document.getElementById('background-music');
+        if (audio) {
+          audio.volume = 0.3;
+          if (backgroundMusicEnabled) {
+            // Try to play, but don't force it on mobile without user interaction
+            audio.play().catch(e => {
+              console.log('Audio autoplay prevented:', e);
+              // On mobile, we'll wait for user interaction instead of showing alert here
+            });
+          } else {
+            audio.pause();
+          }
+        }
+      }, [backgroundMusicEnabled]);
+
       const toggleNotifications = () => {
         setNotificationsEnabled(prev => {
           const newValue = !prev;
@@ -1368,6 +1435,40 @@
             alert('✅ Notifications enabled! You\'ll receive fitness reminders and updates.');
           } else {
             alert('🔕 Notifications disabled. You won\'t receive any alerts.');
+          }
+          return newValue;
+        });      };
+
+      const toggleBackgroundMusic = () => {
+        setBackgroundMusicEnabled(prev => {
+          const newValue = !prev;
+          // Update Firebase if user is authenticated
+          if (user) {
+            updateUserData({ backgroundMusicEnabled: newValue });
+          }
+          // Control background music
+          const audio = document.getElementById('background-music');
+          if (audio) {
+            if (newValue) {
+              // For mobile browsers, we need user interaction to play audio
+              audio.play().catch(e => {
+                console.log('Audio play failed (likely due to autoplay policy):', e);
+                // Show user-friendly message for mobile
+                if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+                  alert('🎵 Tap anywhere on the screen to start background music!');
+                  // Add click listener to start music on next user interaction
+                  const startMusicOnClick = () => {
+                    audio.play().catch(e => console.log('Audio play still failed:', e));
+                    document.removeEventListener('click', startMusicOnClick);
+                    document.removeEventListener('touchstart', startMusicOnClick);
+                  };
+                  document.addEventListener('click', startMusicOnClick, { once: true });
+                  document.addEventListener('touchstart', startMusicOnClick, { once: true });
+                }
+              });
+            } else {
+              audio.pause();
+            }
           }
           return newValue;
         });
@@ -1853,6 +1954,29 @@
                     notificationsEnabled ? 'translate-x-7' : 'translate-x-0'
                   }`}></div>
                 </button>
+              </div>
+              
+              {/* Background Music toggle */}
+              <div className="p-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-700 dark:text-gray-300">Background Music</span>
+                  <button 
+                    onClick={toggleBackgroundMusic}
+                    className={`relative w-14 h-7 rounded-full p-1 transition-colors duration-200 focus:outline-none ${
+                      backgroundMusicEnabled ? 'bg-pink-500' : 'bg-gray-300'
+                    }`}
+                    title={backgroundMusicEnabled ? 'Background Music ON' : 'Background Music OFF'}
+                  >
+                    <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-200 ${
+                      backgroundMusicEnabled ? 'translate-x-7' : 'translate-x-0'
+                    }`}></div>
+                  </button>
+                </div>
+                {backgroundMusicEnabled && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    📱 On mobile: Tap anywhere to start music
+                  </p>
+                )}
               </div>
               
               <button 
@@ -4335,8 +4459,439 @@ Respond ONLY with a valid JSON object in this format:
 
     // Workout Planner Screen Component
     const WorkoutPlanner = ({ workoutPlan, setWorkoutPlan, isLoading, setIsLoading, error, setError }) => {
-      const [activeTab, setActiveTab] = useState('planner'); // 'planner' or 'coach'
+      const [activeTab, setActiveTab] = useState('planner'); // 'planner', 'coach', or 'exercises'
       const [preferences, setPreferences] = useState({ goal: '', type: '', level: '', equipment: [] });
+      const [selectedExercise, setSelectedExercise] = useState(null);
+      const [currentSet, setCurrentSet] = useState(1);
+      const [completedSets, setCompletedSets] = useState({});
+      
+      // Workout Session State Management
+      const [workoutSession, setWorkoutSession] = useState({
+        isActive: false,
+        isPaused: false,
+        currentExerciseIndex: 0,
+        currentSet: 1,
+        exerciseTime: 0,
+        restTime: 0,
+        totalTime: 0,
+        isResting: false,
+        completedExercises: [],
+        sessionExercises: []
+      });
+      const [workoutTimer, setWorkoutTimer] = useState(null);
+      const [audioEnabled, setAudioEnabled] = useState(true);
+      const [voiceInstructions, setVoiceInstructions] = useState(true);
+      const videoRef = useRef(null);
+      const speechSynthesis = window.speechSynthesis;
+
+      // Exercise database with video files from animations folder
+      const exerciseDatabase = [
+        {
+          id: 1,
+          name: 'Burpee and Jump',
+          category: 'Full Body',
+          difficulty: 'Advanced',
+          sets: 3,
+          reps: '8-12',
+          duration: '45s',
+          video: './animations/Burpee and Jump Exercise (1).mp4',
+          muscles: ['Full Body', 'Cardio'],
+          instructions: 'Start in standing position, drop to squat, kick back to plank, do push-up, jump feet back to squat, then jump up with arms overhead.'
+        },
+        {
+          id: 2,
+          name: 'Inchworm',
+          category: 'Core',
+          difficulty: 'Intermediate',
+          sets: 3,
+          reps: '10-15',
+          duration: '30s',
+          video: './animations/Inchworm.mp4',
+          muscles: ['Core', 'Shoulders', 'Hamstrings'],
+          instructions: 'Stand with feet hip-width apart, bend forward and walk hands out to plank position, then walk feet toward hands.'
+        },
+        {
+          id: 3,
+          name: 'Jumping Jack',
+          category: 'Cardio',
+          difficulty: 'Beginner',
+          sets: 3,
+          reps: '20-30',
+          duration: '30s',
+          video: './animations/Jumping Jack.mp4',
+          muscles: ['Full Body', 'Cardio'],
+          instructions: 'Jump feet apart while raising arms overhead, then jump back to starting position with arms at sides.'
+        },
+        {
+          id: 4,
+          name: 'Military Push Ups',
+          category: 'Upper Body',
+          difficulty: 'Intermediate',
+          sets: 3,
+          reps: '8-15',
+          duration: '45s',
+          video: './animations/Military Push Ups.mp4',
+          muscles: ['Chest', 'Triceps', 'Shoulders'],
+          instructions: 'Start in plank position with hands shoulder-width apart, lower body until chest nearly touches ground, push back up.'
+        },
+        {
+          id: 5,
+          name: 'Reverse Crunches',
+          category: 'Core',
+          difficulty: 'Beginner',
+          sets: 3,
+          reps: '12-20',
+          duration: '30s',
+          video: './animations/Reverse Crunches.mp4',
+          muscles: ['Lower Abs', 'Core'],
+          instructions: 'Lie on back with knees bent, lift hips off ground by contracting abs, slowly lower back down.'
+        },
+        {
+          id: 6,
+          name: 'Seated Abs Circles',
+          category: 'Core',
+          difficulty: 'Beginner',
+          sets: 3,
+          reps: '10 each direction',
+          duration: '30s',
+          video: './animations/Seated abs circles.mp4',
+          muscles: ['Core', 'Obliques'],
+          instructions: 'Sit with knees bent, lean back slightly, make circular motions with your torso while keeping core engaged.'
+        },
+        {
+          id: 7,
+          name: 'Single Leg Hip Rotation',
+          category: 'Lower Body',
+          difficulty: 'Beginner',
+          sets: 3,
+          reps: '10 each leg',
+          duration: '30s',
+          video: './animations/Single Leg Hip Rotation.mp4',
+          muscles: ['Hips', 'Glutes', 'Balance'],
+          instructions: 'Stand on one leg, rotate the other leg in circular motions, focusing on hip mobility and balance.'
+        },
+        {
+          id: 8,
+          name: 'Split Jump',
+          category: 'Lower Body',
+          difficulty: 'Advanced',
+          sets: 3,
+          reps: '10-15',
+          duration: '45s',
+          video: './animations/Split Jump Exercise.mp4',
+          muscles: ['Legs', 'Glutes', 'Cardio'],
+          instructions: 'Start in lunge position, jump up and switch leg positions in mid-air, land softly in opposite lunge.'
+        },
+        {
+          id: 9,
+          name: 'Squat Reach',
+          category: 'Lower Body',
+          difficulty: 'Beginner',
+          sets: 3,
+          reps: '12-20',
+          duration: '30s',
+          video: './animations/Squat Reach.mp4',
+          muscles: ['Quads', 'Glutes', 'Core'],
+          instructions: 'Perform a squat while reaching arms forward for balance, return to standing with arms at sides.'
+        },
+        {
+          id: 10,
+          name: 'Squat Kicks',
+          category: 'Lower Body',
+          difficulty: 'Intermediate',
+          sets: 3,
+          reps: '10-15',
+          duration: '45s',
+          video: './animations/Squat kicks.mp4',
+          muscles: ['Quads', 'Glutes', 'Core'],
+          instructions: 'Perform a squat, then as you stand up, kick one leg forward, alternate legs with each rep.'
+        }
+      ];
+
+      // Workout Session Management Functions
+      const speakInstruction = (text) => {
+        if (voiceInstructions && speechSynthesis) {
+          speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.rate = 0.9;
+          utterance.pitch = 1;
+          utterance.volume = 0.8;
+          speechSynthesis.speak(utterance);
+        }
+      };
+
+      const startWorkoutSession = (exercises) => {
+        const sessionExercises = exercises.length > 0 ? exercises : exerciseDatabase.slice(0, 5);
+        setWorkoutSession({
+          isActive: true,
+          isPaused: false,
+          currentExerciseIndex: 0,
+          currentSet: 1,
+          exerciseTime: 0,
+          restTime: 0,
+          totalTime: 0,
+          isResting: false,
+          completedExercises: [],
+          sessionExercises
+        });
+        speakInstruction(`Starting workout with ${sessionExercises.length} exercises. First exercise: ${sessionExercises[0].name}`);
+        startTimer();
+      };
+
+      const pauseWorkoutSession = () => {
+        setWorkoutSession(prev => {
+          const newPaused = !prev.isPaused;
+          
+          // Handle video controls
+          if (videoRef.current) {
+            if (newPaused) {
+              videoRef.current.pause();
+            } else {
+              videoRef.current.play();
+            }
+          }
+          
+          if (newPaused) {
+            clearInterval(workoutTimer);
+            speakInstruction('Workout paused');
+          } else {
+            startTimer();
+            speakInstruction('Workout resumed');
+          }
+          
+          return { ...prev, isPaused: newPaused };
+        });
+      };
+
+      const nextExercise = () => {
+        const { currentExerciseIndex, sessionExercises, currentSet } = workoutSession;
+        const currentExercise = sessionExercises[currentExerciseIndex];
+        
+        if (currentSet < currentExercise.sets) {
+          // Next set of current exercise
+          setWorkoutSession(prev => ({
+            ...prev,
+            currentSet: prev.currentSet + 1,
+            isResting: true,
+            restTime: 0
+          }));
+          speakInstruction(`Set ${currentSet + 1} of ${currentExercise.sets}. Rest for 30 seconds`);
+        } else if (currentExerciseIndex < sessionExercises.length - 1) {
+          // Next exercise
+          const nextExerciseIndex = currentExerciseIndex + 1;
+          const nextExercise = sessionExercises[nextExerciseIndex];
+          setWorkoutSession(prev => ({
+            ...prev,
+            currentExerciseIndex: nextExerciseIndex,
+            currentSet: 1,
+            exerciseTime: 0,
+            isResting: false,
+            completedExercises: [...prev.completedExercises, currentExerciseIndex]
+          }));
+          speakInstruction(`Next exercise: ${nextExercise.name}. ${nextExercise.instructions}`);
+        } else {
+          // Workout complete
+          endWorkoutSession();
+        }
+      };
+
+      const previousExercise = () => {
+        const { currentExerciseIndex, sessionExercises, currentSet } = workoutSession;
+        
+        if (currentSet > 1) {
+          // Previous set of current exercise
+          setWorkoutSession(prev => ({
+            ...prev,
+            currentSet: prev.currentSet - 1,
+            isResting: false
+          }));
+        } else if (currentExerciseIndex > 0) {
+          // Previous exercise
+          const prevExerciseIndex = currentExerciseIndex - 1;
+          const prevExercise = sessionExercises[prevExerciseIndex];
+          setWorkoutSession(prev => ({
+            ...prev,
+            currentExerciseIndex: prevExerciseIndex,
+            currentSet: prevExercise.sets,
+            exerciseTime: 0,
+            isResting: false,
+            completedExercises: prev.completedExercises.filter(i => i !== prevExerciseIndex)
+          }));
+          speakInstruction(`Previous exercise: ${prevExercise.name}`);
+        }
+      };
+
+      const endWorkoutSession = () => {
+        clearInterval(workoutTimer);
+        
+        // Calculate workout metrics for health score integration
+        const workoutData = {
+          duration: Math.round(workoutSession.totalTime / 60), // Convert to minutes
+          exercisesCompleted: workoutSession.completedExercises.length,
+          totalExercises: workoutSession.sessionExercises.length,
+          completionRate: (workoutSession.completedExercises.length / workoutSession.sessionExercises.length) * 100,
+          timestamp: new Date().toISOString(),
+          type: 'structured_workout'
+        };
+        
+        // Log workout as activity minutes
+        if (workoutData.duration > 0) {
+          handleLogActivity({ minutes: workoutData.duration });
+          
+          // Store workout history for detailed tracking
+          const workoutHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+          workoutHistory.push(workoutData);
+          // Keep only last 30 workouts
+          if (workoutHistory.length > 30) workoutHistory.shift();
+          localStorage.setItem('workoutHistory', JSON.stringify(workoutHistory));
+          
+          // Sync workout data to Firebase if user is logged in
+          if (user) {
+            const userRef = db.ref(`users/${user.uid}/workoutHistory`);
+            userRef.push(workoutData);
+          }
+        }
+        
+        setWorkoutSession({
+          isActive: false,
+          isPaused: false,
+          currentExerciseIndex: 0,
+          currentSet: 1,
+          exerciseTime: 0,
+          restTime: 0,
+          totalTime: 0,
+          isResting: false,
+          completedExercises: [],
+          sessionExercises: []
+        });
+        
+        const completionMessage = workoutData.completionRate === 100 
+          ? `Workout completed! Great job! You completed all ${workoutData.totalExercises} exercises in ${workoutData.duration} minutes.`
+          : `Workout session ended. You completed ${workoutData.exercisesCompleted} out of ${workoutData.totalExercises} exercises in ${workoutData.duration} minutes.`;
+        
+        speakInstruction(completionMessage);
+      };
+
+      const startTimer = () => {
+        const timer = setInterval(() => {
+          setWorkoutSession(prev => {
+            if (prev.isPaused) return prev;
+            
+            const newState = { ...prev, totalTime: prev.totalTime + 1 };
+            
+            if (prev.isResting) {
+              newState.restTime = prev.restTime + 1;
+              const restDuration = 30; // 30 second rest between sets
+              
+              // Countdown for last 5 seconds of rest
+              const restTimeLeft = restDuration - prev.restTime;
+              if (restTimeLeft <= 5 && restTimeLeft > 0 && prev.restTime > 0) {
+                speakInstruction(`${restTimeLeft}`);
+              }
+              
+              if (prev.restTime >= restDuration) {
+                newState.isResting = false;
+                newState.restTime = 0;
+                const currentExercise = prev.sessionExercises[prev.currentExerciseIndex];
+                speakInstruction(`Set ${prev.currentSet} of ${currentExercise.sets}. Begin!`);
+                // Resume video after rest
+                if (videoRef.current) {
+                  videoRef.current.currentTime = 0;
+                  videoRef.current.play();
+                }
+              }
+            } else {
+              newState.exerciseTime = prev.exerciseTime + 1;
+              const currentExercise = prev.sessionExercises[prev.currentExerciseIndex];
+              const exerciseDuration = parseInt(currentExercise.duration) || 45;
+              
+              // Voice counting every 5 seconds during exercise
+              if (prev.exerciseTime > 0 && prev.exerciseTime % 5 === 0 && prev.exerciseTime <= exerciseDuration - 10) {
+                const count = Math.floor(prev.exerciseTime / 5);
+                speakInstruction(`${count * 5}`);
+              }
+              
+              // Countdown for last 10 seconds
+              const timeLeft = exerciseDuration - prev.exerciseTime;
+              if (timeLeft <= 10 && timeLeft > 0) {
+                speakInstruction(`${timeLeft}`);
+              }
+              
+              // Ensure video is playing during exercise
+              if (videoRef.current && videoRef.current.paused && !prev.isPaused) {
+                videoRef.current.play();
+              }
+              
+              if (prev.exerciseTime >= exerciseDuration) {
+                // Auto-advance to next set/exercise
+                if (prev.currentSet < currentExercise.sets) {
+                  newState.currentSet = prev.currentSet + 1;
+                  newState.isResting = true;
+                  newState.exerciseTime = 0;
+                  newState.restTime = 0;
+                  speakInstruction(`Set complete. Rest for 30 seconds`);
+                  // Pause video during rest
+                  if (videoRef.current) {
+                    videoRef.current.pause();
+                  }
+                } else {
+                  // Move to next exercise
+                  if (prev.currentExerciseIndex < prev.sessionExercises.length - 1) {
+                    const nextIndex = prev.currentExerciseIndex + 1;
+                    const nextExercise = prev.sessionExercises[nextIndex];
+                    newState.currentExerciseIndex = nextIndex;
+                    newState.currentSet = 1;
+                    newState.exerciseTime = 0;
+                    newState.isResting = true;
+                    newState.restTime = 0;
+                    newState.completedExercises = [...prev.completedExercises, prev.currentExerciseIndex];
+                    speakInstruction(`Exercise complete. Next: ${nextExercise.name}. Get ready in 10 seconds`);
+                    // Pause video during transition
+                    if (videoRef.current) {
+                      videoRef.current.pause();
+                    }
+                    // Set shorter transition time (10 seconds instead of 30)
+                    setTimeout(() => {
+                      setWorkoutSession(current => ({
+                        ...current,
+                        isResting: false,
+                        restTime: 0
+                      }));
+                      speakInstruction(`Begin ${nextExercise.name}`);
+                      if (videoRef.current) {
+                        videoRef.current.currentTime = 0;
+                        videoRef.current.play();
+                      }
+                    }, 10000);
+                  } else {
+                    // Workout completed
+                    newState.isActive = false;
+                    newState.completedExercises = [...prev.completedExercises, prev.currentExerciseIndex];
+                    clearInterval(timer);
+                    speakInstruction('Workout completed! Excellent work!');
+                    if (videoRef.current) {
+                      videoRef.current.pause();
+                    }
+                    return newState; // Exit early to prevent further timer execution
+                  }
+                }
+              }
+            }
+            
+            return newState;
+          });
+        }, 1000);
+        
+        setWorkoutTimer(timer);
+      };
+
+      useEffect(() => {
+        return () => {
+          if (workoutTimer) {
+            clearInterval(workoutTimer);
+          }
+        };
+      }, [workoutTimer]);
 
       const handlePreferenceChange = (key, value) => {
         setPreferences(prev => ({ ...prev, [key]: value }));
@@ -4421,10 +4976,10 @@ Respond ONLY with a valid JSON object in this exact format:
           </header>
 
           {/* Tab Navigation - Fixed light gradients */}
-          <div className="flex mb-6 bg-gray-100 dark:bg-gray-800 rounded-2xl p-1 max-w-md mx-auto">
+          <div className="flex mb-6 bg-gray-100 dark:bg-gray-800 rounded-2xl p-1 max-w-lg mx-auto">
             <button
               onClick={() => setActiveTab('planner')}
-              className={`flex-1 py-3 px-4 rounded-xl font-semibold transition-all ${
+              className={`flex-1 py-3 px-2 rounded-xl font-semibold transition-all text-sm ${
                 activeTab === 'planner'
                   ? 'bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 shadow-md'
                   : 'text-gray-600 dark:text-gray-400'
@@ -4434,13 +4989,23 @@ Respond ONLY with a valid JSON object in this exact format:
             </button>
             <button
               onClick={() => setActiveTab('coach')}
-              className={`flex-1 py-3 px-4 rounded-xl font-semibold transition-all ${
+              className={`flex-1 py-3 px-2 rounded-xl font-semibold transition-all text-sm ${
                 activeTab === 'coach'
                   ? 'bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 shadow-md'
                   : 'text-gray-600 dark:text-gray-400'
               }`}
             >
               🏋️ Form Coach
+            </button>
+            <button
+              onClick={() => setActiveTab('exercises')}
+              className={`flex-1 py-3 px-2 rounded-xl font-semibold transition-all text-sm ${
+                activeTab === 'exercises'
+                  ? 'bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 shadow-md'
+                  : 'text-gray-600 dark:text-gray-400'
+              }`}
+            >
+              💪 Exercises
             </button>
           </div>
 
@@ -4566,6 +5131,16 @@ Respond ONLY with a valid JSON object in this exact format:
 
           {activeTab === 'coach' && (
             <WorkoutFormCoach />
+          )}
+
+          {activeTab === 'exercises' && (
+            <div className="w-full h-screen">
+              <iframe 
+                src="./workout.html" 
+                className="w-full h-full border-0 rounded-lg"
+                title="Workout Application"
+              />
+            </div>
           )}
         </div>
       );
@@ -5091,37 +5666,189 @@ User's question: "${userMessage.text}"`;
             </div>
           </div>
 
+          {/* Workout Analytics Dashboard */}
+          <div className="mt-8 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl border border-white/20">
+            <h3 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-4 flex items-center">
+              <span className="mr-2">💪</span>
+              Workout Analytics
+            </h3>
+            {(() => {
+              const workoutHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+              const last7Days = Array.from({length: 7}, (_, i) => {
+                const date = new Date();
+                date.setDate(date.getDate() - i);
+                return date.toDateString();
+              }).reverse();
+              
+              const weeklyWorkouts = last7Days.map(dateStr => {
+                const dayWorkouts = workoutHistory.filter(w => new Date(w.timestamp).toDateString() === dateStr);
+                return {
+                  date: dateStr,
+                  count: dayWorkouts.length,
+                  totalTime: dayWorkouts.reduce((sum, w) => sum + w.duration, 0),
+                  avgCompletion: dayWorkouts.length > 0 ? dayWorkouts.reduce((sum, w) => sum + w.completionRate, 0) / dayWorkouts.length : 0
+                };
+              });
+              
+              const totalWorkouts = workoutHistory.length;
+              const avgCompletionRate = totalWorkouts > 0 ? workoutHistory.reduce((sum, w) => sum + w.completionRate, 0) / totalWorkouts : 0;
+              const totalWorkoutTime = workoutHistory.reduce((sum, w) => sum + w.duration, 0);
+              const workoutStreak = (() => {
+                let streak = 0;
+                for (let i = 0; i < 30; i++) {
+                  const date = new Date();
+                  date.setDate(date.getDate() - i);
+                  const hasWorkout = workoutHistory.some(w => new Date(w.timestamp).toDateString() === date.toDateString());
+                  if (hasWorkout) streak++;
+                  else break;
+                }
+                return streak;
+              })();
+              
+              return (
+                <div className="space-y-4">
+                  {/* Key Metrics */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="bg-gradient-to-br from-purple-500 to-pink-500 p-4 rounded-2xl text-white text-center">
+                      <div className="text-2xl font-bold">{totalWorkouts}</div>
+                      <div className="text-xs opacity-90">Total Workouts</div>
+                    </div>
+                    <div className="bg-gradient-to-br from-blue-500 to-cyan-500 p-4 rounded-2xl text-white text-center">
+                      <div className="text-2xl font-bold">{Math.round(avgCompletionRate)}%</div>
+                      <div className="text-xs opacity-90">Avg Completion</div>
+                    </div>
+                    <div className="bg-gradient-to-br from-green-500 to-emerald-500 p-4 rounded-2xl text-white text-center">
+                      <div className="text-2xl font-bold">{Math.round(totalWorkoutTime/60)}h</div>
+                      <div className="text-xs opacity-90">Total Time</div>
+                    </div>
+                    <div className="bg-gradient-to-br from-orange-500 to-red-500 p-4 rounded-2xl text-white text-center">
+                      <div className="text-2xl font-bold">{workoutStreak}</div>
+                      <div className="text-xs opacity-90">Day Streak</div>
+                    </div>
+                  </div>
+                  
+                  {/* Weekly Activity Chart */}
+                  <div className="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-2xl">
+                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">7-Day Activity</h4>
+                    <div className="flex items-end justify-between h-20 space-x-1">
+                      {weeklyWorkouts.map((day, index) => {
+                        const maxTime = Math.max(...weeklyWorkouts.map(d => d.totalTime), 1);
+                        const height = (day.totalTime / maxTime) * 100;
+                        return (
+                          <div key={index} className="flex-1 flex flex-col items-center">
+                            <div 
+                              className={`w-full rounded-t transition-all duration-300 ${
+                                day.count > 0 
+                                  ? 'bg-gradient-to-t from-purple-500 to-pink-500' 
+                                  : 'bg-gray-300 dark:bg-gray-600'
+                              }`}
+                              style={{height: `${Math.max(height, 5)}%`}}
+                              title={`${day.count} workouts, ${day.totalTime}min`}
+                            ></div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                              {new Date(day.date).toLocaleDateString('en', {weekday: 'short'}).slice(0,1)}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  
+                  {/* Workout Quality Insights */}
+                  {workoutHistory.length > 0 && (
+                    <div className="bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 p-4 rounded-2xl">
+                      <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">💡 Insights</h4>
+                      <div className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
+                        {avgCompletionRate >= 90 && <div>🌟 Excellent completion rate! You're crushing your workouts.</div>}
+                        {workoutStreak >= 7 && <div>🔥 Amazing streak! Consistency is key to success.</div>}
+                        {totalWorkoutTime >= 300 && <div>⏱️ You've invested serious time in your fitness journey.</div>}
+                        {workoutHistory.filter(w => new Date(w.timestamp).toDateString() === new Date().toDateString()).length > 0 && 
+                         <div>✅ Great job working out today!</div>}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+
           {/* Achievement Badges */}
           <div className="mt-8 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl border border-white/20">
             <h3 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-4 flex items-center">
               <span className="mr-2">🏅</span>
               Achievement Badges
             </h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className={`p-4 rounded-2xl text-center ${currentStreak >= 7 ? 'bg-gradient-to-br from-yellow-400 to-orange-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-400'}`}>
-                <div className="text-2xl mb-2">🔥</div>
-                <div className="text-xs font-semibold">Week Warrior</div>
-                <div className="text-xs opacity-80">7 day streak</div>
-              </div>
+            {(() => {
+              const workoutHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+              const totalWorkouts = workoutHistory.length;
+              const workoutStreak = (() => {
+                let streak = 0;
+                for (let i = 0; i < 30; i++) {
+                  const date = new Date();
+                  date.setDate(date.getDate() - i);
+                  const hasWorkout = workoutHistory.some(w => new Date(w.timestamp).toDateString() === date.toDateString());
+                  if (hasWorkout) streak++;
+                  else break;
+                }
+                return streak;
+              })();
+              const avgCompletionRate = totalWorkouts > 0 ? workoutHistory.reduce((sum, w) => sum + w.completionRate, 0) / totalWorkouts : 0;
+              const totalWorkoutTime = workoutHistory.reduce((sum, w) => sum + w.duration, 0);
               
-              <div className={`p-4 rounded-2xl text-center ${currentStreak >= 30 ? 'bg-gradient-to-br from-purple-400 to-pink-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-400'}`}>
-                <div className="text-2xl mb-2">💎</div>
-                <div className="text-xs font-semibold">Diamond</div>
-                <div className="text-xs opacity-80">30 day streak</div>
-              </div>
-              
-              <div className={`p-4 rounded-2xl text-center ${monthlyStats.avg >= 80 ? 'bg-gradient-to-br from-green-400 to-emerald-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-400'}`}>
-                <div className="text-2xl mb-2">⭐</div>
-                <div className="text-xs font-semibold">Superstar</div>
-                <div className="text-xs opacity-80">80+ avg score</div>
-              </div>
-              
-              <div className={`p-4 rounded-2xl text-center ${monthlyStats.best >= 95 ? 'bg-gradient-to-br from-blue-400 to-cyan-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-400'}`}>
-                <div className="text-2xl mb-2">🚀</div>
-                <div className="text-xs font-semibold">Perfectionist</div>
-                <div className="text-xs opacity-80">95+ best score</div>
-              </div>
-            </div>
+              return (
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                  {/* Health Score Achievements */}
+                  <div className={`p-4 rounded-2xl text-center ${currentStreak >= 7 ? 'bg-gradient-to-br from-yellow-400 to-orange-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-400'}`}>
+                    <div className="text-2xl mb-2">🔥</div>
+                    <div className="text-xs font-semibold">Week Warrior</div>
+                    <div className="text-xs opacity-80">7 day streak</div>
+                  </div>
+                  
+                  <div className={`p-4 rounded-2xl text-center ${currentStreak >= 30 ? 'bg-gradient-to-br from-purple-400 to-pink-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-400'}`}>
+                    <div className="text-2xl mb-2">💎</div>
+                    <div className="text-xs font-semibold">Diamond</div>
+                    <div className="text-xs opacity-80">30 day streak</div>
+                  </div>
+                  
+                  <div className={`p-4 rounded-2xl text-center ${monthlyStats.avg >= 80 ? 'bg-gradient-to-br from-green-400 to-emerald-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-400'}`}>
+                    <div className="text-2xl mb-2">⭐</div>
+                    <div className="text-xs font-semibold">Superstar</div>
+                    <div className="text-xs opacity-80">80+ avg score</div>
+                  </div>
+                  
+                  <div className={`p-4 rounded-2xl text-center ${monthlyStats.best >= 95 ? 'bg-gradient-to-br from-blue-400 to-cyan-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-400'}`}>
+                    <div className="text-2xl mb-2">🚀</div>
+                    <div className="text-xs font-semibold">Perfectionist</div>
+                    <div className="text-xs opacity-80">95+ best score</div>
+                  </div>
+                  
+                  {/* Workout Achievements */}
+                  <div className={`p-4 rounded-2xl text-center ${totalWorkouts >= 10 ? 'bg-gradient-to-br from-indigo-400 to-blue-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-400'}`}>
+                    <div className="text-2xl mb-2">💪</div>
+                    <div className="text-xs font-semibold">Fitness Starter</div>
+                    <div className="text-xs opacity-80">10 workouts</div>
+                  </div>
+                  
+                  <div className={`p-4 rounded-2xl text-center ${workoutStreak >= 5 ? 'bg-gradient-to-br from-red-400 to-pink-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-400'}`}>
+                    <div className="text-2xl mb-2">🏃</div>
+                    <div className="text-xs font-semibold">Consistent</div>
+                    <div className="text-xs opacity-80">5 workout streak</div>
+                  </div>
+                  
+                  <div className={`p-4 rounded-2xl text-center ${avgCompletionRate >= 90 ? 'bg-gradient-to-br from-emerald-400 to-teal-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-400'}`}>
+                    <div className="text-2xl mb-2">🎯</div>
+                    <div className="text-xs font-semibold">Finisher</div>
+                    <div className="text-xs opacity-80">90% completion</div>
+                  </div>
+                  
+                  <div className={`p-4 rounded-2xl text-center ${totalWorkoutTime >= 600 ? 'bg-gradient-to-br from-amber-400 to-yellow-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-400'}`}>
+                    <div className="text-2xl mb-2">⏰</div>
+                    <div className="text-xs font-semibold">Time Master</div>
+                    <div className="text-xs opacity-80">10+ hours</div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Health Score Info */}
@@ -5130,22 +5857,31 @@ User's question: "${userMessage.text}"`;
               <span className="mr-2">🧮</span>
               Health Score Formula
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-center">
               <div className="bg-white/50 dark:bg-gray-800/50 p-4 rounded-2xl">
-                <div className="text-2xl font-bold text-pink-500 mb-1">50%</div>
+                <div className="text-2xl font-bold text-pink-500 mb-1">40%</div>
                 <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">Nutrition</div>
                 <div className="text-xs text-gray-600 dark:text-gray-400">Calorie goals</div>
               </div>
+              
               <div className="bg-white/50 dark:bg-gray-800/50 p-4 rounded-2xl">
-                <div className="text-2xl font-bold text-blue-500 mb-1">30%</div>
+                <div className="text-2xl font-bold text-purple-500 mb-1">25%</div>
                 <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">Activity</div>
-                <div className="text-xs text-gray-600 dark:text-gray-400">Movement goals</div>
+                <div className="text-xs text-gray-600 dark:text-gray-400">Exercise minutes</div>
               </div>
+              
               <div className="bg-white/50 dark:bg-gray-800/50 p-4 rounded-2xl">
-                <div className="text-2xl font-bold text-cyan-500 mb-1">20%</div>
+                <div className="text-2xl font-bold text-indigo-500 mb-1">20%</div>
+                <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">Workout Quality</div>
+                <div className="text-xs text-gray-600 dark:text-gray-400">Completion & consistency</div>
+              </div>
+              
+              <div className="bg-white/50 dark:bg-gray-800/50 p-4 rounded-2xl">
+                <div className="text-2xl font-bold text-blue-500 mb-1">15%</div>
                 <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">Hydration</div>
                 <div className="text-xs text-gray-600 dark:text-gray-400">Water intake</div>
               </div>
+
             </div>
           </div>
             </>
@@ -5790,7 +6526,6 @@ ${habits.map(habit => {
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </body>
 </html>
-
 
 
 
