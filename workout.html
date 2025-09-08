@@ -1,0 +1,971 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Workouts — Single File App</title>
+
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/@lottiefiles/lottie-player@latest/dist/lottie-player.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class'
+    }
+  </script>
+
+  <style>
+    :root{ --bg:#f9fafb; --bg-dark:#111827; --card:#ffffff; --card-dark:#1f2937; --muted:#9ca3af; --accent:#ec4899; }
+    html,body{ height:100%; color:#111827; font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto; -webkit-font-smoothing:antialiased;}
+    .dark html,.dark body{ color:#f9fafb; }
+    .hero-pattern {
+      background-image:
+        linear-gradient(180deg, rgba(236,72,153,0.1), rgba(59,130,246,0.1)),
+        url('data:image/svg+xml;utf8,\
+        <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700">\
+        <defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="%23ec4899" stop-opacity="0.3"/><stop offset="1" stop-color="%233b82f6" stop-opacity="0.3"/></linearGradient></defs>\
+        <rect width="100%" height="100%" fill="url(%23g)"/><g opacity="0.03" fill="%23000"><circle cx="220" cy="200" r="180"/><circle cx="900" cy="150" r="260"/><circle cx="600" cy="500" r="300"/></g></svg>');
+      background-size: cover;
+      background-position: center;
+    }
+    .card-stats { background: linear-gradient(180deg, rgba(255,255,255,0.9), rgba(255,255,255,0.95)); backdrop-filter: blur(6px); }
+    .dark .card-stats { background: linear-gradient(180deg, rgba(31,41,55,0.9), rgba(31,41,55,0.95)); }
+    .hidden-view { display:none; }
+    .active-view { display:block; }
+    .big-circle { width:180px;height:180px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:2.4rem;background: radial-gradient(circle at 30% 30%, #10b981, #059669);box-shadow:0 6px 18px rgba(0,0,0,0.1); }
+    .dark .big-circle { box-shadow:0 6px 18px rgba(0,0,0,0.6); }
+    .progress-track { height:6px; background: rgba(156,163,175,0.3); border-radius:99px; overflow:hidden; }
+    .progress-fill { height:100%; background: linear-gradient(90deg,#ec4899,#3b82f6); width:0%; transition:width .25s linear; }
+    .player-overlay { min-height:100vh; }
+    .chip:focus { outline: 2px solid rgba(236,72,153,0.18); outline-offset: 2px; }
+    .bottom-safe { padding-bottom: env(safe-area-inset-bottom); }
+    @media (min-width:1024px){ .page-title { font-size:3rem; } .card-title{ font-size:1.5rem; } }
+  </style>
+    <script>
+      // Dark mode detection - must run before body renders
+      // Sync with index.html dark mode settings
+      const isDarkMode = localStorage.getItem('fitmate-dark-mode') === 'true';
+      if (isDarkMode) {
+        document.documentElement.classList.add('dark')
+      } else {
+        document.documentElement.classList.remove('dark')
+      }
+    </script>
+  </head>
+<body class="bottom-safe bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white">
+  <!-- Background Music Audio Element -->
+  <audio id="background-music" loop preload="auto">
+    <source src="./Gym.mp3" type="audio/mpeg">
+    Your browser does not support the audio element.
+  </audio>
+
+  <!-- APP CONTAINER -->
+  <div id="app" class="max-w-3xl mx-auto px-4 pt-6 pb-28">
+
+    <!-- VIEW: Workouts List (default) -->
+    <section id="view-list" class="active-view">
+      <header class="mb-4">
+          <h1 class="text-3xl font-bold text-gray-800 dark:text-gray-200">🏋️ Workouts</h1>
+          <p class="text-gray-600 dark:text-gray-400 mt-2">Choose your training for today</p>
+        </header>
+
+      <div id="workouts" class="space-y-6 mt-6"></div>
+    </section>
+
+    <!-- VIEW: Detail -->
+    <section id="view-detail" class="hidden-view">
+      <div class="flex items-center gap-3 mb-4">
+        <button id="detail-back" class="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white" title="Back to list">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+        </button>
+        <h1 id="detail-title" class="text-2xl font-extrabold text-gray-900 dark:text-white">Workout Title</h1>
+      </div>
+
+      <p id="detail-desc" class="text-gray-600 dark:text-gray-400 mb-3">Workout description</p>
+
+      <div class="flex items-center gap-3 mb-6">
+        <div class="flex items-center gap-1 text-gray-700 dark:text-gray-200">
+          <svg class="w-5 h-5 text-pink-500" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <span id="detail-duration">20 min</span>
+        </div>
+        <div class="flex items-center gap-1 text-gray-700 dark:text-gray-200">
+          <svg class="w-5 h-5 text-pink-500" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7" opacity="0.3"/></svg>
+          <span id="detail-count">5 exercises</span>
+        </div>
+        <span id="detail-badge" class="ml-auto text-xs font-bold px-3 py-1 rounded-full bg-green-500 text-black">Beginner</span>
+      </div>
+
+      <section>
+        <h2 class="text-lg font-semibold mb-3">Exercises</h2>
+        <div id="detail-exList" class="space-y-4"></div>
+      </section>
+
+      <div class="mt-8">
+        <button id="detail-start" class="w-full py-4 rounded-xl font-semibold text-white text-lg bg-pink-500 hover:bg-pink-600 flex items-center justify-center gap-2 shadow-lg transition-colors">
+          <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 5v14l11-7z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Start Workout
+        </button>
+      </div>
+    </section>
+
+    <!-- VIEW: Player -->
+    <section id="view-player" class="hidden-view player-overlay bg-gray-50 dark:bg-gray-900">
+      <div class="px-4 pt-6 pb-3">
+        <div class="flex items-center gap-3">
+          <button id="player-close" class="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white" title="Close workout">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+
+          <div class="flex-1 text-center">
+            <div id="player-progress-label" class="text-sm text-gray-600 dark:text-gray-300">1 of 5</div>
+            <div class="mt-2 progress-track">
+              <div id="player-progress-fill" class="progress-fill"></div>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <!-- Voice Gender Toggle -->
+            <button id="player-voice-gender" class="px-2 py-1 text-xs font-medium rounded-md bg-pink-100 dark:bg-pink-900 text-pink-700 dark:text-pink-300 hover:bg-pink-200 dark:hover:bg-pink-800 transition-colors" title="Switch voice gender">
+              <span id="voice-gender-text">♀</span>
+            </button>
+            
+            <!-- Voice Mute/Unmute Toggle -->
+            <button id="player-voice" class="p-2 rounded-lg transition-colors" title="Toggle voice">
+              <svg id="player-voice-icon" class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex-1 flex flex-col items-center px-6 pt-6 pb-8 overflow-auto">
+        <div class="inline-block bg-transparent"><span class="text-xs font-semibold px-4 py-2 rounded-full bg-green-500 text-black">EXERCISE</span></div>
+
+        <h2 id="player-title" class="text-3xl font-extrabold mt-4 text-center text-gray-900 dark:text-white">Jumping Jacks</h2>
+        <p id="player-set-info" class="text-gray-600 dark:text-gray-300 mt-1">Set 1 of 3</p>
+
+        <div class="mt-6 w-full max-w-md hero-box rounded-2xl p-8 flex flex-col items-center justify-center">
+          <div class="w-40 h-40 flex items-center justify-center rounded-lg bg-[#111111] overflow-hidden">
+            <video id="player-animation" class="w-full h-full object-cover rounded-lg" autoplay loop muted style="display:none;">
+              <source src="" type="video/mp4">
+            </video>
+            <div id="player-animation-fallback" class="text-center text-gray-300">
+              <div style="font-size:44px">🏃‍♂️</div>
+              <div class="mt-3 text-sm">Exercise Animation</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-8 flex flex-col items-center">
+          <div id="player-timer" class="big-circle">00:24</div>
+          <div id="player-reps" class="text-gray-600 dark:text-gray-300 mt-4">20 repetitions</div>
+        </div>
+      </div>
+
+      <div class="px-6 pb-8 pt-2">
+        <div class="flex items-center justify-between">
+          <button id="player-skip" class="flex items-center gap-2 text-gray-600 dark:text-gray-300">
+            <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 4v16l11-8zM19 5v14" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span class="text-sm">Skip</span>
+          </button>
+
+          <button id="player-pause" class="mx-4 w-20 h-20 rounded-2xl bg-pink-500 flex items-center justify-center text-white text-2xl shadow-lg">
+            ||
+          </button>
+
+          <div style="width:48px"></div>
+        </div>
+      </div>
+    </section>
+
+
+
+  </div>
+
+  <script>
+  /***********************
+   * Single-file SPA logic
+   ***********************/
+
+  // Data model (single source) - 9 Comprehensive Workouts
+  const WORKOUTS = [
+    // BEGINNER WORKOUTS
+    {
+      title:'Beginner Upper Body',
+      desc:'Introduction to upper body strength with basic movements',
+      duration:'18 min',
+      difficulty:'beginner',
+      tag:'Upper Body',
+      exercises:[
+        { title:'Wall Push-ups', sets:2, reps:8, rest:60, muscles:'Chest, Arms', durationSeconds:30, description:'Stand arm\'s length from a wall. Place palms flat against the wall at shoulder height. Lean in and push back to starting position.' },
+        { title:'Military Push Ups', sets:2, reps:5, rest:60, muscles:'Chest, Arms', durationSeconds:35, animation:'Military Push Ups.mp4', description:'Start in plank position with hands directly under shoulders. Lower body as one unit until chest nearly touches ground, then push back up.' },
+        { title:'Arm Circles', sets:2, reps:15, rest:45, muscles:'Shoulders', durationSeconds:25, description:'Stand with arms extended to sides at shoulder height. Make small circles forward, then backward. Keep arms straight throughout.' },
+        { title:'Modified Plank', sets:2, reps:0, rest:60, muscles:'Core, Arms', durationSeconds:20, description:'Start on knees and forearms. Keep body straight from knees to head. Engage core and hold position without letting hips sag.' },
+        { title:'Shoulder Shrugs', sets:2, reps:12, rest:45, muscles:'Shoulders', durationSeconds:25, description:'Stand tall with arms at sides. Lift shoulders straight up toward ears, hold briefly, then lower back down slowly.' }
+      ]
+    },
+
+    {
+      title:'Beginner Lower Body',
+      desc:'Build lower body strength with basic movements',
+      duration:'22 min',
+      difficulty:'beginner',
+      tag:'Lower Body',
+      exercises:[
+        { title:'Bodyweight Squats', sets:2, reps:10, rest:60, muscles:'Quadriceps, Glutes', durationSeconds:35, animation:'Squat Reach.mp4', description:'Stand with feet shoulder-width apart. Lower hips back and down as if sitting in a chair. Keep chest up and knees behind toes. Return to standing.' },
+        { title:'Squat Reach', sets:2, reps:8, rest:45, muscles:'Quads, Glutes', durationSeconds:30, animation:'Squat Reach.mp4', description:'Perform a squat while reaching arms overhead. Lower into squat position while raising arms up, then return to standing with arms down.' },
+        { title:'Single Leg Hip Rotation', sets:2, reps:10, rest:45, muscles:'Hip Flexors', durationSeconds:35, animation:'Single Leg Hip Rotation.mp4', description:'Stand on one leg, lift the other knee to hip height. Rotate the lifted leg in small circles, engaging hip muscles. Switch legs.' },
+        { title:'Glute Bridge', sets:2, reps:12, rest:45, muscles:'Glutes', durationSeconds:30, description:'Lie on back with knees bent, feet flat on floor. Squeeze glutes and lift hips up, creating straight line from knees to shoulders. Lower slowly.' },
+        { title:'Calf Raise', sets:2, reps:15, rest:30, muscles:'Calves', durationSeconds:25, description:'Stand tall with feet hip-width apart. Rise up onto toes by lifting heels as high as possible. Hold briefly, then lower heels back down slowly.' },
+        { title:'Wall Sit', sets:2, reps:0, rest:60, muscles:'Quads', durationSeconds:20, description:'Stand with back against wall, feet shoulder-width apart. Slide down until thighs are parallel to floor. Hold position with knees at 90 degrees.' }
+      ]
+    },
+
+    {
+      title:'Beginner Full Body',
+      desc:'Complete body workout with gentle movements',
+      duration:'25 min',
+      difficulty:'beginner',
+      tag:'Full Body',
+      exercises:[
+        { title:'Marching in Place', sets:2, reps:20, rest:45, muscles:'Full Body', durationSeconds:30, description:'Stand tall and lift knees alternately to hip height. Swing opposite arms naturally. Keep core engaged and maintain steady rhythm.' },
+        { title:'Jumping Jacks', sets:2, reps:15, rest:45, muscles:'Full Body', durationSeconds:25, animation:'Jumping Jack.mp4', description:'Start with feet together, arms at sides. Jump feet apart while raising arms overhead. Jump back to starting position.' },
+        { title:'Inchworm', sets:2, reps:6, rest:60, muscles:'Full Body', durationSeconds:40, animation:'Inchworm.mp4', description:'Stand tall, bend forward and place hands on floor. Walk hands forward to plank position, then walk feet toward hands. Return to standing.' },
+        { title:'Modified Burpees', sets:2, reps:5, rest:60, muscles:'Full Body', durationSeconds:40, animation:'Burpee and Jump Exercise (1).mp4', description:'Squat down, place hands on floor, step back to plank. Do a push-up, step feet forward, then jump up with arms overhead.' },
+        { title:'Standing Side Bends', sets:2, reps:12, rest:30, muscles:'Core', durationSeconds:25, description:'Stand with feet hip-width apart, hands on hips. Lean to one side, engaging obliques. Return to center and repeat on other side.' },
+        { title:'Knee Lifts', sets:2, reps:15, rest:45, muscles:'Core, Legs', durationSeconds:30, description:'Stand tall with hands on hips. Lift one knee toward chest, engaging core. Lower and repeat with other leg. Maintain balance throughout.' }
+      ]
+    },
+
+    // INTERMEDIATE WORKOUTS
+    {
+      title:'Intermediate Upper Body',
+      desc:'Build strength in chest, arms, and shoulders',
+      duration:'25 min',
+      difficulty:'intermediate',
+      tag:'Upper Body',
+      exercises:[
+        { title:'Push-ups', sets:3, reps:10, rest:60, muscles:'Chest, Triceps', durationSeconds:40, animation:'Military Push Ups.mp4', description:'Start in plank position. Lower chest to floor by bending elbows, keeping body straight. Push back up to starting position.' },
+        { title:'Military Push Ups', sets:3, reps:8, rest:60, muscles:'Chest, Arms', durationSeconds:40, animation:'Military Push Ups.mp4', description:'Strict push-up with hands directly under shoulders. Keep body rigid like a plank throughout the movement. Focus on controlled motion.' },
+        { title:'Pike Push-ups', sets:3, reps:8, rest:45, muscles:'Shoulders', durationSeconds:35, description:'Start in downward dog position with hips high. Lower head toward floor by bending elbows. Push back up, targeting shoulders.' },
+        { title:'Tricep Dips', sets:3, reps:10, rest:45, muscles:'Triceps', durationSeconds:35, description:'Sit on edge of chair, hands gripping edge. Lower body by bending elbows, then push back up using triceps. Keep legs extended.' },
+        { title:'Plank to Downward Dog', sets:3, reps:8, rest:45, muscles:'Full Upper', durationSeconds:40, description:'Start in plank position. Push hips up and back into downward dog position. Return to plank. Keep core engaged throughout.' },
+        { title:'Arm Pulses', sets:3, reps:20, rest:30, muscles:'Shoulders', durationSeconds:30, description:'Extend arms to sides at shoulder height. Make small, quick pulsing motions up and down. Keep arms straight and shoulders engaged.' }
+      ]
+    },
+
+    {
+      title:'Intermediate Lower Body',
+      desc:'Advanced lower body training with dynamic movements',
+      duration:'28 min',
+      difficulty:'intermediate',
+      tag:'Lower Body',
+      exercises:[
+        { title:'Jump Squats', sets:3, reps:12, rest:60, muscles:'Legs, Glutes', durationSeconds:40, animation:'Squat kicks.mp4', description:'Perform a squat, then explode up into a jump. Land softly and immediately go into next squat. Keep chest up throughout.' },
+        { title:'Squat Kicks', sets:3, reps:10, rest:45, muscles:'Quads, Glutes', durationSeconds:35, animation:'Squat kicks.mp4', description:'Squat down, then as you stand up, kick one leg forward. Alternate legs with each rep. Keep core engaged for balance.' },
+        { title:'Split Jump Exercise', sets:3, reps:8, rest:60, muscles:'Legs, Power', durationSeconds:40, animation:'Split Jump Exercise.mp4', description:'Start in lunge position. Jump up and switch leg positions in air. Land in lunge with opposite leg forward. Repeat explosively.' },
+        { title:'Lunges', sets:3, reps:10, rest:45, muscles:'Quadriceps, Glutes', durationSeconds:35, description:'Step forward into lunge position, lowering back knee toward floor. Push off front foot to return to standing. Alternate legs.' },
+        { title:'Single Leg Glute Bridge', sets:3, reps:8, rest:45, muscles:'Glutes', durationSeconds:35, description:'Lie on back, one foot flat on floor, other leg extended. Lift hips up squeezing glutes. Lower slowly and repeat.' },
+        { title:'Lateral Lunges', sets:3, reps:10, rest:45, muscles:'Inner Thighs', durationSeconds:35, description:'Step wide to one side, bending that knee while keeping other leg straight. Push off to return to center. Alternate sides.' }
+      ]
+    },
+
+    {
+      title:'Intermediate Full Body',
+      desc:'High-intensity workout targeting all major muscle groups',
+      duration:'32 min',
+      difficulty:'intermediate',
+      tag:'Full Body',
+      exercises:[
+        { title:'Burpees', sets:3, reps:8, rest:60, muscles:'Full Body', durationSeconds:45, animation:'Burpee and Jump Exercise (1).mp4', description:'Squat down, place hands on floor, jump feet back to plank. Do push-up, jump feet forward, then jump up with arms overhead.' },
+        { title:'Burpee and Jump Exercise', sets:3, reps:6, rest:75, muscles:'Full Body Power', durationSeconds:50, animation:'Burpee and Jump Exercise (1).mp4', description:'Perform a burpee with an explosive jump at the end. Focus on maximum height and power in the jump phase.' },
+        { title:'Mountain Climbers', sets:3, reps:20, rest:45, muscles:'Full Body', durationSeconds:35, description:'Start in plank position. Rapidly alternate bringing knees toward chest as if running in place. Keep hips level and core tight.' },
+        { title:'Reverse Crunches', sets:3, reps:15, rest:45, muscles:'Core', durationSeconds:35, animation:'Reverse Crunches.mp4', description:'Lie on back, knees bent at 90 degrees. Lift hips off floor by contracting abs, bringing knees toward chest. Lower slowly.' },
+        { title:'Plank Jacks', sets:3, reps:15, rest:45, muscles:'Core', durationSeconds:35, description:'Start in plank position. Jump feet apart and together like jumping jacks while maintaining plank form. Keep core engaged throughout.' },
+        { title:'High Knees', sets:3, reps:25, rest:30, muscles:'Cardio', durationSeconds:30, description:'Run in place lifting knees as high as possible toward chest. Pump arms naturally and maintain quick tempo.' }
+      ]
+    },
+
+    // ADVANCED WORKOUTS
+    {
+      title:'Advanced Upper Body',
+      desc:'Intense upper body strength and endurance training',
+      duration:'35 min',
+      difficulty:'advanced',
+      tag:'Upper Body',
+      exercises:[
+        { title:'Diamond Push-ups', sets:4, reps:12, rest:60, muscles:'Triceps, Chest', durationSeconds:50, description:'Form diamond shape with hands under chest. Perform push-up keeping elbows close to body. Targets triceps intensely.' },
+        { title:'Military Push Ups', sets:4, reps:15, rest:60, muscles:'Chest, Arms', durationSeconds:50, animation:'Military Push Ups.mp4', description:'Strict push-up with hands directly under shoulders. Keep body rigid like a plank throughout the movement. Focus on controlled motion.' },
+        { title:'Handstand Push-ups', sets:4, reps:5, rest:75, muscles:'Shoulders', durationSeconds:45, description:'Against wall, kick up to handstand. Lower head toward floor, then push back up. Requires significant shoulder strength.' },
+        { title:'Archer Push-ups', sets:4, reps:6, rest:60, muscles:'Chest, Arms', durationSeconds:45, description:'Wide hand position. Lower to one side while extending opposite arm straight. Push up and alternate sides.' },
+        { title:'Plank Up-Downs', sets:4, reps:10, rest:45, muscles:'Core, Arms', durationSeconds:40, description:'Start in plank. Lower to forearms one arm at a time, then push back up to full plank. Alternate leading arm.' },
+        { title:'Bear Crawl', sets:4, reps:0, rest:60, muscles:'Full Upper', durationSeconds:45, description:'Crawl forward on hands and feet, knees hovering just above ground. Keep core tight and move opposite hand and foot together.' }
+      ]
+    },
+
+    {
+      title:'Advanced Lower Body',
+      desc:'Elite lower body power and strength development',
+      duration:'38 min',
+      difficulty:'advanced',
+      tag:'Lower Body',
+      exercises:[
+        { title:'Pistol Squats', sets:4, reps:5, rest:75, muscles:'Legs, Balance', durationSeconds:50, description:'Single leg squat with other leg extended forward. Lower down on one leg, then stand back up. Requires strength and balance.' },
+        { title:'Split Jump Exercise', sets:4, reps:12, rest:60, muscles:'Explosive Power', durationSeconds:50, animation:'Split Jump Exercise.mp4', description:'Start in lunge position. Jump up and switch leg positions in air. Land in lunge with opposite leg forward. Repeat explosively.' },
+        { title:'Squat Kicks', sets:4, reps:15, rest:45, muscles:'Quads, Glutes', durationSeconds:45, animation:'Squat kicks.mp4', description:'Squat down, then as you stand up, kick one leg forward. Alternate legs with each rep. Keep core engaged for balance.' },
+        { title:'Bulgarian Split Squats', sets:4, reps:12, rest:60, muscles:'Quads, Glutes', durationSeconds:45, description:'Rear foot elevated on bench. Lower into lunge position on front leg. Push up through front heel. Very challenging single leg exercise.' },
+        { title:'Single Leg Deadlifts', sets:4, reps:8, rest:60, muscles:'Hamstrings', durationSeconds:45, description:'Stand on one leg, hinge at hip lowering torso while lifting other leg behind. Return to standing. Targets hamstrings and balance.' },
+        { title:'Jump Lunges', sets:4, reps:16, rest:45, muscles:'Explosive Power', durationSeconds:40, description:'Start in lunge position. Jump up explosively and switch leg positions mid-air. Land softly in lunge with opposite leg forward.' }
+      ]
+    },
+
+    {
+      title:'Advanced Full Body',
+      desc:'Ultimate full body challenge for elite fitness',
+      duration:'40 min',
+      difficulty:'advanced',
+      tag:'Full Body',
+      exercises:[
+        { title:'Burpee and Jump Exercise', sets:4, reps:12, rest:75, muscles:'Full Body Power', durationSeconds:60, animation:'Burpee and Jump Exercise (1).mp4', description:'Perform a burpee with an explosive jump at the end. Focus on maximum height and power in the jump phase.' },
+        { title:'Inchworm', sets:4, reps:10, rest:60, muscles:'Full Body', durationSeconds:55, animation:'Inchworm.mp4', description:'Stand tall, bend forward placing hands on floor. Walk hands forward to plank, then walk feet toward hands. Stand up.' },
+        { title:'Seated Abs Circles', sets:4, reps:20, rest:45, muscles:'Core', durationSeconds:40, animation:'Seated abs circles.mp4', description:'Sit with legs extended, lean back slightly. Make circular motions with torso, engaging core throughout the movement.' },
+        { title:'Reverse Crunches', sets:4, reps:20, rest:45, muscles:'Core', durationSeconds:40, animation:'Reverse Crunches.mp4', description:'Lie on back, knees bent at 90 degrees. Lift hips off floor by contracting abs, bringing knees toward chest. Lower slowly.' },
+        { title:'Man Makers', sets:4, reps:8, rest:60, muscles:'Full Body', durationSeconds:55, description:'Burpee with push-up, then from standing position do a squat thrust back to plank. Complete movement with jump. Very intense.' },
+        { title:'Turkish Get-ups', sets:4, reps:4, rest:75, muscles:'Full Body', durationSeconds:50, description:'Complex movement from lying to standing while holding weight overhead. Requires coordination, strength, and mobility.' }
+      ]
+    }
+  ];
+
+  // DOM references
+  const viewList = document.getElementById('view-list');
+  const viewDetail = document.getElementById('view-detail');
+  const viewPlayer = document.getElementById('view-player');
+  const workoutsContainer = document.getElementById('workouts');
+  const detailTitle = document.getElementById('detail-title');
+  const detailDesc = document.getElementById('detail-desc');
+  const detailDuration = document.getElementById('detail-duration');
+  const detailCount = document.getElementById('detail-count');
+  const detailBadge = document.getElementById('detail-badge');
+  const detailExList = document.getElementById('detail-exList');
+  const detailBack = document.getElementById('detail-back');
+  const detailStart = document.getElementById('detail-start');
+  const playerTitle = document.getElementById('player-title');
+  const playerSetInfo = document.getElementById('player-set-info');
+  const playerTimer = document.getElementById('player-timer');
+  const playerReps = document.getElementById('player-reps');
+  const playerProgressLabel = document.getElementById('player-progress-label');
+  const playerProgressFill = document.getElementById('player-progress-fill');
+  const playerSkip = document.getElementById('player-skip');
+  const playerPause = document.getElementById('player-pause');
+  const playerClose = document.getElementById('player-close');
+  const playerVoice = document.getElementById('player-voice');
+  const playerVoiceIcon = document.getElementById('player-voice-icon');
+  const playerVoiceGender = document.getElementById('player-voice-gender');
+  const voiceGenderText = document.getElementById('voice-gender-text');
+
+  // App state
+  let currentWorkoutIndex = 0;
+  let currentExerciseIndex = 0;
+  let currentSet = 1;
+  let remainingSeconds = 0;
+  let timerInterval = null;
+  let isPaused = false;
+  let voiceEnabled = true;
+  let voiceGender = 'female'; // 'male' or 'female'
+  let isResting = false;
+
+  // Background music initialization
+  function initializeBackgroundMusic() {
+    const backgroundMusicEnabled = localStorage.getItem('backgroundMusicEnabled');
+    const audio = document.getElementById('background-music');
+    
+    if (audio && backgroundMusicEnabled === 'true') {
+      audio.volume = 0.3;
+      audio.play().catch(e => {
+        console.log('Audio autoplay prevented:', e);
+        // For mobile browsers, add user interaction listeners
+        if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+          const startMusicOnInteraction = () => {
+            audio.play().catch(e => console.log('Audio play still failed:', e));
+            document.removeEventListener('click', startMusicOnInteraction);
+            document.removeEventListener('touchstart', startMusicOnInteraction);
+            document.removeEventListener('keydown', startMusicOnInteraction);
+          };
+          document.addEventListener('click', startMusicOnInteraction, { once: true });
+          document.addEventListener('touchstart', startMusicOnInteraction, { once: true });
+          document.addEventListener('keydown', startMusicOnInteraction, { once: true });
+        }
+      });
+    }
+  }
+
+  // Initialize background music when page loads
+  setTimeout(initializeBackgroundMusic, 500);
+
+  // Render workouts list
+  function renderWorkouts(){
+    workoutsContainer.innerHTML = '';
+    WORKOUTS.forEach((w, idx) => {
+      const art = document.createElement('article');
+      art.className = 'rounded-2xl overflow-hidden shadow-lg cursor-pointer';
+      art.innerHTML = `
+        <div class="hero-pattern h-44 md:h-52 rounded-2xl relative">
+          <div class="absolute inset-0 flex items-start px-5 pt-5">
+            <span class="text-2xl md:text-3xl font-extrabold text-white">${w.title}</span>
+            <div class="ml-auto">
+              <span class="inline-block text-xs font-semibold uppercase px-3 py-1 rounded-full ${w.difficulty==='beginner' ? 'bg-green-500 text-black' : w.difficulty==='intermediate' ? 'bg-pink-500 text-white' : 'bg-red-500 text-white'}">${w.difficulty.charAt(0).toUpperCase() + w.difficulty.slice(1)}</span>
+            </div>
+          </div>
+          <div class="absolute left-0 right-0 bottom-0 p-4 card-stats">
+            <p class="text-sm text-gray-700 dark:text-gray-200">${w.desc}</p>
+            <div class="mt-3 flex items-center gap-6">
+              <div class="flex items-center gap-2 text-sm">
+                <svg class="w-5 h-5 text-pink-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                <span class="text-gray-800 dark:text-gray-200 font-medium">${w.duration}</span>
+              </div>
+              <div class="flex items-center gap-2 text-sm">
+                <svg class="w-5 h-5 text-pink-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7" opacity="0.3"/></svg>
+                <span class="text-gray-800 dark:text-gray-200 font-medium">${w.exercises.length} exercises</span>
+              </div>
+              <div class="flex items-center gap-2 text-sm ml-auto">
+                <svg class="w-5 h-5 text-pink-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 12h12"/></svg>
+                <span class="text-gray-800 dark:text-gray-200 font-medium">${w.tag}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      art.addEventListener('click', () => openDetail(idx));
+      workoutsContainer.appendChild(art);
+    });
+  }
+
+  // Navigation helpers
+  function showView(viewId){
+    viewList.classList.add('hidden-view'); viewList.classList.remove('active-view');
+    viewDetail.classList.add('hidden-view'); viewDetail.classList.remove('active-view');
+    viewPlayer.classList.add('hidden-view'); viewPlayer.classList.remove('active-view');
+    document.getElementById(viewId).classList.remove('hidden-view');
+    document.getElementById(viewId).classList.add('active-view');
+    // scroll top for better UX
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }
+
+  // Open detail screen
+  function openDetail(idx){
+    currentWorkoutIndex = idx;
+    const wx = WORKOUTS[idx];
+    detailTitle.textContent = wx.title;
+    detailDesc.textContent = wx.desc;
+    detailDuration.textContent = wx.duration;
+    detailCount.textContent = wx.exercises.length + ' exercises';
+    detailBadge.textContent = wx.difficulty.charAt(0).toUpperCase() + wx.difficulty.slice(1);
+    // Set badge color based on difficulty
+    detailBadge.className = `ml-auto text-xs font-bold px-3 py-1 rounded-full ${
+      wx.difficulty === 'beginner' ? 'bg-green-500 text-black' : 
+      wx.difficulty === 'intermediate' ? 'bg-pink-500 text-white' : 
+      'bg-red-500 text-white'
+    }`;
+
+    // render exercises list
+    detailExList.innerHTML = '';
+    wx.exercises.forEach((ex, i) => {
+      const el = document.createElement('div');
+      el.className = 'flex items-center justify-between p-4 bg-white dark:bg-gray-800 rounded-xl shadow-md';
+      el.innerHTML = `
+        <div class="flex items-center gap-4">
+          <div class="w-12 h-12 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700 overflow-hidden">
+            ${ex.animation ? 
+              `<video class="w-full h-full object-cover" autoplay loop muted>
+                 <source src="./animations/${ex.animation}" type="video/mp4">
+               </video>` : 
+              `<div class="w-8 h-8 flex items-center justify-center rounded-full bg-blue-500 font-bold text-white text-xs">${i+1}</div>`
+            }
+          </div>
+          <div class="flex-1">
+             <h3 class="font-semibold text-gray-900 dark:text-white">${ex.title}</h3>
+             <p class="text-pink-500 text-sm">${ex.muscles}</p>
+             <div class="flex items-center gap-4 mt-2">
+               <div class="flex items-center gap-1">
+                 <span class="text-gray-600 dark:text-gray-400 text-xs">Sets:</span>
+                 <input type="number" min="1" max="10" value="${ex.sets}" class="w-12 px-1 py-0.5 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white" onchange="updateExercise(${i}, 'sets', this.value)">
+               </div>
+               ${ex.reps > 0 ? 
+                 `<div class="flex items-center gap-1">
+                   <span class="text-gray-600 dark:text-gray-400 text-xs">Reps:</span>
+                   <input type="number" min="1" max="100" value="${ex.reps}" class="w-12 px-1 py-0.5 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white" onchange="updateExercise(${i}, 'reps', this.value)">
+                 </div>` :
+                 `<div class="flex items-center gap-1">
+                   <span class="text-gray-600 dark:text-gray-400 text-xs">Time:</span>
+                   <input type="number" min="5" max="300" step="5" value="${ex.durationSeconds}" class="w-12 px-1 py-0.5 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white" onchange="updateExercise(${i}, 'durationSeconds', this.value)">s
+                 </div>`
+               }
+               <div class="flex items-center gap-1">
+                 <span class="text-gray-600 dark:text-gray-400 text-xs">Rest:</span>
+                 <input type="number" min="0" max="180" step="5" value="${ex.rest}" class="w-12 px-1 py-0.5 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white" onchange="updateExercise(${i}, 'rest', this.value)">s
+               </div>
+             </div>
+           </div>
+        </div>
+        <button class="text-sm px-3 py-1 rounded-md bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white" data-info="${i}">Info</button>
+      `;
+      detailExList.appendChild(el);
+    });
+
+    showView('view-detail');
+  }
+
+  detailBack.addEventListener('click', ()=> { showView('view-list'); });
+
+  // Start workout from detail -> go to player
+  detailStart.addEventListener('click', ()=> {
+    openPlayer(currentWorkoutIndex);
+  });
+
+  // Handle Info button clicks
+  detailExList.addEventListener('click', (e) => {
+    if (e.target.hasAttribute('data-info')) {
+      const exerciseIndex = parseInt(e.target.getAttribute('data-info'));
+      const workout = WORKOUTS[currentWorkoutIndex];
+      const exercise = workout.exercises[exerciseIndex];
+      
+      if (exercise.description) {
+        // Create and show modal with exercise description
+        showExerciseInfo(exercise.title, exercise.description);
+      }
+    }
+  });
+
+  // Function to show exercise info modal
+  function showExerciseInfo(title, description) {
+    // Create modal overlay
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
+    modal.innerHTML = `
+      <div class="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-md w-full shadow-xl">
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="text-lg font-semibold text-gray-900 dark:text-white">${title}</h3>
+          <button class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 text-xl" onclick="this.closest('.fixed').remove()">&times;</button>
+        </div>
+        <p class="text-gray-700 dark:text-gray-300 leading-relaxed">${description}</p>
+        <div class="mt-6 flex justify-end">
+          <button class="px-4 py-2 bg-pink-500 text-white rounded-lg hover:bg-pink-600" onclick="this.closest('.fixed').remove()">Got it!</button>
+        </div>
+      </div>
+    `;
+    
+    // Add click outside to close
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.remove();
+      }
+    });
+    
+    document.body.appendChild(modal);
+  }
+
+  // --- Inline Exercise Editing
+  function updateExercise(exerciseIndex, property, value) {
+    const workout = WORKOUTS[currentWorkoutIndex];
+    const exercise = workout.exercises[exerciseIndex];
+    
+    // Parse and validate the value
+    const numValue = parseInt(value) || (property === 'rest' ? 0 : 1);
+    
+    // Update the exercise property
+    exercise[property] = numValue;
+    
+    // Ensure minimum values
+    if (property === 'sets' && numValue < 1) exercise.sets = 1;
+    if (property === 'reps' && numValue < 1) exercise.reps = 1;
+    if (property === 'durationSeconds' && numValue < 5) exercise.durationSeconds = 5;
+    if (property === 'rest' && numValue < 0) exercise.rest = 0;
+  }
+
+  // --- Player logic
+  function openPlayer(workoutIndex){
+    const workout = WORKOUTS[workoutIndex];
+    currentWorkoutIndex = workoutIndex;
+    currentExerciseIndex = 0;
+    currentSet = 1;
+    voiceEnabled = true;
+    updatePlayerForExercise(currentExerciseIndex);
+    showView('view-player');
+    
+    // Only start timer for time-based exercises
+    const ex = workout.exercises[currentExerciseIndex];
+    const isRepBased = ex.reps && ex.reps > 0;
+    if (!isRepBased) {
+      setTimeout(()=> startPlayerTimer(), 200);
+    }
+  }
+
+  function updatePlayerForExercise(i){
+    const workout = WORKOUTS[currentWorkoutIndex];
+    const ex = workout.exercises[i];
+    playerTitle.textContent = ex.title;
+    playerSetInfo.textContent = `Set ${currentSet} of ${ex.sets || 1}`;
+    
+    // Determine if this is a rep-based or time-based exercise
+    const isRepBased = ex.reps && ex.reps > 0;
+    
+    if (isRepBased) {
+      // Rep-based exercise - show reps, hide timer
+      playerTimer.textContent = `${ex.reps}`;
+      playerReps.textContent = `repetitions`;
+      playerPause.innerHTML = '✓';
+      playerPause.title = 'Complete Set';
+    } else {
+      // Time-based exercise - show timer
+      playerTimer.textContent = formatTime(ex.durationSeconds);
+      playerReps.textContent = `${ex.durationSeconds} seconds`;
+      playerPause.innerHTML = '||';
+      playerPause.title = 'Pause/Resume';
+      remainingSeconds = ex.durationSeconds;
+    }
+    
+    playerProgressLabel.textContent = `${i+1} of ${workout.exercises.length}`;
+    const pct = Math.round((i / workout.exercises.length) * 100);
+    playerProgressFill.style.width = pct + '%';
+    
+    // Handle exercise animation
+    const animationVideo = document.getElementById('player-animation');
+    const animationFallback = document.getElementById('player-animation-fallback');
+    
+    if (ex.animation) {
+      animationVideo.src = `./animations/${ex.animation}`;
+      animationVideo.style.display = 'block';
+      animationFallback.style.display = 'none';
+      animationVideo.load(); // Reload video with new source
+    } else {
+      animationVideo.style.display = 'none';
+      animationFallback.style.display = 'block';
+    }
+    
+    speak(`${ex.title}. ${isRepBased ? ex.reps + ' repetitions.' : ex.durationSeconds + ' seconds.'}`);
+  }
+
+  function formatTime(s){
+    const mm = Math.floor(s/60).toString().padStart(2,'0');
+    const ss = (s%60).toString().padStart(2,'0');
+    return mm + ':' + ss;
+  }
+
+  function startPlayerTimer(){
+    clearInterval(timerInterval);
+    isPaused = false;
+    isResting = false;
+    playerPause.innerHTML = '||';
+    timerInterval = setInterval(()=>{
+      if (isPaused) return;
+      remainingSeconds--;
+      if (remainingSeconds < 0) remainingSeconds = 0;
+      playerTimer.textContent = formatTime(remainingSeconds);
+      if (remainingSeconds === 0){
+        clearInterval(timerInterval);
+        speak('Good job. Moving to next exercise.');
+        setTimeout(()=> playerNext(), 700);
+      }
+    }, 1000);
+  }
+  
+  function startRestPeriod(){
+    const workout = WORKOUTS[currentWorkoutIndex];
+    const currentEx = workout.exercises[currentExerciseIndex];
+    
+    clearInterval(timerInterval);
+    isResting = true;
+    isPaused = false;
+    remainingSeconds = currentEx.rest || 30;
+    
+    // Update UI for rest period
+    playerTitle.textContent = 'Rest Time';
+    playerSetInfo.textContent = `Next: Set ${currentSet + 1} of ${currentEx.sets || 1}`;
+    playerTimer.textContent = formatTime(remainingSeconds);
+    playerReps.textContent = 'Take a break';
+    playerPause.innerHTML = '↻';
+    playerPause.title = 'Reset Rest Timer';
+    
+    speak(`Rest for ${currentEx.rest} seconds.`);
+    
+    timerInterval = setInterval(()=>{
+      if (isPaused) return;
+      remainingSeconds--;
+      if (remainingSeconds < 0) remainingSeconds = 0;
+      playerTimer.textContent = formatTime(remainingSeconds);
+      if (remainingSeconds === 0){
+        clearInterval(timerInterval);
+        // Move to next set
+        currentSet++;
+        speak(`Set ${currentSet}. Begin!`);
+        setTimeout(()=> {
+          isResting = false;
+          updatePlayerForExercise(currentExerciseIndex);
+          const isRepBased = currentEx.reps && currentEx.reps > 0;
+          if (!isRepBased) {
+            startPlayerTimer();
+          }
+        }, 700);
+      }
+    }, 1000);
+  }
+
+  function playerPauseToggle(){
+    const workout = WORKOUTS[currentWorkoutIndex];
+    const ex = workout.exercises[currentExerciseIndex];
+    const isRepBased = ex.reps && ex.reps > 0;
+    
+    if (isResting) {
+      // During rest period - reset rest timer
+      if (playerTitle.textContent === 'Rest between exercises') {
+        // Reset to 30 seconds for rest between exercises
+        restTime = 30;
+        playerTimer.textContent = formatTime(restTime);
+        speak('Rest timer reset to 30 seconds.');
+      } else {
+        // Reset to exercise rest time for rest between sets
+        const currentEx = workout.exercises[currentExerciseIndex];
+        remainingSeconds = currentEx.rest || 30;
+        playerTimer.textContent = formatTime(remainingSeconds);
+        speak('Rest timer reset.');
+      }
+    } else if (isRepBased) {
+      // Rep-based exercise - complete set and move to next
+      const currentEx = workout.exercises[currentExerciseIndex];
+      if (currentSet < (currentEx.sets || 1)) {
+        speak('Set completed. Starting rest period.');
+      } else {
+        speak('Set completed. Moving to next exercise.');
+      }
+      setTimeout(()=> playerNext(), 700);
+    } else {
+      // Time-based exercise - pause/resume timer
+      if (!timerInterval) return;
+      if (isPaused){ 
+        isPaused = false; 
+        playerPause.innerHTML = '||'; 
+        try{ speechSynthesis.resume(); }catch(e){} 
+      } else { 
+        isPaused = true; 
+        playerPause.innerHTML = '▶'; 
+        try{ speechSynthesis.pause(); }catch(e){} 
+      }
+    }
+  }
+
+  function playerNext(){
+    const workout = WORKOUTS[currentWorkoutIndex];
+    const currentEx = workout.exercises[currentExerciseIndex];
+    
+    // Check if we need to do more sets of current exercise
+    if (currentSet < (currentEx.sets || 1)) {
+      // Start rest period before next set
+      if (currentEx.rest > 0) {
+        startRestPeriod();
+      } else {
+        // No rest, go directly to next set
+        currentSet++;
+        isResting = false;
+        updatePlayerForExercise(currentExerciseIndex);
+        const isRepBased = currentEx.reps && currentEx.reps > 0;
+        if (!isRepBased) {
+          startPlayerTimer();
+        }
+      }
+    } else {
+      // Move to next exercise
+      currentSet = 1;
+      currentExerciseIndex++;
+      if (currentExerciseIndex >= workout.exercises.length){
+        playerFinish();
+        return;
+      }
+      
+      // Add rest period between different exercises (30 seconds)
+      const nextEx = workout.exercises[currentExerciseIndex];
+      if (nextEx) {
+        // Start rest period before next exercise
+        playerTitle.textContent = 'Rest between exercises';
+        playerSetInfo.textContent = `Next: ${nextEx.name}`;
+        playerReps.textContent = 'Get ready!';
+        playerPause.innerHTML = '↻'; // Set reset symbol for rest between exercises
+        isResting = true;
+        
+        restTime = 30; // 30 seconds rest between exercises
+        playerTimer.textContent = formatTime(restTime);
+        
+        timerInterval = setInterval(() => {
+          if (!isPaused) {
+            restTime--;
+            playerTimer.textContent = formatTime(restTime);
+            
+            if (restTime <= 0) {
+              clearInterval(timerInterval);
+              isResting = false;
+              updatePlayerForExercise(currentExerciseIndex);
+              
+              // Only start timer for time-based exercises
+              const isRepBased = nextEx.reps && nextEx.reps > 0;
+              if (!isRepBased) {
+                startPlayerTimer();
+              }
+            }
+          }
+        }, 1000);
+      } else {
+        isResting = false;
+         updatePlayerForExercise(currentExerciseIndex);
+         
+         // Only start timer for time-based exercises
+         const ex = workout.exercises[currentExerciseIndex];
+         const isRepBased = ex.reps && ex.reps > 0;
+         if (!isRepBased) {
+           startPlayerTimer();
+         }
+       }
+     }
+   }
+
+  function playerFinish(){
+    clearInterval(timerInterval);
+    playerTitle.textContent = 'Workout complete';
+    playerSetInfo.textContent = '';
+    playerTimer.textContent = '00:00';
+    playerReps.textContent = 'Well done!';
+    playerProgressFill.style.width = '100%';
+    speak('Workout complete. Great job!');
+    
+    // Auto-return to workout detail after 3 seconds
+    setTimeout(() => {
+      openDetail(currentWorkoutIndex);
+    }, 3000);
+  }
+
+  // player controls
+  playerPause.addEventListener('click', playerPauseToggle);
+  playerSkip.addEventListener('click', ()=> {
+    clearInterval(timerInterval);
+    if (isResting) {
+      // During rest period - skip to next set/exercise
+      const workout = WORKOUTS[currentWorkoutIndex];
+      const currentEx = workout.exercises[currentExerciseIndex];
+      if (currentSet < (currentEx.sets || 1)) {
+        speak('Skipping rest. Starting next set.');
+        currentSet++;
+        isResting = false;
+        updatePlayerForExercise(currentExerciseIndex);
+        const isRepBased = currentEx.reps && currentEx.reps > 0;
+        if (!isRepBased) {
+          startPlayerTimer();
+        }
+      } else {
+        speak('Skipping to next exercise');
+        playerNext();
+      }
+    } else {
+      speak('Skipping to next exercise');
+      playerNext();
+    }
+  });
+  playerClose.addEventListener('click', ()=> {
+    clearInterval(timerInterval);
+    try{ speechSynthesis.cancel(); }catch(e){}
+    // return to detail (same workout)
+    openDetail(currentWorkoutIndex);
+  });
+  // Voice mute/unmute toggle
+  playerVoice.addEventListener('click', ()=> {
+    voiceEnabled = !voiceEnabled;
+    updateVoiceButtonUI();
+    if (!voiceEnabled) {
+      try{ speechSynthesis.cancel(); }catch(e){}
+    }
+  });
+  
+  // Voice gender toggle
+  playerVoiceGender.addEventListener('click', ()=> {
+    voiceGender = voiceGender === 'female' ? 'male' : 'female';
+    updateVoiceGenderUI();
+  });
+  
+  function updateVoiceButtonUI() {
+    if (voiceEnabled) {
+      playerVoice.className = 'p-2 rounded-lg transition-colors bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300';
+      playerVoiceIcon.innerHTML = '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>';
+      playerVoice.title = 'Mute voice';
+    } else {
+      playerVoice.className = 'p-2 rounded-lg transition-colors bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300';
+      playerVoiceIcon.innerHTML = '<path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>';
+      playerVoice.title = 'Unmute voice';
+    }
+  }
+  
+  function updateVoiceGenderUI() {
+    voiceGenderText.textContent = voiceGender === 'female' ? '♀' : '♂';
+    playerVoiceGender.title = `Switch to ${voiceGender === 'female' ? 'male' : 'female'} voice`;
+  }
+  
+  // Initialize UI
+  updateVoiceButtonUI();
+  updateVoiceGenderUI();
+
+  function speak(text){
+    if (!voiceEnabled) return;
+    if (!('speechSynthesis' in window)) return;
+    const u = new SpeechSynthesisUtterance(text);
+    const voices = speechSynthesis.getVoices();
+    
+    if (voices && voices.length) {
+      // Try to find a voice matching the selected gender
+      let selectedVoice = null;
+      
+      if (voiceGender === 'female') {
+        selectedVoice = voices.find(voice => 
+          voice.name.toLowerCase().includes('female') ||
+          voice.name.toLowerCase().includes('woman') ||
+          voice.name.toLowerCase().includes('samantha') ||
+          voice.name.toLowerCase().includes('susan') ||
+          voice.name.toLowerCase().includes('karen') ||
+          voice.name.toLowerCase().includes('zira')
+        );
+      } else {
+        selectedVoice = voices.find(voice => 
+          voice.name.toLowerCase().includes('male') ||
+          voice.name.toLowerCase().includes('man') ||
+          voice.name.toLowerCase().includes('david') ||
+          voice.name.toLowerCase().includes('mark') ||
+          voice.name.toLowerCase().includes('daniel')
+        );
+      }
+      
+      // Fallback to first available voice if no gender-specific voice found
+      u.voice = selectedVoice || voices[0];
+    }
+    
+    u.rate = 1;
+    try{ speechSynthesis.cancel(); }catch(e){}
+    speechSynthesis.speak(u);
+  }
+
+  // keyboard support
+  window.addEventListener('keydown', (e)=> {
+    // global shortcuts only when player visible
+    if (!viewPlayer.classList.contains('active-view')) return;
+    if (e.key === ' ') { e.preventDefault(); playerPause.click(); }
+    if (e.key === 'ArrowRight') { e.preventDefault(); playerSkip.click(); }
+    if (e.key === 'Escape') { e.preventDefault(); playerClose.click(); }
+  });
+
+  // small helpers
+  function formatTimeShort(s){ return `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}`; }
+
+  // Initial render
+  renderWorkouts();
+
+  // preload voices (some browsers require gesture)
+  if ('speechSynthesis' in window) { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices(); }
+
+  </script>
+</body>
+</html>
