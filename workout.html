@@ -65,7 +65,7 @@
     <!-- VIEW: Workouts List (default) -->
     <section id="view-list" class="active-view">
       <header class="mb-4">
-          <h1 class="text-3xl font-bold text-gray-800 dark:text-gray-200">🏋️ Workouts</h1>
+          <h1 class="text-3xl font-bold text-gray-800 dark:text-gray-200">🏃Workouts</h1>
           <p class="text-gray-600 dark:text-gray-400 mt-2">Choose your training for today</p>
         </header>
 
@@ -151,7 +151,7 @@
               <source src="" type="video/mp4">
             </video>
             <div id="player-animation-fallback" class="text-center text-gray-300">
-              <div style="font-size:44px">🏃‍♂️</div>
+              <div style="font-size:44px">🏋️</div>
               <div class="mt-3 text-sm">Exercise Animation</div>
             </div>
           </div>
@@ -192,7 +192,7 @@
   const WORKOUTS = [
     // BEGINNER WORKOUTS
     {
-      title:'Beginner Upper Body',
+      title:'Upper Body',
       desc:'Introduction to upper body strength with basic movements',
       duration:'18 min',
       difficulty:'beginner',
@@ -207,7 +207,7 @@
     },
 
     {
-      title:'Beginner Lower Body',
+      title:'Lower Body',
       desc:'Build lower body strength with basic movements',
       duration:'22 min',
       difficulty:'beginner',
@@ -223,7 +223,7 @@
     },
 
     {
-      title:'Beginner Full Body',
+      title:'Full Body',
       desc:'Complete body workout with gentle movements',
       duration:'25 min',
       difficulty:'beginner',
@@ -240,7 +240,7 @@
 
     // INTERMEDIATE WORKOUTS
     {
-      title:'Intermediate Upper Body',
+      title:'Upper Body',
       desc:'Build strength in chest, arms, and shoulders',
       duration:'25 min',
       difficulty:'intermediate',
@@ -256,7 +256,7 @@
     },
 
     {
-      title:'Intermediate Lower Body',
+      title:'Lower Body',
       desc:'Advanced lower body training with dynamic movements',
       duration:'28 min',
       difficulty:'intermediate',
@@ -272,7 +272,7 @@
     },
 
     {
-      title:'Intermediate Full Body',
+      title:'Full Body',
       desc:'High-intensity workout targeting all major muscle groups',
       duration:'32 min',
       difficulty:'intermediate',
@@ -289,7 +289,7 @@
 
     // ADVANCED WORKOUTS
     {
-      title:'Advanced Upper Body',
+      title:'Upper Body',
       desc:'Intense upper body strength and endurance training',
       duration:'35 min',
       difficulty:'advanced',
@@ -305,7 +305,7 @@
     },
 
     {
-      title:'Advanced Lower Body',
+      title:'Lower Body',
       desc:'Elite lower body power and strength development',
       duration:'38 min',
       difficulty:'advanced',
@@ -321,7 +321,7 @@
     },
 
     {
-      title:'Advanced Full Body',
+      title:'Full Body',
       desc:'Ultimate full body challenge for elite fitness',
       duration:'40 min',
       difficulty:'advanced',
@@ -472,10 +472,10 @@
     detailExList.innerHTML = '';
     wx.exercises.forEach((ex, i) => {
       const el = document.createElement('div');
-      el.className = 'flex items-center justify-between p-4 bg-white dark:bg-gray-800 rounded-xl shadow-md';
+      el.className = 'p-4 bg-white dark:bg-gray-800 rounded-xl shadow-md';
       el.innerHTML = `
-        <div class="flex items-center gap-4">
-          <div class="w-12 h-12 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700 overflow-hidden">
+        <div class="flex items-start gap-3">
+          <div class="w-12 h-12 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700 overflow-hidden flex-shrink-0">
             ${ex.animation ? 
               `<video class="w-full h-full object-cover" autoplay loop muted>
                  <source src="./animations/${ex.animation}" type="video/mp4">
@@ -483,32 +483,36 @@
               `<div class="w-8 h-8 flex items-center justify-center rounded-full bg-blue-500 font-bold text-white text-xs">${i+1}</div>`
             }
           </div>
-          <div class="flex-1">
-             <h3 class="font-semibold text-gray-900 dark:text-white">${ex.title}</h3>
-             <p class="text-pink-500 text-sm">${ex.muscles}</p>
-             <div class="flex items-center gap-4 mt-2">
+          <div class="flex-1 min-w-0">
+             <div class="flex items-start justify-between gap-2 mb-2">
+               <div class="flex-1 min-w-0">
+                 <h3 class="font-semibold text-gray-900 dark:text-white truncate">${ex.title}</h3>
+                 <p class="text-pink-500 text-sm">${ex.muscles}</p>
+               </div>
+               <button class="text-xs px-2 py-1 rounded-md bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white flex-shrink-0" data-info="${i}">ℹ️</button>
+             </div>
+             <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                <div class="flex items-center gap-1">
-                 <span class="text-gray-600 dark:text-gray-400 text-xs">Sets:</span>
-                 <input type="number" min="1" max="10" value="${ex.sets}" class="w-12 px-1 py-0.5 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white" onchange="updateExercise(${i}, 'sets', this.value)">
+                 <span class="text-gray-600 dark:text-gray-400">Sets:</span>
+                 <input type="number" min="1" max="10" value="${ex.sets}" class="w-10 px-1 py-0.5 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white" onchange="updateExercise(${i}, 'sets', this.value)">
                </div>
                ${ex.reps > 0 ? 
                  `<div class="flex items-center gap-1">
-                   <span class="text-gray-600 dark:text-gray-400 text-xs">Reps:</span>
-                   <input type="number" min="1" max="100" value="${ex.reps}" class="w-12 px-1 py-0.5 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white" onchange="updateExercise(${i}, 'reps', this.value)">
+                   <span class="text-gray-600 dark:text-gray-400">Reps:</span>
+                   <input type="number" min="1" max="100" value="${ex.reps}" class="w-10 px-1 py-0.5 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white" onchange="updateExercise(${i}, 'reps', this.value)">
                  </div>` :
                  `<div class="flex items-center gap-1">
-                   <span class="text-gray-600 dark:text-gray-400 text-xs">Time:</span>
+                   <span class="text-gray-600 dark:text-gray-400">Time:</span>
                    <input type="number" min="5" max="300" step="5" value="${ex.durationSeconds}" class="w-12 px-1 py-0.5 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white" onchange="updateExercise(${i}, 'durationSeconds', this.value)">s
                  </div>`
                }
                <div class="flex items-center gap-1">
-                 <span class="text-gray-600 dark:text-gray-400 text-xs">Rest:</span>
+                 <span class="text-gray-600 dark:text-gray-400">Rest:</span>
                  <input type="number" min="0" max="180" step="5" value="${ex.rest}" class="w-12 px-1 py-0.5 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white" onchange="updateExercise(${i}, 'rest', this.value)">s
                </div>
              </div>
            </div>
         </div>
-        <button class="text-sm px-3 py-1 rounded-md bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white" data-info="${i}">Info</button>
       `;
       detailExList.appendChild(el);
     });
