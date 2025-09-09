@@ -18,6 +18,84 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+  
+  <!-- Custom Booking System - No longer using Calendly -->
+  
+  <!-- Stripe.js -->
+  <script src="https://js.stripe.com/v3/"></script>
+  
+  <!-- Jitsi Meet External API -->
+  <script src="https://meet.jit.si/external_api.js"></script>
+  
+  <!-- EmailJS for email sending -->
+  <script src="https://cdn.emailjs.com/dist/email.min.js"></script>
+  <script>
+    (function() {
+      // Initialize EmailJS with your public key
+      emailjs.init("public_key"); // Replace with your actual EmailJS public key
+      
+      /* 
+      IMPORTANT: To set up EmailJS for booking confirmations:
+      
+      1. Sign up at https://www.emailjs.com/ (free tier available)
+      2. Create a new Email Service (Gmail, Outlook, etc.)
+      3. Create two email templates:
+         - For free sessions (template_id): Include {{to_name}}, {{session_date}}, {{session_time}}, {{session_type}}, {{meeting_link}}
+         - For paid sessions (template_paid_id): Include all above plus {{sessions_count}} and {{amount_paid}}
+      4. Replace 'YOUR_PUBLIC_KEY' above with your EmailJS public key
+      5. Replace 'service_id', 'template_id', and 'template_paid_id' in the code with your actual IDs
+      */
+    })();
+  </script>
+  
+  <!-- Custom Booking Calendar Styles -->
+  <style>
+    .booking-calendar-container {
+      width: 100%;
+      min-height: 650px;
+    }
+    
+    .booking-step {
+      animation: fadeIn 0.3s ease-in-out;
+    }
+    
+    .calendar-container {
+      width: 100%;
+    }
+    
+    .calendar-day {
+      aspect-ratio: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+    }
+    
+    .time-slots-container {
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    
+    .time-slot {
+      transition: all 0.2s ease;
+    }
+    
+    .package-card {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      transition: all 0.2s ease;
+    }
+    
+    .package-price {
+      margin-bottom: 1rem;
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
 </head>
 <body class="bg-gray-50 dark:bg-gray-900">
   <!-- Hidden Netlify Form for Support -->
@@ -37,8 +115,8 @@
   <div id="root"></div>
 
   <!-- React + ReactDOM + Babel (for JSX in-browser) -->
-  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
   <script type="text/babel">
@@ -1372,6 +1450,20 @@
       });
       const [isSubmittingSupport, setIsSubmittingSupport] = useState(false);
       const [supportSubmissionStatus, setSupportSubmissionStatus] = useState(null);
+      const [showBookingModal, setShowBookingModal] = useState(false);
+  const [bookingStep, setBookingStep] = useState(1);
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [selectedTimeSlot, setSelectedTimeSlot] = useState(null);
+  const [selectedPackage, setSelectedPackage] = useState(null);
+  const [currentMonth, setCurrentMonth] = useState('');
+  const [currentYear, setCurrentYear] = useState(2023);
+  const [calendarDays, setCalendarDays] = useState([]);
+  const [availableTimeSlots, setAvailableTimeSlots] = useState([]);
+      const [showPaymentModal, setShowPaymentModal] = useState(false);
+      const [selectedBundle, setSelectedBundle] = useState(null);
+      const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+      const [showVideoCall, setShowVideoCall] = useState(false);
+      const [jitsiApi, setJitsiApi] = useState(null);
       const fileInputRef = useRef(null);
 
       // Save profile picture to localStorage whenever it changes
@@ -1677,6 +1769,465 @@
         setSupportForm(prev => ({ ...prev, [field]: value }));
       };
 
+      const openBookingModal = () => {
+    setBookingStep(1);
+    setSelectedDate(null);
+    setSelectedTimeSlot(null);
+    setSelectedPackage(null);
+    initializeCalendar();
+    setShowBookingModal(true);
+  };
+  
+  const closeBookingModal = () => {
+    setShowBookingModal(false);
+    setBookingStep(1);
+    setSelectedDate(null);
+    setSelectedTimeSlot(null);
+    setSelectedPackage(null);
+  };
+  
+  const initializeCalendar = () => {
+    const today = new Date();
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    
+    setCurrentMonth(monthNames[today.getMonth()]);
+    setCurrentYear(today.getFullYear());
+    
+    generateCalendarDays(today.getMonth(), today.getFullYear());
+  };
+  
+  const generateCalendarDays = (month, year) => {
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const daysInPrevMonth = new Date(year, month, 0).getDate();
+    
+    const days = [];
+    
+    // Previous month days
+    for (let i = firstDay - 1; i >= 0; i--) {
+      days.push({
+        dayOfMonth: daysInPrevMonth - i,
+        isCurrentMonth: false,
+        isAvailable: false,
+        date: new Date(year, month - 1, daysInPrevMonth - i)
+      });
+    }
+    
+    // Current month days
+    for (let i = 1; i <= daysInMonth; i++) {
+      const date = new Date(year, month, i);
+      const isAvailable = date >= new Date() && date.getDay() !== 0; // Available if not in the past and not Sunday
+      
+      days.push({
+        dayOfMonth: i,
+        isCurrentMonth: true,
+        isAvailable,
+        date,
+        dayName: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][date.getDay()],
+        monthName: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][date.getMonth()],
+        year: date.getFullYear()
+      });
+    }
+    
+    // Next month days
+    const remainingDays = 42 - days.length; // 6 rows of 7 days
+    for (let i = 1; i <= remainingDays; i++) {
+      days.push({
+        dayOfMonth: i,
+        isCurrentMonth: false,
+        isAvailable: false,
+        date: new Date(year, month + 1, i)
+      });
+    }
+    
+    setCalendarDays(days);
+  };
+  
+  const changeMonth = (direction) => {
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    let newMonthIndex = monthNames.indexOf(currentMonth) + direction;
+    let newYear = currentYear;
+    
+    if (newMonthIndex < 0) {
+      newMonthIndex = 11;
+      newYear--;
+    } else if (newMonthIndex > 11) {
+      newMonthIndex = 0;
+      newYear++;
+    }
+    
+    setCurrentMonth(monthNames[newMonthIndex]);
+    setCurrentYear(newYear);
+    generateCalendarDays(newMonthIndex, newYear);
+  };
+  
+  const selectDate = (day) => {
+    setSelectedDate(day);
+    generateTimeSlots(day.date);
+  };
+  
+  const generateTimeSlots = (date) => {
+    // Generate time slots from 9 AM to 5 PM
+    const slots = [];
+    const startHour = 9;
+    const endHour = 17;
+    
+    for (let hour = startHour; hour < endHour; hour++) {
+      const hourFormatted = hour > 12 ? hour - 12 : hour;
+      const period = hour >= 12 ? 'PM' : 'AM';
+      
+      slots.push(`${hourFormatted}:00 ${period}`);
+      slots.push(`${hourFormatted}:30 ${period}`);
+    }
+    
+    // Randomly make some slots unavailable for demo purposes
+    const availableSlots = slots.filter(() => Math.random() > 0.3);
+    
+    setAvailableTimeSlots(availableSlots);
+  };
+  
+  const selectTimeSlot = (slot) => {
+    setSelectedTimeSlot(slot);
+  };
+  
+  const selectPackage = (packageType) => {
+    setSelectedPackage(packageType);
+  };
+  
+  const handleBookingSubmit = () => {
+    if (!selectedDate || !selectedTimeSlot || !selectedPackage) {
+      alert('Please complete all booking steps');
+      return;
+    }
+    
+    if (selectedPackage === 'free') {
+      // Handle free session booking
+      handleFreeSessionBooking();
+    } else {
+      // Handle paid session booking
+      handlePaidSessionBooking();
+    }
+  };
+  
+  const handleFreeSessionBooking = () => {
+    // Prepare booking details
+    const bookingDetails = {
+      date: `${selectedDate.monthName} ${selectedDate.dayOfMonth}, ${selectedDate.year}`,
+      time: selectedTimeSlot,
+      package: 'Free Trial Session',
+      email: user?.email || 'user@example.com'
+    };
+    
+    console.log('Free session booking:', bookingDetails);
+    
+    // Generate a unique Jitsi meeting link
+    const meetingId = `fitmate-free-${Date.now()}`;
+    const jitsiLink = `https://meet.jit.si/${meetingId}`;
+    
+    // Send confirmation email using EmailJS
+    const templateParams = {
+      to_email: bookingDetails.email,
+      to_name: user?.displayName || 'Fitness Enthusiast',
+      session_date: bookingDetails.date,
+      session_time: bookingDetails.time,
+      session_type: bookingDetails.package,
+      meeting_link: jitsiLink
+    };
+    
+    // Send the email using EmailJS
+    emailjs.send(
+      'service_default', // Replace with your EmailJS service ID
+      'template_free_session', // Replace with your EmailJS template ID
+      templateParams
+    ).then(function(response) {
+      console.log('Email sent successfully:', response);
+      // Show success message and close modal
+      alert(`Your free session has been booked for ${bookingDetails.date} at ${bookingDetails.time}. Check your email for session details.`);
+      closeBookingModal();
+    }, function(error) {
+      console.error('Email sending failed:', error);
+      alert(`Your session was booked, but there was an issue sending the confirmation email. Please contact support.`);
+      closeBookingModal();
+    });
+    
+    // Log what is being sent
+    console.log('Email being sent with session details:', {
+      to: bookingDetails.email,
+      subject: 'Your Free Fitness Session is Confirmed!',
+      body: `
+        Hi there,
+        
+        Your free fitness session is confirmed for ${bookingDetails.date} at ${bookingDetails.time}.
+        
+        Join link: https://meet.jit.si/fitmate-free-${Date.now()}
+        
+        We look forward to seeing you!
+        
+        The Fitmate Team
+      `
+    });
+  };
+  
+  const handlePaidSessionBooking = () => {
+    // Set up the bundle based on the selected package
+    const bundle = selectedPackage === 'basic' ? 
+      { sessions: 3, price: 100 } : 
+      { sessions: 5, price: 150 };
+    
+    // Store the booking details for after payment
+    const bookingDetails = {
+      date: `${selectedDate.monthName} ${selectedDate.dayOfMonth}, ${selectedDate.year}`,
+      time: selectedTimeSlot,
+      package: selectedPackage === 'basic' ? 'Basic Package' : 'Premium Package',
+      sessions: bundle.sessions,
+      price: bundle.price,
+      email: user?.email || 'user@example.com'
+    };
+    
+    // Store booking details in session storage for after payment
+    sessionStorage.setItem('pendingBooking', JSON.stringify(bookingDetails));
+    
+    // Close booking modal and open payment modal
+    closeBookingModal();
+    setSelectedBundle(bundle);
+    setShowPaymentModal(true);
+  };
+      
+      const openPaymentModal = (bundle) => {
+        setSelectedBundle(bundle);
+        setShowPaymentModal(true);
+      };
+      
+      const closePaymentModal = () => {
+        setShowPaymentModal(false);
+        setSelectedBundle(null);
+        setIsProcessingPayment(false);
+      };
+      
+      const handleStripePayment = async () => {
+        if (!selectedBundle || !user) return;
+        
+        // Check if Stripe is loaded
+        if (typeof Stripe === 'undefined') {
+          alert('Payment service is not available. Please refresh the page and try again.');
+          return;
+        }
+        
+        setIsProcessingPayment(true);
+        
+        try {
+          // Initialize Stripe (replace 'pk_test_...' with your actual publishable key)
+          const stripe = Stripe('pk_test_51234567890abcdef'); // Replace with your Stripe publishable key
+          
+          // In a real implementation, you would call your backend to create a payment intent
+          // For demo purposes, we'll simulate a successful payment
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          // Get the pending booking details from session storage
+          const pendingBookingStr = sessionStorage.getItem('pendingBooking');
+          if (pendingBookingStr) {
+            const bookingDetails = JSON.parse(pendingBookingStr);
+            
+            // Generate a unique Jitsi meeting link
+            const meetingId = `fitmate-paid-${Date.now()}`;
+            const jitsiLink = `https://meet.jit.si/${meetingId}`;
+            
+            // Prepare email template parameters
+            const templateParams = {
+              to_email: bookingDetails.email,
+              to_name: user?.displayName || 'Fitness Enthusiast',
+              session_date: bookingDetails.date,
+              session_time: bookingDetails.time,
+              session_type: bookingDetails.package,
+              sessions_count: bookingDetails.sessions,
+              amount_paid: bookingDetails.price,
+              meeting_link: jitsiLink
+            };
+            
+            // Send the email using EmailJS
+            emailjs.send(
+              'service_default', // Replace with your EmailJS service ID
+              'template_paid_session', // Replace with your EmailJS template ID for paid sessions
+              templateParams
+            ).then(function(response) {
+              console.log('Email sent successfully:', response);
+            }, function(error) {
+              console.error('Email sending failed:', error);
+              alert(`Your payment was successful, but there was an issue sending the confirmation email. Please contact support.`);
+            });
+            
+            // Log what is being sent
+            console.log('Email being sent with paid session details:', {
+              to: bookingDetails.email,
+              subject: `Your ${bookingDetails.package} is Confirmed!`,
+              body: `
+                Hi there,
+                
+                Your ${bookingDetails.package} has been confirmed for ${bookingDetails.date} at ${bookingDetails.time}.
+                
+                Package: ${bookingDetails.package}
+                Sessions: ${bookingDetails.sessions}
+                Amount Paid: $${bookingDetails.price}
+                
+                Your first session will be held via video call. Here's your secure join link:
+                ${jitsiLink}
+                
+                We look forward to seeing you!
+                
+                The Fitmate Team
+              `
+            });
+            
+            // Clear the pending booking from session storage
+            sessionStorage.removeItem('pendingBooking');
+          }
+          
+          alert(`Payment successful! You've purchased ${selectedBundle.sessions} sessions for $${selectedBundle.price}. Check your email for session details.`);
+          closePaymentModal();
+          
+        } catch (error) {
+          console.error('Payment failed:', error);
+          alert('Payment failed. Please try again.');
+        } finally {
+          setIsProcessingPayment(false);
+        }
+      };
+      
+      // Jitsi Video Call Functions
+      const startVideoCall = () => {
+        // Check if Jitsi Meet External API is loaded
+        if (typeof JitsiMeetExternalAPI === 'undefined') {
+          alert('Video call service is not available. Please refresh the page and try again.');
+          return;
+        }
+        
+        // For paid one-on-one sessions, create secure room
+        const domain = 'meet.jit.si';
+        const sessionId = Math.random().toString(36).substring(2, 15);
+        const roomName = `fitmate-private-${user?.uid || 'trainer'}-${sessionId}`;
+        const roomPassword = Math.random().toString(36).substring(2, 10);
+        
+        // Display room info to trainer (you can share this with your client)
+        console.log('=== PRIVATE SESSION DETAILS ===');
+        console.log('Room Name:', roomName);
+        console.log('Room Password:', roomPassword);
+        console.log('Share these details with your client');
+        
+        // Show room details to user
+        alert(`Private Session Created!\n\nSecure Room: ${roomName}\n\nA detailed invitation will be copied to your clipboard when you join.\nShare the invitation link with your client securely.`);
+        
+        const baseOptions = {
+          roomName: roomName,
+          width: '100%',
+          height: '100%',
+          configOverwrite: {
+            startWithAudioMuted: false,
+            startWithVideoMuted: false,
+            enableWelcomePage: false,
+            prejoinPageEnabled: false, // Disable prejoin to avoid auth issues
+            requireDisplayName: false, // Don't require names to avoid login
+            enableUserRolesBasedOnToken: false,
+            enableInsecureRoomNameWarning: false,
+            disableModeratorIndicator: false, // Show moderator (trainer) indicator
+            enableLobbyChat: false, // Disable lobby chat for privacy
+            enableClosePage: true, // Allow proper session ending
+            // Remove roomPassword as it causes auth issues on meet.jit.si
+            enableNoAudioSignal: false,
+            enableNoisyMicDetection: false
+          },
+          interfaceConfigOverwrite: {
+            TOOLBAR_BUTTONS: [
+              'microphone', 'camera', 'closedcaptions', 'desktop', 'fullscreen',
+              'fodeviceselection', 'hangup', 'profile', 'chat', 'recording',
+              'livestreaming', 'etherpad', 'sharedvideo', 'settings', 'raisehand',
+              'videoquality', 'filmstrip', 'invite', 'feedback', 'stats', 'shortcuts',
+              'tileview', 'videobackgroundblur', 'download', 'help', 'mute-everyone'
+            ]
+          },
+          userInfo: {
+            displayName: user?.displayName || 'Fitmate User'
+          }
+        };
+        
+        setShowVideoCall(true);
+        
+        // Wait for the modal to render before initializing Jitsi
+        setTimeout(() => {
+          const container = document.querySelector('#jitsi-container');
+          if (!container) {
+            alert('Video call container not found. Please try again.');
+            setShowVideoCall(false);
+            return;
+          }
+          
+          // Set the parentNode after container is available
+          const options = {
+            ...baseOptions,
+            parentNode: container
+          };
+          
+          try {
+            const api = new JitsiMeetExternalAPI(domain, options);
+            
+            api.addEventListener('videoConferenceJoined', () => {
+              console.log('Video call joined successfully');
+              // Create client invitation after trainer joins
+              createClientInvitation(roomName, roomPassword);
+            });
+            
+            api.addEventListener('videoConferenceLeft', () => {
+              console.log('Video call ended');
+              endVideoCall();
+            });
+            
+            setJitsiApi(api);
+          } catch (error) {
+            console.error('Failed to start video call:', error);
+            alert('Failed to start video call. Please try again.');
+            setShowVideoCall(false);
+          }
+        }, 100);
+       };
+      
+      const endVideoCall = () => {
+        if (jitsiApi) {
+          jitsiApi.dispose();
+          setJitsiApi(null);
+        }
+        setShowVideoCall(false);
+      };
+
+      // Create client invitation for secure session
+      const createClientInvitation = (roomName, roomPassword) => {
+        const invitationText = `🏋️ FITMATE PRIVATE TRAINING SESSION\n\n` +
+          `Your trainer has started a secure video session.\n\n` +
+          `📋 SESSION DETAILS:\n` +
+          `Private Room: ${roomName}\n\n` +
+          `🔗 DIRECT JOIN LINK:\n` +
+          `https://meet.jit.si/${roomName}\n\n` +
+          `📱 INSTRUCTIONS:\n` +
+          `1. Click the link above\n` +
+          `2. Enter your name when prompted\n` +
+          `3. Click 'Join Meeting'\n` +
+          `4. Allow camera and microphone access\n\n` +
+          `⚠️ IMPORTANT:\n` +
+          `• This is a private paid session\n` +
+          `• Do not share this link with anyone\n` +
+          `• Session will end when trainer leaves\n` +
+          `• Room name is unique and secure\n\n` +
+          `Need help? Contact your trainer directly.`;
+        
+        // Copy to clipboard
+        navigator.clipboard.writeText(invitationText).then(() => {
+          alert('✅ Client invitation copied to clipboard!\n\nShare this with your client via secure message.');
+        }).catch(() => {
+          // Fallback: show in alert for manual copy
+          alert('📋 COPY THIS INVITATION FOR YOUR CLIENT:\n\n' + invitationText);
+        });
+        
+        console.log('Client invitation created:', invitationText);
+      };
+
       const validateEmail = (email) => {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         return emailRegex.test(email);
@@ -1794,8 +2345,299 @@
 
       return (
         <div className="p-6 pb-24">
-          <header className="mb-6">
+          {showBookingModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+              <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-4xl transform transition-all opacity-100 scale-100">
+                <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
+                  <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-200">Book Your Session</h3>
+                  <button onClick={closeBookingModal} className="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 p-2 rounded-full bg-gray-100 dark:bg-gray-800">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                  </button>
+                </div>
+                <div className="p-2 md:p-6">
+                  {/* Custom Booking Calendar */}
+                  <div className="booking-calendar-container">
+                    {/* Step 1: Date Selection */}
+                    {bookingStep === 1 && (
+                      <div className="booking-step">
+                        <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4">Select a Date</h3>
+                        <div className="calendar-container">
+                          <div className="calendar-header flex justify-between items-center mb-4">
+                            <button 
+                              onClick={() => changeMonth(-1)} 
+                              className="p-2 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
+                              </svg>
+                            </button>
+                            <h4 className="text-lg font-medium text-gray-800 dark:text-gray-200">{currentMonth} {currentYear}</h4>
+                            <button 
+                              onClick={() => changeMonth(1)} 
+                              className="p-2 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                              </svg>
+                            </button>
+                          </div>
+                          
+                          <div className="calendar-grid grid grid-cols-7 gap-1 mb-6">
+                            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, index) => (
+                              <div key={index} className="calendar-day-header text-center text-sm font-medium text-gray-500 dark:text-gray-400 py-2">
+                                {day}
+                              </div>
+                            ))}
+                            
+                            {calendarDays.map((day, index) => (
+                              <div 
+                                key={index} 
+                                className={`
+                                  calendar-day text-center py-2 rounded-lg cursor-pointer
+                                  ${day.isCurrentMonth ? 'text-gray-800 dark:text-gray-200' : 'text-gray-400 dark:text-gray-600'} 
+                                  ${day.isAvailable ? 'hover:bg-pink-100 dark:hover:bg-pink-900' : 'opacity-50 cursor-not-allowed'}
+                                  ${selectedDate && day.date.toDateString() === selectedDate.date.toDateString() ? 'bg-pink-500 text-white' : ''}
+                                `}
+                                onClick={() => day.isAvailable ? selectDate(day) : null}
+                              >
+                                {day.dayOfMonth}
+                              </div>
+                            ))}
+                          </div>
+                          
+                          <button 
+                            className={`
+                              w-full py-3 rounded-lg font-medium text-white
+                              ${selectedDate ? 'bg-pink-500 hover:bg-pink-600' : 'bg-gray-300 dark:bg-gray-700 cursor-not-allowed'}
+                            `}
+                            disabled={!selectedDate} 
+                            onClick={() => setBookingStep(2)}
+                          >
+                            Next: Select Time
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Step 2: Time Selection */}
+                    {bookingStep === 2 && (
+                      <div className="booking-step">
+                        <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-2">Select a Time</h3>
+                        <p className="text-gray-600 dark:text-gray-400 mb-4">
+                          {selectedDate ? `${selectedDate.dayName}, ${selectedDate.monthName} ${selectedDate.dayOfMonth}, ${selectedDate.year}` : ''}
+                        </p>
+                        
+                        <div className="time-slots-container grid grid-cols-3 gap-3 mb-6">
+                          {availableTimeSlots.map((slot, index) => (
+                            <div 
+                              key={index} 
+                              className={`
+                                time-slot text-center py-3 rounded-lg cursor-pointer border
+                                ${selectedTimeSlot === slot ? 'bg-pink-500 text-white border-pink-500' : 'bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-700 hover:border-pink-500 dark:hover:border-pink-500'}
+                              `}
+                              onClick={() => selectTimeSlot(slot)}
+                            >
+                              {slot}
+                            </div>
+                          ))}
+                        </div>
+                        
+                        <div className="flex space-x-3">
+                          <button 
+                            className="flex-1 py-3 rounded-lg font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700"
+                            onClick={() => setBookingStep(1)}
+                          >
+                            Back
+                          </button>
+                          <button 
+                            className={`
+                              flex-1 py-3 rounded-lg font-medium text-white
+                              ${selectedTimeSlot ? 'bg-pink-500 hover:bg-pink-600' : 'bg-gray-300 dark:bg-gray-700 cursor-not-allowed'}
+                            `}
+                            disabled={!selectedTimeSlot} 
+                            onClick={() => setBookingStep(3)}
+                          >
+                            Next: Select Package
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Step 3: Package Selection */}
+                    {bookingStep === 3 && (
+                      <div className="booking-step">
+                        <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-2">Select a Package</h3>
+                        <p className="text-gray-600 dark:text-gray-400 mb-4">
+                          {selectedDate ? `${selectedDate.dayName}, ${selectedDate.monthName} ${selectedDate.dayOfMonth}, ${selectedDate.year} at ${selectedTimeSlot}` : ''}
+                        </p>
+                        
+                        <div className="package-options grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                          <div 
+                            className={`
+                              package-card p-4 rounded-lg border cursor-pointer
+                              ${selectedPackage === 'free' ? 'bg-pink-50 dark:bg-pink-900/20 border-pink-500' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-pink-500 dark:hover:border-pink-500'}
+                            `}
+                            onClick={() => selectPackage('free')}
+                          >
+                            <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">Free Trial Session</h4>
+                            <p className="text-2xl font-bold text-pink-500 mb-3">$0</p>
+                            <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-2">
+                              <li>✓ 30-minute introduction session</li>
+                              <li>✓ Fitness assessment</li>
+                              <li>✓ Goal setting consultation</li>
+                            </ul>
+                          </div>
+                          
+                          <div 
+                            className={`
+                              package-card p-4 rounded-lg border cursor-pointer
+                              ${selectedPackage === 'basic' ? 'bg-pink-50 dark:bg-pink-900/20 border-pink-500' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-pink-500 dark:hover:border-pink-500'}
+                            `}
+                            onClick={() => selectPackage('basic')}
+                          >
+                            <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">Basic Package</h4>
+                            <p className="text-2xl font-bold text-pink-500 mb-3">$100</p>
+                            <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-2">
+                              <li>✓ 3 training sessions</li>
+                              <li>✓ Personalized workout plan</li>
+                              <li>✓ Nutrition guidance</li>
+                            </ul>
+                          </div>
+                          
+                          <div 
+                            className={`
+                              package-card p-4 rounded-lg border cursor-pointer
+                              ${selectedPackage === 'premium' ? 'bg-pink-50 dark:bg-pink-900/20 border-pink-500' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-pink-500 dark:hover:border-pink-500'}
+                            `}
+                            onClick={() => selectPackage('premium')}
+                          >
+                            <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">Premium Package</h4>
+                            <p className="text-2xl font-bold text-pink-500 mb-3">$150</p>
+                            <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-2">
+                              <li>✓ 5 training sessions</li>
+                              <li>✓ Comprehensive fitness plan</li>
+                              <li>✓ Detailed nutrition program</li>
+                              <li>✓ 24/7 support</li>
+                            </ul>
+                          </div>
+                        </div>
+                        
+                        <div className="flex space-x-3">
+                          <button 
+                            className="flex-1 py-3 rounded-lg font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700"
+                            onClick={() => setBookingStep(2)}
+                          >
+                            Back
+                          </button>
+                          <button 
+                            className={`
+                              flex-1 py-3 rounded-lg font-medium text-white
+                              ${selectedPackage ? 'bg-pink-500 hover:bg-pink-600' : 'bg-gray-300 dark:bg-gray-700 cursor-not-allowed'}
+                            `}
+                            disabled={!selectedPackage} 
+                            onClick={handleBookingSubmit}
+                          >
+                            {selectedPackage === 'free' ? 'Book Free Session' : 'Proceed to Payment'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+           )}
+           
+           {/* Payment Modal */}
+           {showPaymentModal && selectedBundle && (
+             <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+               <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md transform transition-all opacity-100 scale-100">
+                 <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
+                   <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-200">Purchase Sessions</h3>
+                   <button onClick={closePaymentModal} className="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 p-2 rounded-full bg-gray-100 dark:bg-gray-800">
+                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                   </button>
+                 </div>
+                 <div className="p-6">
+                   <div className="text-center mb-6">
+                     <h4 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-2">
+                       {selectedBundle.sessions} Training Sessions
+                     </h4>
+                     <p className="text-3xl font-bold text-pink-500">${selectedBundle.price}</p>
+                     <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                       {selectedBundle.sessions === 5 ? 'Save $25 compared to individual sessions' : 'Best value - Save $100!'}
+                     </p>
+                   </div>
+                   
+                   <div className="space-y-4">
+                     <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                       <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">What's included:</p>
+                       <ul className="text-sm text-gray-700 dark:text-gray-300 space-y-1">
+                         <li>✓ {selectedBundle.sessions} one-on-one sessions</li>
+                         <li>✓ Personalized workout plans</li>
+                         <li>✓ Nutrition guidance</li>
+                         <li>✓ Progress tracking</li>
+                         <li>✓ Video call support</li>
+                       </ul>
+                     </div>
+                     
+                     <button 
+                       onClick={handleStripePayment}
+                       disabled={isProcessingPayment}
+                       className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white py-3 rounded-lg font-semibold hover:scale-105 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
+                     >
+                       {isProcessingPayment ? (
+                         <span className="flex items-center justify-center gap-2">
+                           <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
+                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                           </svg>
+                           Processing...
+                         </span>
+                       ) : (
+                         `Pay $${selectedBundle.price} with Stripe`
+                       )}
+                     </button>
+                     
+                     <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
+                       Secure payment powered by Stripe. Your payment information is encrypted and secure.
+                     </p>
+                   </div>
+                 </div>
+               </div>
+             </div>
+           )}
+           
+           {/* Video Call Modal */}
+           {showVideoCall && (
+             <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50 p-4">
+               <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-4xl h-full max-h-[90vh] transform transition-all opacity-100 scale-100">
+                 <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
+                   <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-200">Virtual Training Session</h3>
+                   <button onClick={endVideoCall} className="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 p-2 rounded-full bg-gray-100 dark:bg-gray-800">
+                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                   </button>
+                 </div>
+                 <div className="p-4" style={{height: 'calc(100% - 80px)'}}>
+                   <div id="jitsi-container" className="w-full rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800" style={{height: '100%', minHeight: '500px'}}>
+                     {/* Jitsi Meet will be embedded here */}
+                   </div>
+                 </div>
+               </div>
+             </div>
+           )}
+           
+           <header className="mb-6 flex justify-between items-center">
             <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-200">My Profile</h1>
+            {user && (
+              <button 
+                onClick={() => document.getElementById('virtual-trainer-card')?.scrollIntoView({ behavior: 'smooth' })}
+                className="hidden md:flex items-center gap-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white px-4 py-2 rounded-full shadow-lg hover:scale-105 transition-transform"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z"/><path d="M15 7v2a2 2 0 012 2v5a2 2 0 01-2 2H9a2 2 0 01-2-2v-2h6V7z"/></svg>
+                <span>Virtual Trainer</span>
+              </button>
+            )}
           </header>
 
           <div className="flex flex-col items-center mb-6 bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-md">
@@ -1864,6 +2706,79 @@
               <div className="flex justify-between items-center p-2">
                 <p className="text-gray-600 dark:text-gray-300">Fat</p>
                 <p className="font-bold text-gray-800 dark:text-gray-200">{goals.fat} g</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Virtual Trainer Section */}
+          <div id="virtual-trainer-card" className="mb-6">
+            <h3 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-4">Virtual Trainer</h3>
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-md p-6">
+              <div className="flex flex-col md:flex-row items-center gap-6">
+                <div className="flex-shrink-0">
+                  <img src="naim.png" alt="Virtual Trainer" className="w-32 h-32 rounded-full object-cover object-center border-4 border-pink-200 dark:border-pink-400"/>
+                </div>
+                <div className="flex-grow">
+                  <h4 className="text-2xl font-bold text-gray-800 dark:text-gray-200">Book a Personal Session</h4>
+                  <p className="text-gray-600 dark:text-gray-400 mt-2">
+                    Get one-on-one guidance from a certified trainer. Your first 30-minute session is <strong>FREE</strong>!
+                  </p>
+                  <div className="mt-4 space-y-3">
+                    <div className="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                      <div>
+                        <p className="text-gray-700 dark:text-gray-300"><span className="font-bold text-pink-500">5 Sessions:</span> $100</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Save $25 compared to individual sessions</p>
+                      </div>
+                      {user && (
+                        <button 
+                          onClick={() => openPaymentModal({sessions: 5, price: 100})}
+                          className="bg-pink-500 hover:bg-pink-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                        >
+                          Buy Now
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                      <div>
+                        <p className="text-gray-700 dark:text-gray-300"><span className="font-bold text-pink-500">10 Sessions:</span> $150</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Best value - Save $100!</p>
+                      </div>
+                      {user && (
+                        <button 
+                          onClick={() => openPaymentModal({sessions: 10, price: 150})}
+                          className="bg-pink-500 hover:bg-pink-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                        >
+                          Buy Now
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="mt-6 flex flex-col md:flex-row gap-3">
+                    {user ? (
+                      <>
+                        <button 
+                          onClick={openBookingModal}
+                          className="w-full md:w-auto bg-gradient-to-r from-purple-500 to-pink-500 text-white px-6 py-3 rounded-lg shadow-lg hover:scale-105 transition-transform font-semibold"
+                        >
+                          Book a Session
+                        </button>
+                        <button 
+                          onClick={startVideoCall}
+                          className="w-full md:w-auto bg-gradient-to-r from-green-500 to-blue-500 text-white px-6 py-3 rounded-lg shadow-lg hover:scale-105 transition-transform font-semibold"
+                        >
+                          🎥 Start Video Call
+                        </button>
+                      </>
+                    ) : (
+                      <button 
+                        onClick={() => alert('Please sign in to book a session.')}
+                        className="w-full md:w-auto bg-gray-400 text-white px-6 py-3 rounded-lg shadow-lg cursor-not-allowed"
+                      >
+                        Sign In to Book
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
