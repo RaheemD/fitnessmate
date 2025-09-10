@@ -28,11 +28,11 @@
   <script src="https://meet.jit.si/external_api.js"></script>
   
   <!-- EmailJS for email sending -->
-  <script src="https://cdn.emailjs.com/dist/email.min.js"></script>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
   <script>
     (function() {
       // Initialize EmailJS with your public key
-      emailjs.init("public_key"); // Replace with your actual EmailJS public key
+      emailjs.init("NBoWj-4wIbDY-qLS8"); // Replace with your actual EmailJS public key
       
       /* 
       IMPORTANT: To set up EmailJS for booking confirmations:
@@ -1459,11 +1459,16 @@
   const [currentYear, setCurrentYear] = useState(2023);
   const [calendarDays, setCalendarDays] = useState([]);
   const [availableTimeSlots, setAvailableTimeSlots] = useState([]);
-      const [showPaymentModal, setShowPaymentModal] = useState(false);
-      const [selectedBundle, setSelectedBundle] = useState(null);
-      const [isProcessingPayment, setIsProcessingPayment] = useState(false);
-      const [showVideoCall, setShowVideoCall] = useState(false);
-      const [jitsiApi, setJitsiApi] = useState(null);
+  
+  // Booking History State
+  const [bookingHistory, setBookingHistory] = useState([]);
+  const [isLoadingBookings, setIsLoadingBookings] = useState(false);
+  const [showBookingHistory, setShowBookingHistory] = useState(false);
+  const [showMeetingModal, setShowMeetingModal] = useState(false);
+  const [currentMeetingLink, setCurrentMeetingLink] = useState('');
+  const [bookedSlots, setBookedSlots] = useState([]);
+
+
       const fileInputRef = useRef(null);
 
       // Save profile picture to localStorage whenever it changes
@@ -1592,6 +1597,124 @@
           alert('✅ Successfully signed out!');
         } catch (error) {
           alert('❌ Error signing out: ' + error.message);
+        }
+      };
+
+      // Booking History Functions
+      // Check if a time slot is available across all users
+      const checkSlotAvailability = async (date, timeSlot) => {
+        if (!db) {
+          console.log('Database not available');
+          return false;
+        }
+        
+        try {
+          const usersRef = db.ref('users');
+          const snapshot = await usersRef.once('value');
+          const usersData = snapshot.val();
+          
+          if (!usersData) return true; // No bookings exist, slot is available
+          
+          // Check all users' bookings for the same date and time slot
+          for (const userId in usersData) {
+            const userBookings = usersData[userId].bookings;
+            if (userBookings) {
+              for (const bookingId in userBookings) {
+                const booking = userBookings[bookingId];
+                if (booking.date === date && booking.time === timeSlot && booking.status !== 'cancelled') {
+                  return false; // Slot is already booked
+                }
+              }
+            }
+          }
+          
+          return true; // Slot is available
+        } catch (error) {
+          console.error('Error checking slot availability:', error);
+          return false; // Assume unavailable on error for safety
+        }
+      };
+
+      // Fetch booked slots for a specific date
+      const fetchBookedSlotsForDate = async (date) => {
+        if (!db) {
+          console.log('Database not available');
+          return [];
+        }
+        
+        try {
+          const usersRef = db.ref('users');
+          const snapshot = await usersRef.once('value');
+          const usersData = snapshot.val();
+          
+          const bookedTimes = [];
+          
+          if (usersData) {
+            // Check all users' bookings for the same date
+            for (const userId in usersData) {
+              const userBookings = usersData[userId].bookings;
+              if (userBookings) {
+                for (const bookingId in userBookings) {
+                  const booking = userBookings[bookingId];
+                  if (booking.date === date && booking.status !== 'cancelled') {
+                    bookedTimes.push(booking.time);
+                  }
+                }
+              }
+            }
+          }
+          
+          return bookedTimes;
+        } catch (error) {
+          console.error('Error fetching booked slots:', error);
+          return [];
+        }
+      };
+
+      const fetchBookingHistory = async () => {
+        if (!user || !db) {
+          console.log('User not authenticated or database not available');
+          return;
+        }
+        
+        setIsLoadingBookings(true);
+        try {
+          const bookingsRef = db.ref(`users/${user.uid}/bookings`);
+          const snapshot = await bookingsRef.once('value');
+          const bookingsData = snapshot.val();
+          
+          if (bookingsData) {
+            // Convert Firebase object to array and sort by creation date (newest first)
+            const bookingsArray = Object.keys(bookingsData).map(key => ({
+              id: key,
+              ...bookingsData[key]
+            })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+            
+            setBookingHistory(bookingsArray);
+          } else {
+            setBookingHistory([]);
+          }
+        } catch (error) {
+          console.error('Error fetching booking history:', error);
+          alert('❌ Error loading booking history. Please try again.');
+        } finally {
+          setIsLoadingBookings(false);
+        }
+      };
+      
+      // Load booking history when user changes or component mounts
+      useEffect(() => {
+        if (user) {
+          fetchBookingHistory();
+        } else {
+          setBookingHistory([]);
+        }
+      }, [user]);
+      
+      const toggleBookingHistory = () => {
+        setShowBookingHistory(prev => !prev);
+        if (!showBookingHistory && bookingHistory.length === 0) {
+          fetchBookingHistory();
         }
       };
 
@@ -1861,12 +1984,12 @@
     generateCalendarDays(newMonthIndex, newYear);
   };
   
-  const selectDate = (day) => {
+  const selectDate = async (day) => {
     setSelectedDate(day);
-    generateTimeSlots(day.date);
+    await generateTimeSlots(day);
   };
   
-  const generateTimeSlots = (date) => {
+  const generateTimeSlots = async (day) => {
     // Generate time slots from 9 AM to 5 PM
     const slots = [];
     const startHour = 9;
@@ -1880,10 +2003,13 @@
       slots.push(`${hourFormatted}:30 ${period}`);
     }
     
-    // Randomly make some slots unavailable for demo purposes
-    const availableSlots = slots.filter(() => Math.random() > 0.3);
+    // Fetch booked slots for this date
+    const dateString = `${day.monthName} ${day.dayOfMonth}, ${day.year}`;
+    const bookedTimes = await fetchBookedSlotsForDate(dateString);
+    setBookedSlots(bookedTimes);
     
-    setAvailableTimeSlots(availableSlots);
+    // Show all slots but mark booked ones as unavailable
+    setAvailableTimeSlots(slots);
   };
   
   const selectTimeSlot = (slot) => {
@@ -1894,9 +2020,18 @@
     setSelectedPackage(packageType);
   };
   
-  const handleBookingSubmit = () => {
+  const handleBookingSubmit = async () => {
     if (!selectedDate || !selectedTimeSlot || !selectedPackage) {
       alert('Please complete all booking steps');
+      return;
+    }
+    
+    // Check slot availability before proceeding
+    const dateString = `${selectedDate.monthName} ${selectedDate.dayOfMonth}, ${selectedDate.year}`;
+    const isAvailable = await checkSlotAvailability(dateString, selectedTimeSlot);
+    
+    if (!isAvailable) {
+      alert('❌ Sorry, this time slot is already booked. Please select a different time.');
       return;
     }
     
@@ -1915,7 +2050,10 @@
       date: `${selectedDate.monthName} ${selectedDate.dayOfMonth}, ${selectedDate.year}`,
       time: selectedTimeSlot,
       package: 'Free Trial Session',
-      email: user?.email || 'user@example.com'
+      email: user?.email || prompt('Please enter your email address:') || 'user@example.com',
+      type: 'free',
+      sessions: 1,
+      price: 0
     };
     
     console.log('Free session booking:', bookingDetails);
@@ -1923,6 +2061,29 @@
     // Generate a unique Jitsi meeting link
     const meetingId = `fitmate-free-${Date.now()}`;
     const jitsiLink = `https://meet.jit.si/${meetingId}`;
+    
+    // Store booking in Firebase
+    if (user && db) {
+      const bookingData = {
+        ...bookingDetails,
+        meetingLink: jitsiLink,
+        userId: user.uid,
+        userName: user.displayName || 'User',
+        userEmail: user.email,
+        bookingId: meetingId,
+        createdAt: firebase.database.ServerValue.TIMESTAMP,
+        status: 'confirmed'
+      };
+      
+      // Save to user's bookings in Firebase
+      db.ref(`users/${user.uid}/bookings`).push(bookingData)
+        .then(() => {
+          console.log('Booking saved to Firebase successfully');
+        })
+        .catch((error) => {
+          console.error('Error saving booking to Firebase:', error);
+        });
+    }
     
     // Send confirmation email using EmailJS
     const templateParams = {
@@ -1936,8 +2097,8 @@
     
     // Send the email using EmailJS
     emailjs.send(
-      'service_default', // Replace with your EmailJS service ID
-      'template_free_session', // Replace with your EmailJS template ID
+      'service_94q9wl7', // Replace with your EmailJS service ID
+        'template_3oqo92k', // Replace with your EmailJS template ID
       templateParams
     ).then(function(response) {
       console.log('Email sent successfully:', response);
@@ -1971,262 +2132,80 @@
   const handlePaidSessionBooking = () => {
     // Set up the bundle based on the selected package
     const bundle = selectedPackage === 'basic' ? 
-      { sessions: 3, price: 100 } : 
-      { sessions: 5, price: 150 };
+      { sessions: 5, price: 100 } : 
+      { sessions: 10, price: 150 };
     
-    // Store the booking details for after payment
+    // Prepare booking details
     const bookingDetails = {
       date: `${selectedDate.monthName} ${selectedDate.dayOfMonth}, ${selectedDate.year}`,
       time: selectedTimeSlot,
       package: selectedPackage === 'basic' ? 'Basic Package' : 'Premium Package',
       sessions: bundle.sessions,
       price: bundle.price,
-      email: user?.email || 'user@example.com'
+      email: user?.email || prompt('Please enter your email address:') || 'user@example.com',
+      type: 'paid'
     };
     
-    // Store booking details in session storage for after payment
-    sessionStorage.setItem('pendingBooking', JSON.stringify(bookingDetails));
+    // Generate a unique Jitsi meeting link
+    const meetingId = `fitmate-paid-${Date.now()}`;
+    const jitsiLink = `https://meet.jit.si/${meetingId}`;
     
-    // Close booking modal and open payment modal
+    // Store booking in Firebase
+    if (user && db) {
+      const bookingData = {
+        ...bookingDetails,
+        meetingLink: jitsiLink,
+        userId: user.uid,
+        userName: user.displayName || 'User',
+        userEmail: user.email,
+        bookingId: meetingId,
+        createdAt: firebase.database.ServerValue.TIMESTAMP,
+        status: 'confirmed',
+        packageType: selectedPackage
+      };
+      
+      // Save to user's bookings in Firebase
+      db.ref(`users/${user.uid}/bookings`).push(bookingData)
+        .then(() => {
+          console.log('Paid booking saved to Firebase successfully');
+        })
+        .catch((error) => {
+          console.error('Error saving paid booking to Firebase:', error);
+        });
+    }
+    
+    // Prepare email template parameters
+    const templateParams = {
+      to_email: bookingDetails.email,
+      to_name: user?.displayName || 'Fitness Enthusiast',
+      session_date: bookingDetails.date,
+      session_time: bookingDetails.time,
+      session_type: bookingDetails.package,
+      sessions_count: bookingDetails.sessions,
+      amount_paid: bookingDetails.price,
+      meeting_link: jitsiLink
+    };
+    
+    // Send the email using EmailJS
+    emailjs.send(
+      'service_94q9wl7', // Replace with your EmailJS service ID
+      'template_3oqo92k', // Replace with your EmailJS template ID
+      templateParams
+    ).then(function(response) {
+      console.log('Email sent successfully:', response);
+      alert(`Booking confirmed! You've selected ${bookingDetails.sessions} sessions for $${bookingDetails.price}. Check your email for session details.`);
+    }, function(error) {
+      console.error('Email sending failed:', error);
+      alert('There was an issue sending the confirmation email. Please contact support.');
+    });
+    
+    // Close booking modal
     closeBookingModal();
-    setSelectedBundle(bundle);
-    setShowPaymentModal(true);
   };
       
-      const openPaymentModal = (bundle) => {
-        setSelectedBundle(bundle);
-        setShowPaymentModal(true);
-      };
-      
-      const closePaymentModal = () => {
-        setShowPaymentModal(false);
-        setSelectedBundle(null);
-        setIsProcessingPayment(false);
-      };
-      
-      const handleStripePayment = async () => {
-        if (!selectedBundle || !user) return;
-        
-        // Check if Stripe is loaded
-        if (typeof Stripe === 'undefined') {
-          alert('Payment service is not available. Please refresh the page and try again.');
-          return;
-        }
-        
-        setIsProcessingPayment(true);
-        
-        try {
-          // Initialize Stripe (replace 'pk_test_...' with your actual publishable key)
-          const stripe = Stripe('pk_test_51234567890abcdef'); // Replace with your Stripe publishable key
-          
-          // In a real implementation, you would call your backend to create a payment intent
-          // For demo purposes, we'll simulate a successful payment
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          
-          // Get the pending booking details from session storage
-          const pendingBookingStr = sessionStorage.getItem('pendingBooking');
-          if (pendingBookingStr) {
-            const bookingDetails = JSON.parse(pendingBookingStr);
-            
-            // Generate a unique Jitsi meeting link
-            const meetingId = `fitmate-paid-${Date.now()}`;
-            const jitsiLink = `https://meet.jit.si/${meetingId}`;
-            
-            // Prepare email template parameters
-            const templateParams = {
-              to_email: bookingDetails.email,
-              to_name: user?.displayName || 'Fitness Enthusiast',
-              session_date: bookingDetails.date,
-              session_time: bookingDetails.time,
-              session_type: bookingDetails.package,
-              sessions_count: bookingDetails.sessions,
-              amount_paid: bookingDetails.price,
-              meeting_link: jitsiLink
-            };
-            
-            // Send the email using EmailJS
-            emailjs.send(
-              'service_default', // Replace with your EmailJS service ID
-              'template_paid_session', // Replace with your EmailJS template ID for paid sessions
-              templateParams
-            ).then(function(response) {
-              console.log('Email sent successfully:', response);
-            }, function(error) {
-              console.error('Email sending failed:', error);
-              alert(`Your payment was successful, but there was an issue sending the confirmation email. Please contact support.`);
-            });
-            
-            // Log what is being sent
-            console.log('Email being sent with paid session details:', {
-              to: bookingDetails.email,
-              subject: `Your ${bookingDetails.package} is Confirmed!`,
-              body: `
-                Hi there,
-                
-                Your ${bookingDetails.package} has been confirmed for ${bookingDetails.date} at ${bookingDetails.time}.
-                
-                Package: ${bookingDetails.package}
-                Sessions: ${bookingDetails.sessions}
-                Amount Paid: $${bookingDetails.price}
-                
-                Your first session will be held via video call. Here's your secure join link:
-                ${jitsiLink}
-                
-                We look forward to seeing you!
-                
-                The Fitmate Team
-              `
-            });
-            
-            // Clear the pending booking from session storage
-            sessionStorage.removeItem('pendingBooking');
-          }
-          
-          alert(`Payment successful! You've purchased ${selectedBundle.sessions} sessions for $${selectedBundle.price}. Check your email for session details.`);
-          closePaymentModal();
-          
-        } catch (error) {
-          console.error('Payment failed:', error);
-          alert('Payment failed. Please try again.');
-        } finally {
-          setIsProcessingPayment(false);
-        }
-      };
-      
-      // Jitsi Video Call Functions
-      const startVideoCall = () => {
-        // Check if Jitsi Meet External API is loaded
-        if (typeof JitsiMeetExternalAPI === 'undefined') {
-          alert('Video call service is not available. Please refresh the page and try again.');
-          return;
-        }
-        
-        // For paid one-on-one sessions, create secure room
-        const domain = 'meet.jit.si';
-        const sessionId = Math.random().toString(36).substring(2, 15);
-        const roomName = `fitmate-private-${user?.uid || 'trainer'}-${sessionId}`;
-        const roomPassword = Math.random().toString(36).substring(2, 10);
-        
-        // Display room info to trainer (you can share this with your client)
-        console.log('=== PRIVATE SESSION DETAILS ===');
-        console.log('Room Name:', roomName);
-        console.log('Room Password:', roomPassword);
-        console.log('Share these details with your client');
-        
-        // Show room details to user
-        alert(`Private Session Created!\n\nSecure Room: ${roomName}\n\nA detailed invitation will be copied to your clipboard when you join.\nShare the invitation link with your client securely.`);
-        
-        const baseOptions = {
-          roomName: roomName,
-          width: '100%',
-          height: '100%',
-          configOverwrite: {
-            startWithAudioMuted: false,
-            startWithVideoMuted: false,
-            enableWelcomePage: false,
-            prejoinPageEnabled: false, // Disable prejoin to avoid auth issues
-            requireDisplayName: false, // Don't require names to avoid login
-            enableUserRolesBasedOnToken: false,
-            enableInsecureRoomNameWarning: false,
-            disableModeratorIndicator: false, // Show moderator (trainer) indicator
-            enableLobbyChat: false, // Disable lobby chat for privacy
-            enableClosePage: true, // Allow proper session ending
-            // Remove roomPassword as it causes auth issues on meet.jit.si
-            enableNoAudioSignal: false,
-            enableNoisyMicDetection: false
-          },
-          interfaceConfigOverwrite: {
-            TOOLBAR_BUTTONS: [
-              'microphone', 'camera', 'closedcaptions', 'desktop', 'fullscreen',
-              'fodeviceselection', 'hangup', 'profile', 'chat', 'recording',
-              'livestreaming', 'etherpad', 'sharedvideo', 'settings', 'raisehand',
-              'videoquality', 'filmstrip', 'invite', 'feedback', 'stats', 'shortcuts',
-              'tileview', 'videobackgroundblur', 'download', 'help', 'mute-everyone'
-            ]
-          },
-          userInfo: {
-            displayName: user?.displayName || 'Fitmate User'
-          }
-        };
-        
-        setShowVideoCall(true);
-        
-        // Wait for the modal to render before initializing Jitsi
-        setTimeout(() => {
-          const container = document.querySelector('#jitsi-container');
-          if (!container) {
-            alert('Video call container not found. Please try again.');
-            setShowVideoCall(false);
-            return;
-          }
-          
-          // Set the parentNode after container is available
-          const options = {
-            ...baseOptions,
-            parentNode: container
-          };
-          
-          try {
-            const api = new JitsiMeetExternalAPI(domain, options);
-            
-            api.addEventListener('videoConferenceJoined', () => {
-              console.log('Video call joined successfully');
-              // Create client invitation after trainer joins
-              createClientInvitation(roomName, roomPassword);
-            });
-            
-            api.addEventListener('videoConferenceLeft', () => {
-              console.log('Video call ended');
-              endVideoCall();
-            });
-            
-            setJitsiApi(api);
-          } catch (error) {
-            console.error('Failed to start video call:', error);
-            alert('Failed to start video call. Please try again.');
-            setShowVideoCall(false);
-          }
-        }, 100);
-       };
-      
-      const endVideoCall = () => {
-        if (jitsiApi) {
-          jitsiApi.dispose();
-          setJitsiApi(null);
-        }
-        setShowVideoCall(false);
-      };
 
-      // Create client invitation for secure session
-      const createClientInvitation = (roomName, roomPassword) => {
-        const invitationText = `🏋️ FITMATE PRIVATE TRAINING SESSION\n\n` +
-          `Your trainer has started a secure video session.\n\n` +
-          `📋 SESSION DETAILS:\n` +
-          `Private Room: ${roomName}\n\n` +
-          `🔗 DIRECT JOIN LINK:\n` +
-          `https://meet.jit.si/${roomName}\n\n` +
-          `📱 INSTRUCTIONS:\n` +
-          `1. Click the link above\n` +
-          `2. Enter your name when prompted\n` +
-          `3. Click 'Join Meeting'\n` +
-          `4. Allow camera and microphone access\n\n` +
-          `⚠️ IMPORTANT:\n` +
-          `• This is a private paid session\n` +
-          `• Do not share this link with anyone\n` +
-          `• Session will end when trainer leaves\n` +
-          `• Room name is unique and secure\n\n` +
-          `Need help? Contact your trainer directly.`;
-        
-        // Copy to clipboard
-        navigator.clipboard.writeText(invitationText).then(() => {
-          alert('✅ Client invitation copied to clipboard!\n\nShare this with your client via secure message.');
-        }).catch(() => {
-          // Fallback: show in alert for manual copy
-          alert('📋 COPY THIS INVITATION FOR YOUR CLIENT:\n\n' + invitationText);
-        });
-        
-        console.log('Client invitation created:', invitationText);
-      };
+      
+
 
       const validateEmail = (email) => {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -2428,18 +2407,33 @@
                         </p>
                         
                         <div className="time-slots-container grid grid-cols-3 gap-3 mb-6">
-                          {availableTimeSlots.map((slot, index) => (
-                            <div 
-                              key={index} 
-                              className={`
-                                time-slot text-center py-3 rounded-lg cursor-pointer border
-                                ${selectedTimeSlot === slot ? 'bg-pink-500 text-white border-pink-500' : 'bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-700 hover:border-pink-500 dark:hover:border-pink-500'}
-                              `}
-                              onClick={() => selectTimeSlot(slot)}
-                            >
-                              {slot}
-                            </div>
-                          ))}
+                          {availableTimeSlots.map((slot, index) => {
+                            const isBooked = bookedSlots.includes(slot);
+                            const isSelected = selectedTimeSlot === slot;
+                            
+                            return (
+                              <div 
+                                key={index} 
+                                className={`
+                                  time-slot text-center py-3 rounded-lg border relative
+                                  ${isBooked 
+                                    ? 'bg-red-100 dark:bg-red-900 text-red-600 dark:text-red-300 border-red-300 dark:border-red-700 cursor-not-allowed opacity-60' 
+                                    : isSelected 
+                                      ? 'bg-pink-500 text-white border-pink-500 cursor-pointer' 
+                                      : 'bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-700 hover:border-pink-500 dark:hover:border-pink-500 cursor-pointer'
+                                  }
+                                `}
+                                onClick={() => !isBooked && selectTimeSlot(slot)}
+                              >
+                                {slot}
+                                {isBooked && (
+                                  <div className="absolute inset-0 flex items-center justify-center">
+                                    <span className="text-xs font-semibold bg-red-500 text-white px-2 py-1 rounded-full">Booked</span>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                         
                         <div className="flex space-x-3">
@@ -2498,7 +2492,7 @@
                             <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">Basic Package</h4>
                             <p className="text-2xl font-bold text-pink-500 mb-3">$100</p>
                             <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-2">
-                              <li>✓ 3 training sessions</li>
+                              <li>✓ 5 training sessions</li>
                               <li>✓ Personalized workout plan</li>
                               <li>✓ Nutrition guidance</li>
                             </ul>
@@ -2514,7 +2508,7 @@
                             <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">Premium Package</h4>
                             <p className="text-2xl font-bold text-pink-500 mb-3">$150</p>
                             <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-2">
-                              <li>✓ 5 training sessions</li>
+                              <li>✓ 10 training sessions</li>
                               <li>✓ Comprehensive fitness plan</li>
                               <li>✓ Detailed nutrition program</li>
                               <li>✓ 24/7 support</li>
@@ -2548,84 +2542,9 @@
             </div>
            )}
            
-           {/* Payment Modal */}
-           {showPaymentModal && selectedBundle && (
-             <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-               <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md transform transition-all opacity-100 scale-100">
-                 <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
-                   <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-200">Purchase Sessions</h3>
-                   <button onClick={closePaymentModal} className="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 p-2 rounded-full bg-gray-100 dark:bg-gray-800">
-                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                   </button>
-                 </div>
-                 <div className="p-6">
-                   <div className="text-center mb-6">
-                     <h4 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-2">
-                       {selectedBundle.sessions} Training Sessions
-                     </h4>
-                     <p className="text-3xl font-bold text-pink-500">${selectedBundle.price}</p>
-                     <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                       {selectedBundle.sessions === 5 ? 'Save $25 compared to individual sessions' : 'Best value - Save $100!'}
-                     </p>
-                   </div>
-                   
-                   <div className="space-y-4">
-                     <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                       <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">What's included:</p>
-                       <ul className="text-sm text-gray-700 dark:text-gray-300 space-y-1">
-                         <li>✓ {selectedBundle.sessions} one-on-one sessions</li>
-                         <li>✓ Personalized workout plans</li>
-                         <li>✓ Nutrition guidance</li>
-                         <li>✓ Progress tracking</li>
-                         <li>✓ Video call support</li>
-                       </ul>
-                     </div>
-                     
-                     <button 
-                       onClick={handleStripePayment}
-                       disabled={isProcessingPayment}
-                       className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white py-3 rounded-lg font-semibold hover:scale-105 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
-                     >
-                       {isProcessingPayment ? (
-                         <span className="flex items-center justify-center gap-2">
-                           <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
-                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                           </svg>
-                           Processing...
-                         </span>
-                       ) : (
-                         `Pay $${selectedBundle.price} with Stripe`
-                       )}
-                     </button>
-                     
-                     <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
-                       Secure payment powered by Stripe. Your payment information is encrypted and secure.
-                     </p>
-                   </div>
-                 </div>
-               </div>
-             </div>
-           )}
+
            
-           {/* Video Call Modal */}
-           {showVideoCall && (
-             <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50 p-4">
-               <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-4xl h-full max-h-[90vh] transform transition-all opacity-100 scale-100">
-                 <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
-                   <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-200">Virtual Training Session</h3>
-                   <button onClick={endVideoCall} className="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 p-2 rounded-full bg-gray-100 dark:bg-gray-800">
-                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                   </button>
-                 </div>
-                 <div className="p-4" style={{height: 'calc(100% - 80px)'}}>
-                   <div id="jitsi-container" className="w-full rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800" style={{height: '100%', minHeight: '500px'}}>
-                     {/* Jitsi Meet will be embedded here */}
-                   </div>
-                 </div>
-               </div>
-             </div>
-           )}
+
            
            <header className="mb-6 flex justify-between items-center">
             <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-200">My Profile</h1>
@@ -2731,7 +2650,10 @@
                       </div>
                       {user && (
                         <button 
-                          onClick={() => openPaymentModal({sessions: 5, price: 100})}
+                          onClick={() => {
+                            setSelectedPackage('basic');
+                            openBookingModal();
+                          }}
                           className="bg-pink-500 hover:bg-pink-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
                         >
                           Buy Now
@@ -2745,7 +2667,10 @@
                       </div>
                       {user && (
                         <button 
-                          onClick={() => openPaymentModal({sessions: 10, price: 150})}
+                          onClick={() => {
+                            setSelectedPackage('premium');
+                            openBookingModal();
+                          }}
                           className="bg-pink-500 hover:bg-pink-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
                         >
                           Buy Now
@@ -2758,15 +2683,9 @@
                       <>
                         <button 
                           onClick={openBookingModal}
-                          className="w-full md:w-auto bg-gradient-to-r from-purple-500 to-pink-500 text-white px-6 py-3 rounded-lg shadow-lg hover:scale-105 transition-transform font-semibold"
-                        >
-                          Book a Session
-                        </button>
-                        <button 
-                          onClick={startVideoCall}
                           className="w-full md:w-auto bg-gradient-to-r from-green-500 to-blue-500 text-white px-6 py-3 rounded-lg shadow-lg hover:scale-105 transition-transform font-semibold"
                         >
-                          🎥 Start Video Call
+                          Book a Session
                         </button>
                       </>
                     ) : (
@@ -2797,6 +2716,24 @@
                   </span>
                 )}
               </button>
+              
+              {/* Booking History Button - Only show when user is signed in */}
+              {user && (
+                <button 
+                  onClick={toggleBookingHistory}
+                  className="w-full text-left p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 transition-colors flex justify-between items-center"
+                >
+                  <span className="flex items-center gap-2">
+                    <span>📅</span>
+                    <span>Booking History</span>
+                  </span>
+                  {bookingHistory.length > 0 && (
+                    <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded-full">
+                      {bookingHistory.length}
+                    </span>
+                  )}
+                </button>
+              )}
               
               {/* Manual Sync Button - Only show when user is signed in */}
               {user && (
@@ -3013,6 +2950,122 @@
             />
           )}
 
+          {/* Booking History Modal */}
+          {showBookingHistory && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+                {/* Modal Header */}
+                <div className="flex justify-between items-center p-6 border-b border-gray-200 dark:border-gray-700">
+                  <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200 flex items-center">
+                    📅 Booking History
+                  </h2>
+                  <button 
+                    onClick={toggleBookingHistory}
+                    className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 text-2xl font-bold transition-colors"
+                  >
+                    ×
+                  </button>
+                </div>
+                
+                {/* Modal Content */}
+                <div className="p-6">
+                  {isLoadingBookings ? (
+                    <div className="text-center py-8">
+                      <div className="animate-spin text-4xl mb-4">⏳</div>
+                      <p className="text-gray-600 dark:text-gray-400">Loading your booking history...</p>
+                    </div>
+                  ) : bookingHistory.length === 0 ? (
+                    <div className="text-center py-8">
+                      <div className="text-6xl mb-4">📅</div>
+                      <h3 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-2">No Bookings Yet</h3>
+                      <p className="text-gray-600 dark:text-gray-400 mb-4">
+                        You haven't made any bookings yet. Book your first session to get started!
+                      </p>
+                      <button 
+                         onClick={() => {
+                           toggleBookingHistory();
+                           openBookingModal();
+                         }}
+                         className="bg-gradient-to-r from-pink-500 to-purple-600 text-white py-2 px-6 rounded-xl font-semibold hover:from-pink-600 hover:to-purple-700 transition-all duration-200 shadow-lg"
+                       >
+                         Book Now
+                       </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center mb-4">
+                        <p className="text-gray-600 dark:text-gray-400">
+                          Total bookings: <span className="font-semibold text-gray-800 dark:text-gray-200">{bookingHistory.length}</span>
+                        </p>
+                        <button 
+                          onClick={fetchBookingHistory}
+                          className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm font-medium"
+                        >
+                          🔄 Refresh
+                        </button>
+                      </div>
+                      
+                      {bookingHistory.map((booking) => (
+                        <div key={booking.id} className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4 border border-gray-200 dark:border-gray-600">
+                          <div className="flex justify-between items-start mb-3">
+                            <div>
+                              <h4 className="font-semibold text-gray-800 dark:text-gray-200">
+                                {booking.package || 'Session'}
+                              </h4>
+                              <p className="text-sm text-gray-600 dark:text-gray-400">
+                                {booking.date} at {booking.time}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${
+                                booking.type === 'free' 
+                                  ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200'
+                                  : 'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200'
+                              }`}>
+                                {booking.type === 'free' ? 'Free Trial' : `$${booking.price}`}
+                              </span>
+                            </div>
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                              <span className="text-gray-500 dark:text-gray-400">Sessions:</span>
+                              <span className="ml-2 font-medium text-gray-800 dark:text-gray-200">{booking.sessions || 1}</span>
+                            </div>
+                            <div>
+                              <span className="text-gray-500 dark:text-gray-400">Status:</span>
+                              <span className="ml-2 font-medium text-green-600 dark:text-green-400">{booking.status || 'Confirmed'}</span>
+                            </div>
+                          </div>
+                          
+                          {booking.createdAt && (
+                            <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                              Booked: {new Date(booking.createdAt).toLocaleDateString()} at {new Date(booking.createdAt).toLocaleTimeString()}
+                            </div>
+                          )}
+                          
+                          {booking.meetingLink && (
+                            <div className="mt-3">
+                              <button 
+                                onClick={() => {
+                                  setCurrentMeetingLink(booking.meetingLink);
+                                  setShowMeetingModal(true);
+                                }}
+                                className="inline-flex items-center gap-2 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm font-medium bg-transparent border-none cursor-pointer"
+                              >
+                                🎥 Join Meeting
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Support Modal */}
           {showSupportModal && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -3133,6 +3186,58 @@
                       </button>
                     </form>
                   )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Meeting Modal */}
+          {showMeetingModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-6xl w-full max-h-[90vh] overflow-hidden">
+                {/* Modal Header with FitnessMate Branding */}
+                <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-purple-500 to-pink-500">
+                  <div className="flex items-center space-x-3">
+                    <div className="text-2xl">💪</div>
+                    <div>
+                      <h2 className="text-xl font-bold text-white">FitnessMate Meeting</h2>
+                      <p className="text-purple-100 text-sm">Your personal fitness session</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      setShowMeetingModal(false);
+                      setCurrentMeetingLink('');
+                    }}
+                    className="text-white hover:text-purple-200 text-2xl font-bold transition-colors bg-white bg-opacity-20 rounded-full w-8 h-8 flex items-center justify-center"
+                  >
+                    ×
+                  </button>
+                </div>
+                
+                {/* Modal Content - Embedded Jitsi Meeting */}
+                <div className="relative h-[70vh]">
+                  {currentMeetingLink && (
+                    <iframe 
+                      src={currentMeetingLink}
+                      className="w-full h-full border-0"
+                      title="FitnessMate Meeting Session"
+                      allow="camera; microphone; fullscreen; display-capture; autoplay"
+                      allowFullScreen
+                    />
+                  )}
+                  
+                  {/* FitnessMate Branding Overlay */}
+                  <div className="absolute top-2 left-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white px-3 py-1 rounded-full text-xs font-semibold shadow-lg opacity-90">
+                    💪 FitnessMate Session
+                  </div>
+                </div>
+                
+                {/* Footer with additional branding */}
+                <div className="p-3 bg-gray-50 dark:bg-gray-700 text-center">
+                  <p className="text-xs text-gray-600 dark:text-gray-400">
+                    🌟 Powered by <span className="font-semibold text-purple-600 dark:text-purple-400">FitnessMate</span> - Your Personal Fitness Journey
+                  </p>
                 </div>
               </div>
             </div>
