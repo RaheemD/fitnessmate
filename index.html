@@ -1469,6 +1469,8 @@
   const [slotsCache, setSlotsCache] = useState({});
   const [isLoadingSlots, setIsLoadingSlots] = useState(false);
   const [confirmationMessage, setConfirmationMessage] = useState(null);
+  const [debounceTimer, setDebounceTimer] = useState(null);
+  const [abortController, setAbortController] = useState(null);
 
 
       const fileInputRef = useRef(null);
@@ -1638,17 +1640,48 @@
       };
 
       // Fetch booked slots for a specific date
-      const fetchBookedSlotsForDate = async (date) => {
+      // Memoization cache for Firebase requests
+      const requestCache = new Map();
+      const CACHE_DURATION = 30000; // 30 seconds
+      
+      const fetchBookedSlotsForDate = async (date, signal = null) => {
         if (!db) {
-          console.log('Database not available');
+          console.log('Database not available, using fallback');
+          // Return mock data for testing when Firebase is unavailable
           return [];
         }
         
+        // Check cache first
+        const cacheKey = `booked-slots-${date}`;
+        const cached = requestCache.get(cacheKey);
+        if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+          return cached.data;
+        }
+        
         try {
+          // Check if request was cancelled
+          if (signal && signal.aborted) {
+            throw new Error('Request cancelled');
+          }
+          
           // Use a more efficient approach with a global bookings index
           // First, try to get from a global bookings collection if it exists
           const globalBookingsRef = db.ref('globalBookings');
-          const globalSnapshot = await globalBookingsRef.orderByChild('date').equalTo(date).once('value');
+          
+          // Add timeout to prevent infinite loading
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('Firebase query timeout')), 10000);
+          });
+          
+          const globalSnapshot = await Promise.race([
+            globalBookingsRef.orderByChild('date').equalTo(date).limitToFirst(50).once('value'),
+            timeoutPromise
+          ]);
+          
+          // Check again after async operation
+          if (signal && signal.aborted) {
+            throw new Error('Request cancelled');
+          }
           const globalBookings = globalSnapshot.val();
           
           const bookedTimes = [];
@@ -1662,10 +1695,29 @@
               }
             }
           } else {
-            // Fallback to original method but with optimization
-            // Only fetch booking data, not entire user profiles
+            // Check if request was cancelled before fallback
+            if (signal && signal.aborted) {
+              throw new Error('Request cancelled');
+            }
+            
+            // Optimized fallback - only fetch bookings, not full user data
             const usersRef = db.ref('users');
-            const snapshot = await usersRef.once('value');
+            
+            // Add timeout for fallback query too
+            const fallbackTimeoutPromise = new Promise((_, reject) => {
+              setTimeout(() => reject(new Error('Fallback query timeout')), 8000);
+            });
+            
+            const snapshot = await Promise.race([
+              usersRef.orderByKey().limitToFirst(100).once('value'),
+              fallbackTimeoutPromise
+            ]);
+            
+            // Check again after async operation
+            if (signal && signal.aborted) {
+              throw new Error('Request cancelled');
+            }
+            
             const usersData = snapshot.val();
             
             if (usersData) {
@@ -1684,9 +1736,19 @@
             }
           }
           
+          // Cache the result
+          requestCache.set(cacheKey, {
+            data: bookedTimes,
+            timestamp: Date.now()
+          });
+          
           return bookedTimes;
         } catch (error) {
-          console.error('Error fetching booked slots:', error);
+          if (error.message.includes('timeout')) {
+            console.warn('Firebase query timed out, using empty slots');
+          } else {
+            console.error('Error fetching booked slots:', error);
+          }
           return [];
         }
       };
@@ -2011,17 +2073,109 @@
     setCurrentMonth(monthNames[newMonthIndex]);
     setCurrentYear(newYear);
     generateCalendarDays(newMonthIndex, newYear);
+    
+    // Preload data for adjacent months
+    preloadAdjacentMonths(newMonthIndex, newYear, monthNames);
+  };
+  
+  const preloadAdjacentMonths = async (monthIndex, year, monthNames) => {
+    // Preload previous month
+    let prevMonthIndex = monthIndex - 1;
+    let prevYear = year;
+    if (prevMonthIndex < 0) {
+      prevMonthIndex = 11;
+      prevYear--;
+    }
+    
+    // Preload next month
+    let nextMonthIndex = monthIndex + 1;
+    let nextYear = year;
+    if (nextMonthIndex > 11) {
+      nextMonthIndex = 0;
+      nextYear++;
+    }
+    
+    // Preload first few days of each adjacent month
+    const preloadDays = [1, 2, 3, 15]; // Sample key dates
+    
+    for (const day of preloadDays) {
+      // Previous month
+      const prevDateString = `${monthNames[prevMonthIndex]} ${day}, ${prevYear}`;
+      if (!slotsCache[prevDateString]) {
+        try {
+          await fetchBookedSlotsForDate(prevDateString);
+        } catch (e) {
+          // Silently fail preloading
+        }
+      }
+      
+      // Next month
+      const nextDateString = `${monthNames[nextMonthIndex]} ${day}, ${nextYear}`;
+      if (!slotsCache[nextDateString]) {
+        try {
+          await fetchBookedSlotsForDate(nextDateString);
+        } catch (e) {
+          // Silently fail preloading
+        }
+      }
+    }
   };
   
   const selectDate = async (day) => {
     setSelectedDate(day);
-    await generateTimeSlots(day);
+    
+    // Cancel any ongoing request
+    if (abortController) {
+      abortController.abort();
+    }
+    
+    // Clear existing timer
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+    }
+    
+    // Set new timer for debounced slot generation
+    const timer = setTimeout(async () => {
+      await generateTimeSlots(day);
+    }, 300);
+    
+    setDebounceTimer(timer);
   };
   
   const generateTimeSlots = async (day) => {
     const dateString = `${day.monthName} ${day.dayOfMonth}, ${day.year}`;
     
-    // Check cache first
+    // Create new AbortController for this request
+    const controller = new AbortController();
+    setAbortController(controller);
+    
+    // Check localStorage cache first
+    const localCacheKey = `fitmate-slots-${dateString}`;
+    const localCache = localStorage.getItem(localCacheKey);
+    
+    if (localCache) {
+      try {
+        const cached = JSON.parse(localCache);
+        // Check if cache is still valid (1 hour expiration)
+        if (Date.now() - cached.timestamp < 3600000) {
+          setAvailableTimeSlots(cached.slots);
+          setBookedSlots(cached.bookedTimes);
+          // Update memory cache too
+          setSlotsCache(prev => ({
+            ...prev,
+            [dateString]: { slots: cached.slots, bookedTimes: cached.bookedTimes }
+          }));
+          return;
+        } else {
+          // Remove expired cache
+          localStorage.removeItem(localCacheKey);
+        }
+      } catch (e) {
+        localStorage.removeItem(localCacheKey);
+      }
+    }
+    
+    // Check memory cache
     if (slotsCache[dateString]) {
       setAvailableTimeSlots(slotsCache[dateString].slots);
       setBookedSlots(slotsCache[dateString].bookedTimes);
@@ -2045,20 +2199,35 @@
       }
       
       // Fetch booked slots for this date
-      const bookedTimes = await fetchBookedSlotsForDate(dateString);
+      const bookedTimes = await fetchBookedSlotsForDate(dateString, controller.signal);
       
-      // Cache the results
+      // Cache the results in memory and localStorage
+      const cacheData = { slots, bookedTimes, timestamp: Date.now() };
+      
       setSlotsCache(prev => ({
         ...prev,
         [dateString]: { slots, bookedTimes }
       }));
       
+      // Save to localStorage with expiration
+      try {
+        localStorage.setItem(`fitmate-slots-${dateString}`, JSON.stringify(cacheData));
+      } catch (e) {
+        console.warn('Failed to save to localStorage:', e);
+      }
+      
       setBookedSlots(bookedTimes);
       setAvailableTimeSlots(slots);
     } catch (error) {
-      console.error('Error generating time slots:', error);
+      // Don't log errors for cancelled requests
+      if (error.message !== 'Request cancelled') {
+        console.error('Error generating time slots:', error);
+      }
     } finally {
-      setIsLoadingSlots(false);
+      // Only update loading state if request wasn't cancelled
+      if (!controller.signal.aborted) {
+        setIsLoadingSlots(false);
+      }
     }
   };
   
@@ -2147,28 +2316,42 @@
       meeting_link: wherebyLink
     };
     
-    // Send the email using EmailJS
-    emailjs.send(
-      'service_94q9wl7', // Replace with your EmailJS service ID
+    // Show immediate confirmation while email is being sent
+    setConfirmationMessage({
+      type: 'success',
+      title: 'Booking Confirmed!',
+      message: `Your free session has been booked for ${bookingDetails.date} at ${bookingDetails.time}. Confirmation email is being sent...`
+    });
+    closeBookingModal();
+    
+    // Send the email using EmailJS with timeout
+    const emailTimeout = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Email timeout')), 15000);
+    });
+    
+    Promise.race([
+      emailjs.send(
+        'service_94q9wl7', // Replace with your EmailJS service ID
         'template_3oqo92k', // Replace with your EmailJS template ID
-      templateParams
-    ).then(function(response) {
+        templateParams
+      ),
+      emailTimeout
+    ]).then(function(response) {
       console.log('Email sent successfully:', response);
-      // Show success message and close modal
+      // Update confirmation message to show email was sent
       setConfirmationMessage({
         type: 'success',
         title: 'Booking Confirmed!',
-        message: `Your free session has been booked for ${bookingDetails.date} at ${bookingDetails.time}. Check your email for session details.`
+        message: `Your free session has been booked for ${bookingDetails.date} at ${bookingDetails.time}. Confirmation email sent successfully!`
       });
-      closeBookingModal();
-    }, function(error) {
-      console.error('Email sending failed:', error);
+    }).catch(function(error) {
+      console.error('Email sending failed or timed out:', error);
+      // Update confirmation message to show email issue
       setConfirmationMessage({
         type: 'warning',
         title: 'Booking Confirmed',
-        message: 'Your session was booked, but there was an issue sending the confirmation email. Please contact support.'
+        message: 'Your session was booked successfully, but there was an issue sending the confirmation email. Please contact support if needed.'
       });
-      closeBookingModal();
     });
     
     // Log what is being sent
@@ -2248,29 +2431,43 @@
       meeting_link: wherebyLink
     };
     
-    // Send the email using EmailJS
-    emailjs.send(
-      'service_94q9wl7', // Replace with your EmailJS service ID
-      'template_3oqo92k', // Replace with your EmailJS template ID
-      templateParams
-    ).then(function(response) {
+    // Show immediate confirmation while email is being sent
+    setConfirmationMessage({
+      type: 'success',
+      title: 'Payment Successful!',
+      message: `Booking confirmed! You've selected ${bookingDetails.sessions} sessions for $${bookingDetails.price}. Confirmation email is being sent...`
+    });
+    closeBookingModal();
+    
+    // Send the email using EmailJS with timeout
+    const paidEmailTimeout = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Email timeout')), 15000);
+    });
+    
+    Promise.race([
+      emailjs.send(
+        'service_94q9wl7', // Replace with your EmailJS service ID
+        'template_3oqo92k', // Replace with your EmailJS template ID
+        templateParams
+      ),
+      paidEmailTimeout
+    ]).then(function(response) {
       console.log('Email sent successfully:', response);
+      // Update confirmation message to show email was sent
       setConfirmationMessage({
         type: 'success',
         title: 'Payment Successful!',
-        message: `Booking confirmed! You've selected ${bookingDetails.sessions} sessions for $${bookingDetails.price}. Check your email for session details.`
+        message: `Booking confirmed! You've selected ${bookingDetails.sessions} sessions for $${bookingDetails.price}. Confirmation email sent successfully!`
       });
-    }, function(error) {
-      console.error('Email sending failed:', error);
+    }).catch(function(error) {
+      console.error('Email sending failed or timed out:', error);
+      // Update confirmation message to show email issue
       setConfirmationMessage({
         type: 'warning',
         title: 'Booking Confirmed',
-        message: 'There was an issue sending the confirmation email. Please contact support.'
+        message: 'Your booking was confirmed successfully, but there was an issue sending the confirmation email. Please contact support if needed.'
       });
     });
-    
-    // Close booking modal
-    closeBookingModal();
   };
       
 
@@ -2478,12 +2675,12 @@
                         
                         <div className="time-slots-container grid grid-cols-3 gap-3 mb-6">
                           {isLoadingSlots ? (
-                            <div className="col-span-3 text-center py-8">
-                              <div className="inline-flex items-center gap-2 text-gray-600 dark:text-gray-400">
-                                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-pink-500"></div>
-                                Loading available time slots...
+                            // Skeleton loading for time slots
+                            Array.from({ length: 12 }).map((_, index) => (
+                              <div key={index} className="animate-pulse">
+                                <div className="bg-gray-200 dark:bg-gray-700 rounded-lg h-12 w-full"></div>
                               </div>
-                            </div>
+                            ))
                           ) : availableTimeSlots.map((slot, index) => {
                             const isBooked = bookedSlots.includes(slot);
                             const isSelected = selectedTimeSlot === slot;
@@ -2620,33 +2817,33 @@
             </div>
            )}
            
-           {/* Confirmation Message Modal */}
+           {/* Optimized Confirmation Message Modal */}
            {confirmationMessage && (
-             <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-               <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md mx-auto">
+             <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4 will-change-transform">
+               <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md mx-auto transform transition-transform duration-200 scale-100 will-change-transform">
                  <div className="p-6 text-center">
-                   <div className={`mx-auto mb-4 w-12 h-12 rounded-full flex items-center justify-center ${
+                   <div className={`mx-auto mb-4 w-12 h-12 rounded-full flex items-center justify-center will-change-transform ${
                      confirmationMessage.type === 'success' ? 'bg-green-100 dark:bg-green-900/20' : 'bg-yellow-100 dark:bg-yellow-900/20'
                    }`}>
                      {confirmationMessage.type === 'success' ? (
-                       <svg className="w-6 h-6 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                       <svg className="w-6 h-6 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{willChange: 'transform'}}>
                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                        </svg>
                      ) : (
-                       <svg className="w-6 h-6 text-yellow-600 dark:text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                       <svg className="w-6 h-6 text-yellow-600 dark:text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{willChange: 'transform'}}>
                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
                        </svg>
                      )}
                    </div>
-                   <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">
+                   <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2 will-change-contents">
                      {confirmationMessage.title}
                    </h3>
-                   <p className="text-gray-600 dark:text-gray-400 mb-6">
+                   <p className="text-gray-600 dark:text-gray-400 mb-6 will-change-contents">
                      {confirmationMessage.message}
                    </p>
                    <button
                      onClick={() => setConfirmationMessage(null)}
-                     className="w-full bg-pink-500 hover:bg-pink-600 text-white font-medium py-3 px-4 rounded-lg transition-colors"
+                     className="w-full bg-pink-500 active:bg-pink-600 text-white font-medium py-3 px-4 rounded-lg transition-colors duration-150 will-change-transform touch-manipulation"
                    >
                      OK
                    </button>
