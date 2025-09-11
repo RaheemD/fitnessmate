@@ -24,8 +24,7 @@
   <!-- Stripe.js -->
   <script src="https://js.stripe.com/v3/"></script>
   
-  <!-- Jitsi Meet External API -->
-  <script src="https://meet.jit.si/external_api.js"></script>
+  <!-- Whereby for video meetings -->
   
   <!-- EmailJS for email sending -->
   <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
@@ -1467,6 +1466,9 @@
   const [showMeetingModal, setShowMeetingModal] = useState(false);
   const [currentMeetingLink, setCurrentMeetingLink] = useState('');
   const [bookedSlots, setBookedSlots] = useState([]);
+  const [slotsCache, setSlotsCache] = useState({});
+  const [isLoadingSlots, setIsLoadingSlots] = useState(false);
+  const [confirmationMessage, setConfirmationMessage] = useState(null);
 
 
       const fileInputRef = useRef(null);
@@ -1643,21 +1645,39 @@
         }
         
         try {
-          const usersRef = db.ref('users');
-          const snapshot = await usersRef.once('value');
-          const usersData = snapshot.val();
+          // Use a more efficient approach with a global bookings index
+          // First, try to get from a global bookings collection if it exists
+          const globalBookingsRef = db.ref('globalBookings');
+          const globalSnapshot = await globalBookingsRef.orderByChild('date').equalTo(date).once('value');
+          const globalBookings = globalSnapshot.val();
           
           const bookedTimes = [];
           
-          if (usersData) {
-            // Check all users' bookings for the same date
-            for (const userId in usersData) {
-              const userBookings = usersData[userId].bookings;
-              if (userBookings) {
-                for (const bookingId in userBookings) {
-                  const booking = userBookings[bookingId];
-                  if (booking.date === date && booking.status !== 'cancelled') {
-                    bookedTimes.push(booking.time);
+          if (globalBookings) {
+            // Use global bookings index for faster lookup
+            for (const bookingId in globalBookings) {
+              const booking = globalBookings[bookingId];
+              if (booking.status !== 'cancelled') {
+                bookedTimes.push(booking.time);
+              }
+            }
+          } else {
+            // Fallback to original method but with optimization
+            // Only fetch booking data, not entire user profiles
+            const usersRef = db.ref('users');
+            const snapshot = await usersRef.once('value');
+            const usersData = snapshot.val();
+            
+            if (usersData) {
+              // Check all users' bookings for the same date
+              for (const userId in usersData) {
+                const userBookings = usersData[userId].bookings;
+                if (userBookings) {
+                  for (const bookingId in userBookings) {
+                    const booking = userBookings[bookingId];
+                    if (booking.date === date && booking.status !== 'cancelled') {
+                      bookedTimes.push(booking.time);
+                    }
                   }
                 }
               }
@@ -1685,10 +1705,19 @@
           
           if (bookingsData) {
             // Convert Firebase object to array and sort by creation date (newest first)
-            const bookingsArray = Object.keys(bookingsData).map(key => ({
-              id: key,
-              ...bookingsData[key]
-            })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+            const bookingsArray = Object.keys(bookingsData).map(key => {
+              const booking = { id: key, ...bookingsData[key] };
+              
+              // Replace old Jitsi or Daily.co links with new Whereby URL
+              if (booking.meetingLink && (booking.meetingLink.includes('jit.si') || booking.meetingLink.includes('daily.co'))) {
+                booking.meetingLink = 'https://fitness-mate.whereby.com/meeting410ee91d-38a8-4636-bcc8-5b9b86035b45';
+              }
+              if (booking.meeting_link && (booking.meeting_link.includes('jit.si') || booking.meeting_link.includes('daily.co'))) {
+                booking.meeting_link = 'https://fitness-mate.whereby.com/meeting410ee91d-38a8-4636-bcc8-5b9b86035b45';
+              }
+              
+              return booking;
+            }).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
             
             setBookingHistory(bookingsArray);
           } else {
@@ -1990,26 +2019,47 @@
   };
   
   const generateTimeSlots = async (day) => {
-    // Generate time slots from 9 AM to 5 PM
-    const slots = [];
-    const startHour = 9;
-    const endHour = 17;
+    const dateString = `${day.monthName} ${day.dayOfMonth}, ${day.year}`;
     
-    for (let hour = startHour; hour < endHour; hour++) {
-      const hourFormatted = hour > 12 ? hour - 12 : hour;
-      const period = hour >= 12 ? 'PM' : 'AM';
-      
-      slots.push(`${hourFormatted}:00 ${period}`);
-      slots.push(`${hourFormatted}:30 ${period}`);
+    // Check cache first
+    if (slotsCache[dateString]) {
+      setAvailableTimeSlots(slotsCache[dateString].slots);
+      setBookedSlots(slotsCache[dateString].bookedTimes);
+      return;
     }
     
-    // Fetch booked slots for this date
-    const dateString = `${day.monthName} ${day.dayOfMonth}, ${day.year}`;
-    const bookedTimes = await fetchBookedSlotsForDate(dateString);
-    setBookedSlots(bookedTimes);
+    setIsLoadingSlots(true);
     
-    // Show all slots but mark booked ones as unavailable
-    setAvailableTimeSlots(slots);
+    try {
+      // Generate time slots from 9 AM to 5 PM
+      const slots = [];
+      const startHour = 9;
+      const endHour = 17;
+      
+      for (let hour = startHour; hour < endHour; hour++) {
+        const hourFormatted = hour > 12 ? hour - 12 : hour;
+        const period = hour >= 12 ? 'PM' : 'AM';
+        
+        slots.push(`${hourFormatted}:00 ${period}`);
+        slots.push(`${hourFormatted}:30 ${period}`);
+      }
+      
+      // Fetch booked slots for this date
+      const bookedTimes = await fetchBookedSlotsForDate(dateString);
+      
+      // Cache the results
+      setSlotsCache(prev => ({
+        ...prev,
+        [dateString]: { slots, bookedTimes }
+      }));
+      
+      setBookedSlots(bookedTimes);
+      setAvailableTimeSlots(slots);
+    } catch (error) {
+      console.error('Error generating time slots:', error);
+    } finally {
+      setIsLoadingSlots(false);
+    }
   };
   
   const selectTimeSlot = (slot) => {
@@ -2058,15 +2108,15 @@
     
     console.log('Free session booking:', bookingDetails);
     
-    // Generate a unique Jitsi meeting link
-    const meetingId = `fitmate-free-${Date.now()}`;
-    const jitsiLink = `https://meet.jit.si/${meetingId}`;
+    // Use the single Whereby meeting room for all sessions
+       const meetingId = `FitmateFree${Date.now()}${Math.random().toString(36).substr(2, 9)}`;
+       const wherebyLink = `https://fitness-mate.whereby.com/meeting410ee91d-38a8-4636-bcc8-5b9b86035b45`;
     
     // Store booking in Firebase
     if (user && db) {
       const bookingData = {
         ...bookingDetails,
-        meetingLink: jitsiLink,
+        meetingLink: wherebyLink,
         userId: user.uid,
         userName: user.displayName || 'User',
         userEmail: user.email,
@@ -2079,6 +2129,8 @@
       db.ref(`users/${user.uid}/bookings`).push(bookingData)
         .then(() => {
           console.log('Booking saved to Firebase successfully');
+          // Clear slots cache to ensure fresh data on next load
+          setSlotsCache({});
         })
         .catch((error) => {
           console.error('Error saving booking to Firebase:', error);
@@ -2092,7 +2144,7 @@
       session_date: bookingDetails.date,
       session_time: bookingDetails.time,
       session_type: bookingDetails.package,
-      meeting_link: jitsiLink
+      meeting_link: wherebyLink
     };
     
     // Send the email using EmailJS
@@ -2103,11 +2155,19 @@
     ).then(function(response) {
       console.log('Email sent successfully:', response);
       // Show success message and close modal
-      alert(`Your free session has been booked for ${bookingDetails.date} at ${bookingDetails.time}. Check your email for session details.`);
+      setConfirmationMessage({
+        type: 'success',
+        title: 'Booking Confirmed!',
+        message: `Your free session has been booked for ${bookingDetails.date} at ${bookingDetails.time}. Check your email for session details.`
+      });
       closeBookingModal();
     }, function(error) {
       console.error('Email sending failed:', error);
-      alert(`Your session was booked, but there was an issue sending the confirmation email. Please contact support.`);
+      setConfirmationMessage({
+        type: 'warning',
+        title: 'Booking Confirmed',
+        message: 'Your session was booked, but there was an issue sending the confirmation email. Please contact support.'
+      });
       closeBookingModal();
     });
     
@@ -2120,7 +2180,7 @@
         
         Your free fitness session is confirmed for ${bookingDetails.date} at ${bookingDetails.time}.
         
-        Join link: https://meet.jit.si/fitmate-free-${Date.now()}
+        Join link: ${wherebyLink}
         
         We look forward to seeing you!
         
@@ -2146,15 +2206,15 @@
       type: 'paid'
     };
     
-    // Generate a unique Jitsi meeting link
-    const meetingId = `fitmate-paid-${Date.now()}`;
-    const jitsiLink = `https://meet.jit.si/${meetingId}`;
+    // Use the single Whereby meeting room for all sessions
+       const meetingId = `FitmatePaid${Date.now()}${Math.random().toString(36).substr(2, 9)}`;
+       const wherebyLink = `https://fitness-mate.whereby.com/meeting410ee91d-38a8-4636-bcc8-5b9b86035b45`;
     
     // Store booking in Firebase
     if (user && db) {
       const bookingData = {
         ...bookingDetails,
-        meetingLink: jitsiLink,
+        meetingLink: wherebyLink,
         userId: user.uid,
         userName: user.displayName || 'User',
         userEmail: user.email,
@@ -2168,6 +2228,8 @@
       db.ref(`users/${user.uid}/bookings`).push(bookingData)
         .then(() => {
           console.log('Paid booking saved to Firebase successfully');
+          // Clear slots cache to ensure fresh data on next load
+          setSlotsCache({});
         })
         .catch((error) => {
           console.error('Error saving paid booking to Firebase:', error);
@@ -2183,7 +2245,7 @@
       session_type: bookingDetails.package,
       sessions_count: bookingDetails.sessions,
       amount_paid: bookingDetails.price,
-      meeting_link: jitsiLink
+      meeting_link: wherebyLink
     };
     
     // Send the email using EmailJS
@@ -2193,10 +2255,18 @@
       templateParams
     ).then(function(response) {
       console.log('Email sent successfully:', response);
-      alert(`Booking confirmed! You've selected ${bookingDetails.sessions} sessions for $${bookingDetails.price}. Check your email for session details.`);
+      setConfirmationMessage({
+        type: 'success',
+        title: 'Payment Successful!',
+        message: `Booking confirmed! You've selected ${bookingDetails.sessions} sessions for $${bookingDetails.price}. Check your email for session details.`
+      });
     }, function(error) {
       console.error('Email sending failed:', error);
-      alert('There was an issue sending the confirmation email. Please contact support.');
+      setConfirmationMessage({
+        type: 'warning',
+        title: 'Booking Confirmed',
+        message: 'There was an issue sending the confirmation email. Please contact support.'
+      });
     });
     
     // Close booking modal
@@ -2326,14 +2396,14 @@
         <div className="p-6 pb-24">
           {showBookingModal && (
             <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-              <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-4xl transform transition-all opacity-100 scale-100">
-                <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
+              <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col transform transition-all opacity-100 scale-100">
+                <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
                   <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-200">Book Your Session</h3>
                   <button onClick={closeBookingModal} className="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 p-2 rounded-full bg-gray-100 dark:bg-gray-800">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                   </button>
                 </div>
-                <div className="p-2 md:p-6">
+                <div className="p-2 md:p-6 flex-1 overflow-y-auto">
                   {/* Custom Booking Calendar */}
                   <div className="booking-calendar-container">
                     {/* Step 1: Date Selection */}
@@ -2407,7 +2477,14 @@
                         </p>
                         
                         <div className="time-slots-container grid grid-cols-3 gap-3 mb-6">
-                          {availableTimeSlots.map((slot, index) => {
+                          {isLoadingSlots ? (
+                            <div className="col-span-3 text-center py-8">
+                              <div className="inline-flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-pink-500"></div>
+                                Loading available time slots...
+                              </div>
+                            </div>
+                          ) : availableTimeSlots.map((slot, index) => {
                             const isBooked = bookedSlots.includes(slot);
                             const isSelected = selectedTimeSlot === slot;
                             
@@ -2434,6 +2511,7 @@
                               </div>
                             );
                           })}
+                        
                         </div>
                         
                         <div className="flex space-x-3">
@@ -2542,10 +2620,41 @@
             </div>
            )}
            
+           {/* Confirmation Message Modal */}
+           {confirmationMessage && (
+             <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+               <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md mx-auto">
+                 <div className="p-6 text-center">
+                   <div className={`mx-auto mb-4 w-12 h-12 rounded-full flex items-center justify-center ${
+                     confirmationMessage.type === 'success' ? 'bg-green-100 dark:bg-green-900/20' : 'bg-yellow-100 dark:bg-yellow-900/20'
+                   }`}>
+                     {confirmationMessage.type === 'success' ? (
+                       <svg className="w-6 h-6 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                       </svg>
+                     ) : (
+                       <svg className="w-6 h-6 text-yellow-600 dark:text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                       </svg>
+                     )}
+                   </div>
+                   <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">
+                     {confirmationMessage.title}
+                   </h3>
+                   <p className="text-gray-600 dark:text-gray-400 mb-6">
+                     {confirmationMessage.message}
+                   </p>
+                   <button
+                     onClick={() => setConfirmationMessage(null)}
+                     className="w-full bg-pink-500 hover:bg-pink-600 text-white font-medium py-3 px-4 rounded-lg transition-colors"
+                   >
+                     OK
+                   </button>
+                 </div>
+               </div>
+             </div>
+           )}
 
-           
-
-           
            <header className="mb-6 flex justify-between items-center">
             <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-200">My Profile</h1>
             {user && (
@@ -3215,14 +3324,14 @@
                   </button>
                 </div>
                 
-                {/* Modal Content - Embedded Jitsi Meeting */}
+                {/* Modal Content - Embedded Whereby Meeting */}
                 <div className="relative h-[70vh]">
                   {currentMeetingLink && (
                     <iframe 
                       src={currentMeetingLink}
                       className="w-full h-full border-0"
                       title="FitnessMate Meeting Session"
-                      allow="camera; microphone; fullscreen; display-capture; autoplay"
+                      allow="camera; microphone; fullscreen; display-capture; autoplay; clipboard-write"
                       allowFullScreen
                     />
                   )}
