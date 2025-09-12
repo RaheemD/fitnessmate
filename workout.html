@@ -615,11 +615,15 @@
     const isRepBased = ex.reps && ex.reps > 0;
     
     if (isRepBased) {
-      // Rep-based exercise - show reps, hide timer
+      // Rep-based exercise - show reps, no timer
       playerTimer.textContent = `${ex.reps}`;
       playerReps.textContent = `repetitions`;
       playerPause.innerHTML = '✓';
       playerPause.title = 'Complete Set';
+      // Clear any existing timer for rep-based exercises
+      clearInterval(timerInterval);
+      timerInterval = null;
+      remainingSeconds = 0; // Reset remaining seconds to prevent timer display
     } else {
       // Time-based exercise - show timer
       playerTimer.textContent = formatTime(ex.durationSeconds);
@@ -791,7 +795,7 @@
       if (nextEx) {
         // Start rest period before next exercise
         playerTitle.textContent = 'Rest between exercises';
-        playerSetInfo.textContent = `Next: ${nextEx.name}`;
+        playerSetInfo.textContent = `Next: ${nextEx.title}`;
         playerReps.textContent = 'Get ready!';
         playerPause.innerHTML = '↻'; // Set reset symbol for rest between exercises
         isResting = true;
@@ -807,6 +811,7 @@
             if (restTime <= 0) {
               clearInterval(timerInterval);
               isResting = false;
+              currentSet = 1; // reset set count for new exercise
               updatePlayerForExercise(currentExerciseIndex);
               
               // Only start timer for time-based exercises
@@ -851,21 +856,34 @@
   playerSkip.addEventListener('click', ()=> {
     clearInterval(timerInterval);
     if (isResting) {
-      // During rest period - skip to next set/exercise
+      // Distinguish between rest types to avoid incorrect set increment
       const workout = WORKOUTS[currentWorkoutIndex];
       const currentEx = workout.exercises[currentExerciseIndex];
-      if (currentSet < (currentEx.sets || 1)) {
-        speak('Skipping rest. Starting next set.');
-        currentSet++;
+      if (playerTitle.textContent === 'Rest between exercises') {
+        // Skip the rest between exercises: start next exercise at set 1
+        speak('Skipping rest. Starting next exercise.');
         isResting = false;
+        currentSet = 1; // ensure next exercise starts from set 1
         updatePlayerForExercise(currentExerciseIndex);
         const isRepBased = currentEx.reps && currentEx.reps > 0;
         if (!isRepBased) {
           startPlayerTimer();
         }
       } else {
-        speak('Skipping to next exercise');
-        playerNext();
+        // Rest between sets within the same exercise
+        if (currentSet < (currentEx.sets || 1)) {
+          speak('Skipping rest. Starting next set.');
+          currentSet++;
+          isResting = false;
+          updatePlayerForExercise(currentExerciseIndex);
+          const isRepBased = currentEx.reps && currentEx.reps > 0;
+          if (!isRepBased) {
+            startPlayerTimer();
+          }
+        } else {
+          speak('Skipping to next exercise');
+          playerNext();
+        }
       }
     } else {
       speak('Skipping to next exercise');
