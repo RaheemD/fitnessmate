@@ -1223,7 +1223,10 @@
           const updatedMeals = [newMeal, ...recentMeals];
           setRecentMeals(updatedMeals);
           
-          // Navigate to dashboard immediately to prevent blank screen
+          // Clean up scan state and navigate to dashboard
+          if (window.scanCleanup && typeof window.scanCleanup === 'function') {
+            window.scanCleanup();
+          }
           setScreen('dashboard');
           
           // Sync to Firebase in background with error handling
@@ -1301,6 +1304,10 @@
             setIsLoading={setScanLoading}
             error={scanError}
             setError={setScanError}
+            onCleanup={() => {
+              // This will be called from handleLogMeal to clean up scan state
+              console.log('🧹 Cleanup requested from parent component');
+            }}
           />;
           case 'profile': return <Profile isDarkMode={isDarkMode} toggleDarkMode={toggleDarkMode} goals={goals} setGoals={setGoals} setDailyIntake={setDailyIntake} setRecentMeals={setRecentMeals} setDailyHistory={setDailyHistory} setScreen={setScreen} />;
           case 'planner': return <MealPlanner 
@@ -3945,13 +3952,34 @@
     };
 
     // Scan Screen Component with Gemini API Integration
-    const Scan = ({ onLogMeal }) => {
+    const Scan = ({ onLogMeal, onCleanup }) => {
       const [isLoading, setIsLoading] = useState(false);
       const [scanResult, setScanResult] = useState(null);
       const [error, setError] = useState(null);
       const [imagePreview, setImagePreview] = useState(null);
       const [selectedMood, setSelectedMood] = useState(null);
       const fileInputRef = useRef(null);
+      const currentBlobUrlRef = useRef(null);
+      
+      // Cleanup blob URLs to prevent memory leaks on mobile
+      useEffect(() => {
+        return () => {
+          if (currentBlobUrlRef.current) {
+            console.log('🧹 Cleaning up blob URL on unmount');
+            URL.revokeObjectURL(currentBlobUrlRef.current);
+            currentBlobUrlRef.current = null;
+          }
+        };
+      }, []);
+      
+      // Clean up previous blob URL when new image is selected
+      const cleanupPreviousUrl = () => {
+        if (currentBlobUrlRef.current) {
+          console.log('🧹 Cleaning up previous blob URL');
+          URL.revokeObjectURL(currentBlobUrlRef.current);
+          currentBlobUrlRef.current = null;
+        }
+      };
 
       const fileToBase64 = (file) => new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -3984,16 +4012,22 @@
           
           console.log('📱 Valid image selected:', file.name, `${(file.size / 1024 / 1024).toFixed(2)}MB`);
           
+          // Clean up previous blob URL to prevent memory leaks
+          cleanupPreviousUrl();
+          
           // Reset states before processing
           setScanResult(null);
           setError(null);
           setSelectedMood(null);
+          setImagePreview(null); // Clear previous preview
           
-          // Create preview URL with error handling
+          // Create preview URL with error handling and memory tracking
           let previewUrl;
           try {
             previewUrl = URL.createObjectURL(file);
+            currentBlobUrlRef.current = previewUrl; // Track for cleanup
             setImagePreview(previewUrl);
+            console.log('📱 Created new blob URL:', previewUrl);
           } catch (urlError) {
             console.error('📱 Failed to create preview URL:', urlError);
             setError('Failed to preview image. Please try again.');
@@ -4006,6 +4040,7 @@
         } catch (error) {
           console.error('📱 Image change handler failed:', error);
           setError('Failed to process image. Please try again.');
+          cleanupPreviousUrl(); // Clean up on error
           setImagePreview(null);
           setScanResult(null);
         }
@@ -4147,6 +4182,39 @@ Respond ONLY with a valid JSON object in this format:
           setIsLoading(false);
         }
       };
+
+      const resetScan = () => {
+        // Clean up previous blob URL
+        cleanupPreviousUrl();
+        
+        // Reset all scan-related state
+        setImagePreview(null);
+        setScanResult(null);
+        setError(null);
+        setSelectedMood(null);
+        
+        // Clear file input
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+        
+        console.log('🧹 Scan state reset and cleanup completed');
+      };
+
+      // Expose resetScan function to parent component
+      useEffect(() => {
+        if (onCleanup && typeof onCleanup === 'function') {
+          // Override the onCleanup function to call our resetScan
+          window.scanCleanup = resetScan;
+        }
+        
+        return () => {
+          // Clean up the global reference on unmount
+          if (window.scanCleanup) {
+            delete window.scanCleanup;
+          }
+        };
+      }, [onCleanup, resetScan]);
 
       return (
         <div className="p-6 pb-24 flex flex-col items-center">
