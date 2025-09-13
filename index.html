@@ -1203,6 +1203,35 @@
         }
       }, [formAnalysis, user, syncAIContent]);
 
+      // Function to compress image for mobile compatibility
+      const compressImageForMobile = (base64Image, maxWidth = 200, quality = 0.7) => {
+        return new Promise((resolve) => {
+          if (!base64Image || !base64Image.startsWith('data:image/')) {
+            resolve(base64Image);
+            return;
+          }
+          
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          const img = new Image();
+          
+          img.onload = () => {
+            // Calculate new dimensions
+            const ratio = Math.min(maxWidth / img.width, maxWidth / img.height);
+            canvas.width = img.width * ratio;
+            canvas.height = img.height * ratio;
+            
+            // Draw and compress
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            const compressedImage = canvas.toDataURL('image/jpeg', quality);
+            resolve(compressedImage);
+          };
+          
+          img.onerror = () => resolve(base64Image);
+          img.src = base64Image;
+        });
+      };
+
       // Function to add a new meal to the log
       const handleLogMeal = (mealData) => {
         console.log('📝 Logging meal data:', mealData);
@@ -1221,11 +1250,41 @@
           fat: prevIntake.fat + fat,
         }));
 
+        // Generate unique meal ID
+        const mealId = Date.now();
+        
+        // Process image for mobile compatibility (synchronous approach)
+        let processedImage = mealData.image || 'https://placehold.co/100x100/cccccc/333333?text=Meal';
+        
+        // For mobile compatibility, use the original image but compress it immediately
+        if (mealData.image && mealData.image.startsWith('data:image/')) {
+          try {
+            // Use the original image initially
+            processedImage = mealData.image;
+            
+            // Compress in background and update
+            setTimeout(() => {
+              compressImageForMobile(mealData.image, 150, 0.8).then(compressed => {
+                setRecentMeals(prevMeals => 
+                  prevMeals.map(meal => 
+                    meal.id === mealId ? { ...meal, image: compressed } : meal
+                  )
+                );
+                console.log('✅ Image compressed and updated for meal:', mealId);
+              }).catch(error => {
+                console.warn('Background image compression failed:', error);
+              });
+            }, 100);
+          } catch (error) {
+            console.warn('Image processing failed, using placeholder:', error);
+            processedImage = 'https://placehold.co/100x100/cccccc/333333?text=Meal';
+          }
+        }
         const newMeal = {
-          id: Date.now(),
+          id: mealId,
           name: mealData.name || mealData.food_name || 'Scanned Meal',
           calories: calories,
-          image: mealData.image || 'https://placehold.co/100x100/cccccc/333333?text=Meal',
+          image: processedImage,
           mood: mealData.mood || 'Neutral',
         };
         
