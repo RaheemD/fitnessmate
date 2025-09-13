@@ -746,6 +746,18 @@
     // Netlify function endpoint
     const NETLIFY_API_URL = '/.netlify/functions/myapi';
     
+    // Direct Gemini API for simplified scan (obfuscated)
+    const getSimpleGeminiConfig = () => {
+      const keyParts = [
+        'QUl6YVN5QllodmZt',           // AIzaSyBYhvfm
+        'SnhYMl9UX214eGhQNmUxVQ==',   // JxX2_T_mxxhP6e1U
+        'SVdkSnpnQ2J5MDg='            // IWdJzgCby08
+      ];
+      const apiKey = keyParts.map(part => atob(part)).join('');
+      return `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+    };
+    const GEMINI_API_URL = getSimpleGeminiConfig();
+    
     // Direct Gemini API with basic obfuscation
     const getDirectGeminiConfig = () => {
       // Basic obfuscation - Base64 encoded parts
@@ -1192,69 +1204,24 @@
       }, [formAnalysis, user, syncAIContent]);
 
       // Function to add a new meal to the log
-      const handleLogMeal = async (mealData) => {
-        try {
-          // Validate meal data to prevent crashes
-          if (!mealData || typeof mealData !== 'object') {
-            console.error('Invalid meal data provided');
-            alert('❌ Invalid meal data. Please try scanning again.');
-            return;
-          }
+      const handleLogMeal = (mealData) => {
+        setDailyIntake(prevIntake => ({
+          ...prevIntake,
+          calories: prevIntake.calories + (mealData.calories || 0),
+          protein: prevIntake.protein + (mealData.protein || 0),
+          carbs: prevIntake.carbs + (mealData.carbs || 0),
+          fat: prevIntake.fat + (mealData.fat || 0),
+        }));
 
-          const updatedIntake = {
-            calories: dailyIntake.calories + (Number(mealData.calories) || 0),
-            protein: dailyIntake.protein + (Number(mealData.protein) || 0),
-            carbs: dailyIntake.carbs + (Number(mealData.carbs) || 0),
-            fat: dailyIntake.fat + (Number(mealData.fat) || 0),
-            activity: dailyIntake.activity,
-            water: dailyIntake.water
-          };
-          
-          // Update local state immediately for better UX
-          setDailyIntake(updatedIntake);
-
-          const newMeal = {
-            id: Date.now(),
-            name: mealData.name || 'Unknown Meal',
-            calories: Number(mealData.calories) || 0,
-            image: mealData.image || 'https://placehold.co/100x100/cccccc/333333?text=Meal',
-            mood: mealData.mood || 'Neutral',
-          };
-          const updatedMeals = [newMeal, ...recentMeals];
-          setRecentMeals(updatedMeals);
-          
-          // Clean up scan state and navigate to dashboard
-          if (window.scanCleanup && typeof window.scanCleanup === 'function') {
-            window.scanCleanup();
-          }
-          setScreen('dashboard');
-          
-          // Sync to Firebase in background with error handling
-          if (user) {
-            try {
-              await Promise.all([
-                syncDailyIntake(updatedIntake),
-                syncMealsData(updatedMeals)
-              ]);
-              
-              // Dispatch event to refresh UI from localStorage
-              setTimeout(() => {
-                window.dispatchEvent(new CustomEvent('userDataSynced'));
-              }, 100);
-              
-              console.log('✅ Meal logged and synced successfully');
-            } catch (syncError) {
-              console.error('⚠️ Meal logged locally but sync failed:', syncError);
-              // Don't show error to user as meal is already logged locally
-              // Firebase will retry sync automatically
-            }
-          }
-          
-        } catch (error) {
-          console.error('❌ Error logging meal:', error);
-          alert('❌ Failed to log meal. Please try again.');
-          // Don't navigate away if there's an error
-        }
+        const newMeal = {
+          id: Date.now(),
+          name: mealData.name,
+          calories: mealData.calories,
+          image: mealData.image || 'https://placehold.co/100x100/cccccc/333333?text=Meal',
+          mood: mealData.mood || 'Neutral',
+        };
+        setRecentMeals(prevMeals => [newMeal, ...prevMeals]);
+        setScreen('dashboard');
       };
 
       // Function to log daily activity
@@ -1297,17 +1264,7 @@
         switch (screen) {
           case 'dashboard': return <Dashboard dailyIntake={dailyIntake} goals={goals} recentMeals={recentMeals} onLogActivity={handleLogActivity} onLogWater={handleLogWater} />;
           case 'scan': return <Scan 
-            onLogMeal={handleLogMeal} 
-            scanResult={scanResult}
-            setScanResult={setScanResult}
-            isLoading={scanLoading}
-            setIsLoading={setScanLoading}
-            error={scanError}
-            setError={setScanError}
-            onCleanup={() => {
-              // This will be called from handleLogMeal to clean up scan state
-              console.log('🧹 Cleanup requested from parent component');
-            }}
+            onLogMeal={handleLogMeal}
           />;
           case 'profile': return <Profile isDarkMode={isDarkMode} toggleDarkMode={toggleDarkMode} goals={goals} setGoals={setGoals} setDailyIntake={setDailyIntake} setRecentMeals={setRecentMeals} setDailyHistory={setDailyHistory} setScreen={setScreen} />;
           case 'planner': return <MealPlanner 
@@ -3952,34 +3909,13 @@
     };
 
     // Scan Screen Component with Gemini API Integration
-    const Scan = ({ onLogMeal, onCleanup }) => {
+    const Scan = ({ onLogMeal }) => {
       const [isLoading, setIsLoading] = useState(false);
       const [scanResult, setScanResult] = useState(null);
       const [error, setError] = useState(null);
       const [imagePreview, setImagePreview] = useState(null);
       const [selectedMood, setSelectedMood] = useState(null);
       const fileInputRef = useRef(null);
-      const currentBlobUrlRef = useRef(null);
-      
-      // Cleanup blob URLs to prevent memory leaks on mobile
-      useEffect(() => {
-        return () => {
-          if (currentBlobUrlRef.current) {
-            console.log('🧹 Cleaning up blob URL on unmount');
-            URL.revokeObjectURL(currentBlobUrlRef.current);
-            currentBlobUrlRef.current = null;
-          }
-        };
-      }, []);
-      
-      // Clean up previous blob URL when new image is selected
-      const cleanupPreviousUrl = () => {
-        if (currentBlobUrlRef.current) {
-          console.log('🧹 Cleaning up previous blob URL');
-          URL.revokeObjectURL(currentBlobUrlRef.current);
-          currentBlobUrlRef.current = null;
-        }
-      };
 
       const fileToBase64 = (file) => new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -3989,100 +3925,27 @@
       });
 
       const handleImageChange = (event) => {
-        try {
-          const file = event.target.files[0];
-          
-          if (!file) {
-            console.log('📱 No file selected');
-            return;
-          }
-          
-          // Mobile-specific file validation
-          if (!file.type.startsWith('image/')) {
-            setError('Please select a valid image file (JPG, PNG, etc.)');
-            return;
-          }
-          
-          // Check file size for mobile optimization
-          const maxSize = 10 * 1024 * 1024; // 10MB
-          if (file.size > maxSize) {
-            setError('Image too large. Please use a smaller image (max 10MB).');
-            return;
-          }
-          
-          console.log('📱 Valid image selected:', file.name, `${(file.size / 1024 / 1024).toFixed(2)}MB`);
-          
-          // Clean up previous blob URL to prevent memory leaks
-          cleanupPreviousUrl();
-          
-          // Reset states before processing
+        const file = event.target.files[0];
+        if (file) {
+          const previewUrl = URL.createObjectURL(file);
+          setImagePreview(previewUrl);
           setScanResult(null);
           setError(null);
           setSelectedMood(null);
-          setImagePreview(null); // Clear previous preview
-          
-          // Create preview URL with error handling and memory tracking
-          let previewUrl;
-          try {
-            previewUrl = URL.createObjectURL(file);
-            currentBlobUrlRef.current = previewUrl; // Track for cleanup
-            setImagePreview(previewUrl);
-            console.log('📱 Created new blob URL:', previewUrl);
-          } catch (urlError) {
-            console.error('📱 Failed to create preview URL:', urlError);
-            setError('Failed to preview image. Please try again.');
-            return;
-          }
-          
-          // Start scanning process
-          handleScan(file, previewUrl);
-          
-        } catch (error) {
-          console.error('📱 Image change handler failed:', error);
-          setError('Failed to process image. Please try again.');
-          cleanupPreviousUrl(); // Clean up on error
-          setImagePreview(null);
-          setScanResult(null);
+          // Automatically trigger scan after image selection
+          handleScan();
         }
       };
 
-      const handleScan = async (file, previewUrl) => {
+      const handleScan = async () => {
+        const file = fileInputRef.current.files[0];
+        if (!file) return;
+        
         setIsLoading(true);
         setError(null);
         
-        // Mobile-specific timeout for API calls
-        const MOBILE_TIMEOUT = 30000; // 30 seconds
-        
         try {
-          // Validate file before processing
-          if (!file || !file.type.startsWith('image/')) {
-            throw new Error('Please select a valid image file.');
-          }
-          
-          // Check file size (mobile optimization)
-          if (file.size > 10 * 1024 * 1024) { // 10MB limit
-            throw new Error('Image too large. Please use a smaller image.');
-          }
-          
-          console.log('📱 Processing image on mobile:', file.name, file.size);
-          
-          const base64ImageData = await Promise.race([
-            fileToBase64(file),
-            new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Image processing timeout')), 10000)
-            )
-          ]);
-          
-          // Convert to full data URL for persistent storage
-          const reader = new FileReader();
-          const imageDataUrl = await new Promise((resolve, reject) => {
-            reader.onload = (e) => resolve(e.target.result);
-            reader.onerror = () => reject(new Error('Failed to read image'));
-            reader.readAsDataURL(file);
-            
-            // Timeout for file reading
-            setTimeout(() => reject(new Error('File reading timeout')), 5000);
-          });
+          const base64ImageData = await fileToBase64(file);
           
           const prompt = `Analyze the food in this image.
 1. Identify the main dish.
@@ -4114,107 +3977,44 @@ Respond ONLY with a valid JSON object in this format:
             ],
           };
 
-          // Add mobile-specific timeout and retry logic
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), MOBILE_TIMEOUT);
-          
-          const response = await fetch(NETLIFY_API_URL, {
+          const response = await fetch(GEMINI_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-            signal: controller.signal
+            body: JSON.stringify(payload)
           });
-          
-          clearTimeout(timeoutId);
 
           if (!response.ok) {
-            throw new Error(`API Error: ${response.status} ${response.statusText}`);
+            throw new Error(`API Error: ${response.status}`);
           }
 
           const result = await response.json();
-          
-          // Validate API response structure
-          if (!result || !result.candidates || !result.candidates[0] || !result.candidates[0].content) {
-            throw new Error('Invalid API response format');
-          }
-          
-          const textResponse = result.candidates[0].content.parts[0].text || '';
+          const textResponse = result.candidates[0].content.parts[0].text;
           const jsonString = textResponse.replace(/```json|```/g, '').trim();
           
-          let data;
-          try {
-            data = JSON.parse(jsonString);
-          } catch (parseError) {
-            console.error('JSON parsing failed:', parseError);
-            throw new Error('Failed to parse nutritional data. Please try again.');
-          }
-          
-          // Validate required fields
-          if (!data.name && !data.total_calories) {
-            throw new Error('Could not identify food in image. Please try a clearer photo.');
-          }
-          
-          // Use the persistent data URL instead of the temporary blob URL
-          data.image = imageDataUrl;
+          const data = JSON.parse(jsonString);
+          data.image = `data:${file.type};base64,${base64ImageData}`;
           setScanResult(data);
           
-          console.log('✅ Mobile scan completed successfully');
-          
         } catch (err) {
-          console.error("📱 Mobile scan failed:", err);
-          
-          let errorMessage = 'Could not analyze the image. ';
-          
-          if (err.name === 'AbortError') {
-            errorMessage += 'Request timed out. Please check your connection and try again.';
-          } else if (err.message.includes('timeout')) {
-            errorMessage += 'Processing took too long. Please try a smaller image.';
-          } else if (err.message.includes('network') || err.message.includes('fetch')) {
-            errorMessage += 'Network error. Please check your connection.';
-          } else if (err.message.includes('file') || err.message.includes('image')) {
-            errorMessage += err.message;
-          } else {
-            errorMessage += 'Please try again with a clearer photo.';
-          }
-          
-          setError(errorMessage);
+          console.error("Scan failed:", err);
+          setError('Could not analyze the image. Please try again.');
         } finally {
           setIsLoading(false);
         }
       };
 
       const resetScan = () => {
-        // Clean up previous blob URL
-        cleanupPreviousUrl();
-        
-        // Reset all scan-related state
         setImagePreview(null);
         setScanResult(null);
         setError(null);
         setSelectedMood(null);
-        
-        // Clear file input
         if (fileInputRef.current) {
           fileInputRef.current.value = '';
         }
-        
-        console.log('🧹 Scan state reset and cleanup completed');
+        console.log('Scan reset');
       };
 
-      // Expose resetScan function to parent component
-      useEffect(() => {
-        if (onCleanup && typeof onCleanup === 'function') {
-          // Override the onCleanup function to call our resetScan
-          window.scanCleanup = resetScan;
-        }
-        
-        return () => {
-          // Clean up the global reference on unmount
-          if (window.scanCleanup) {
-            delete window.scanCleanup;
-          }
-        };
-      }, [onCleanup, resetScan]);
+
 
       return (
         <div className="p-6 pb-24 flex flex-col items-center">
