@@ -1205,21 +1205,31 @@
 
       // Function to add a new meal to the log
       const handleLogMeal = (mealData) => {
+        console.log('📝 Logging meal data:', mealData);
+        
+        // Extract nutritional values with fallbacks
+        const calories = Number(mealData.calories) || Number(mealData.total_calories) || 0;
+        const protein = Number(mealData.protein) || Number(mealData.total_protein) || 0;
+        const carbs = Number(mealData.carbs) || Number(mealData.total_carbs) || 0;
+        const fat = Number(mealData.fat) || Number(mealData.total_fat) || 0;
+        
         setDailyIntake(prevIntake => ({
           ...prevIntake,
-          calories: prevIntake.calories + (mealData.calories || 0),
-          protein: prevIntake.protein + (mealData.protein || 0),
-          carbs: prevIntake.carbs + (mealData.carbs || 0),
-          fat: prevIntake.fat + (mealData.fat || 0),
+          calories: prevIntake.calories + calories,
+          protein: prevIntake.protein + protein,
+          carbs: prevIntake.carbs + carbs,
+          fat: prevIntake.fat + fat,
         }));
 
         const newMeal = {
           id: Date.now(),
-          name: mealData.name,
-          calories: mealData.calories,
+          name: mealData.name || mealData.food_name || 'Scanned Meal',
+          calories: calories,
           image: mealData.image || 'https://placehold.co/100x100/cccccc/333333?text=Meal',
           mood: mealData.mood || 'Neutral',
         };
+        
+        console.log('💾 Saving meal:', newMeal);
         setRecentMeals(prevMeals => [newMeal, ...prevMeals]);
         setScreen('dashboard');
       };
@@ -3932,21 +3942,15 @@
           setScanResult(null);
           setError(null);
           setSelectedMood(null);
-          // Automatically trigger scan after image selection
-          handleScan();
+          handleScan(file, previewUrl);
         }
       };
 
-      const handleScan = async () => {
-        const file = fileInputRef.current.files[0];
-        if (!file) return;
-        
+      const handleScan = async (file, previewUrl) => {
         setIsLoading(true);
         setError(null);
-        
         try {
           const base64ImageData = await fileToBase64(file);
-          
           const prompt = `Analyze the food in this image.
 1. Identify the main dish.
 2. Break it down into primary ingredients and estimate calories for each.
@@ -3984,19 +3988,17 @@ Respond ONLY with a valid JSON object in this format:
           });
 
           if (!response.ok) {
-            throw new Error(`API Error: ${response.status}`);
+            throw new Error(`API Error: ${response.status} ${response.statusText}`);
           }
 
           const result = await response.json();
-          const textResponse = result.candidates[0].content.parts[0].text;
+          const textResponse = result.candidates[0].content.parts[0].text || '';
           const jsonString = textResponse.replace(/```json|```/g, '').trim();
-          
           const data = JSON.parse(jsonString);
-          data.image = `data:${file.type};base64,${base64ImageData}`;
+          data.image = previewUrl;
           setScanResult(data);
-          
         } catch (err) {
-          console.error("Scan failed:", err);
+          console.error("Gemini API call failed:", err);
           setError('Could not analyze the image. Please try again.');
         } finally {
           setIsLoading(false);
@@ -4123,59 +4125,16 @@ Respond ONLY with a valid JSON object in this format:
                 )}
 
                 <button
-                  onClick={(e) => {
-                    try {
-                      // Prevent double-clicks on mobile
-                      e.preventDefault();
-                      e.currentTarget.disabled = true;
-                      
-                      // Validate scan result data before logging
-                      if (!scanResult || typeof scanResult !== 'object') {
-                        console.error('Invalid scan result data');
-                        alert('❌ Invalid meal data. Please scan again.');
-                        e.currentTarget.disabled = false;
-                        return;
-                      }
-                      
-                      // Ensure required nutritional data exists
-                      const mealData = {
-                        ...scanResult,
-                        name: scanResult.name || scanResult.food_name || 'Scanned Meal',
-                        calories: Number(scanResult.total_calories) || Number(scanResult.calories) || 0,
-                        protein: Number(scanResult.total_protein) || Number(scanResult.protein) || 0,
-                        carbs: Number(scanResult.total_carbs) || Number(scanResult.carbs) || 0,
-                        fat: Number(scanResult.total_fat) || Number(scanResult.fat) || 0,
-                        image: scanResult.image || null,
-                        mood: selectedMood || 'Neutral'
-                      };
-                      
-                      // Validate that we have meaningful nutritional data
-                      if (mealData.calories <= 0 && mealData.protein <= 0 && mealData.carbs <= 0 && mealData.fat <= 0) {
-                        console.error('No nutritional data found');
-                        alert('❌ No nutritional information found. Please try scanning again.');
-                        e.currentTarget.disabled = false;
-                        return;
-                      }
-                      
-                      console.log('📱 Logging meal on mobile:', mealData);
-                      
-                      // Call the meal logging function
-                      onLogMeal(mealData);
-                      
-                      // Re-enable button after a short delay
-                      setTimeout(() => {
-                        if (e.currentTarget) {
-                          e.currentTarget.disabled = false;
-                        }
-                      }, 2000);
-                      
-                    } catch (error) {
-                      console.error('❌ Mobile meal logging error:', error);
-                      alert('❌ Failed to log meal. Please try again.');
-                      e.currentTarget.disabled = false;
-                    }
-                  }}
-                  className="w-full mt-4 bg-green-500 text-white font-bold py-3 rounded-xl hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => onLogMeal({
+                    ...scanResult,
+                    calories: scanResult.total_calories,
+                    protein: scanResult.total_protein,
+                    carbs: scanResult.total_carbs,
+                    fat: scanResult.total_fat,
+                    image: scanResult.image,
+                    mood: selectedMood
+                  })}
+                  className="w-full mt-4 bg-green-500 text-white font-bold py-3 rounded-xl hover:bg-green-600 transition-colors"
                 >
                   Log this Meal
                 </button>
