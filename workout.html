@@ -8,6 +8,11 @@
   <!-- Tailwind CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/@lottiefiles/lottie-player@latest/dist/lottie-player.js"></script>
+  
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
   <script>
     tailwind.config = {
       darkMode: 'class'
@@ -364,6 +369,29 @@
   const playerVoiceGender = document.getElementById('player-voice-gender');
   const voiceGenderText = document.getElementById('voice-gender-text');
 
+  // Firebase Configuration
+  const firebaseConfig = {
+    apiKey: "AIzaSyDuDYbgrv4Y7kQOtmgs_UkiQOQrzhWNjrY",
+    authDomain: "fitnessmate-ba739.firebaseapp.com",
+    databaseURL: "https://fitnessmate-ba739-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "fitnessmate-ba739",
+    storageBucket: "fitnessmate-ba739.firebasestorage.app",
+    messagingSenderId: "1023464958187",
+    appId: "1:1023464958187:web:256a30e06441d54d3236ae",
+    measurementId: "G-JLMLLTTY43"
+  };
+
+  // Initialize Firebase
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  const db = firebase.database();
+  let currentUser = null;
+
+  // Listen for auth state changes
+  auth.onAuthStateChanged((user) => {
+    currentUser = user;
+  });
+
   // App state
   let currentWorkoutIndex = 0;
   let currentExerciseIndex = 0;
@@ -374,6 +402,95 @@
   let voiceEnabled = true;
   let voiceGender = 'female'; // 'male' or 'female'
   let isResting = false;
+
+  // Workout session tracking variables
+  let workoutStartTime = null;
+  let workoutTotalTime = 0;
+  let workoutTimer = null;
+  let completedExercises = [];
+  let sessionExercises = [];
+
+  // Workout state persistence functions
+  function saveWorkoutState() {
+    const workoutState = {
+      currentWorkoutIndex,
+      currentExerciseIndex,
+      currentSet,
+      remainingSeconds,
+      isPaused,
+      isResting,
+      workoutStartTime: workoutStartTime ? workoutStartTime.toISOString() : null,
+      workoutTotalTime,
+      completedExercises,
+      sessionExercises,
+      currentView: getCurrentView(),
+      timestamp: new Date().toISOString()
+    };
+    localStorage.setItem('fitmate-workout-state', JSON.stringify(workoutState));
+  }
+
+  function restoreWorkoutState() {
+    const savedState = localStorage.getItem('fitmate-workout-state');
+    if (savedState) {
+      try {
+        const state = JSON.parse(savedState);
+        // Only restore if the state is recent (within last 24 hours)
+        const stateAge = new Date() - new Date(state.timestamp);
+        if (stateAge < 24 * 60 * 60 * 1000) {
+          currentWorkoutIndex = state.currentWorkoutIndex || 0;
+          currentExerciseIndex = state.currentExerciseIndex || 0;
+          currentSet = state.currentSet || 1;
+          remainingSeconds = state.remainingSeconds || 0;
+          isPaused = state.isPaused || false;
+          isResting = state.isResting || false;
+          workoutStartTime = state.workoutStartTime ? new Date(state.workoutStartTime) : null;
+          workoutTotalTime = state.workoutTotalTime || 0;
+          completedExercises = state.completedExercises || [];
+          sessionExercises = state.sessionExercises || [];
+          
+          // Only restore view if not called from openPlayer
+          if (arguments.length === 0) {
+            // Called from page load, restore the appropriate view
+            if (state.currentView === 'player' && workoutStartTime) {
+              showView('view-player');
+              updatePlayerForExercise(currentExerciseIndex);
+              if (workoutStartTime) {
+                // Start workout timer
+                clearInterval(workoutTimer);
+                workoutTimer = setInterval(() => {
+                  workoutTotalTime++;
+                }, 1000);
+              }
+              
+              // Start player timer for time-based exercises if not paused and not resting
+              const workout = WORKOUTS[currentWorkoutIndex];
+              const currentEx = workout.exercises[currentExerciseIndex];
+              const isRepBased = currentEx.reps && currentEx.reps > 0;
+              if (!isRepBased && !isPaused && !isResting && remainingSeconds > 0) {
+                startPlayerTimer();
+              }
+            } else if (state.currentView === 'detail') {
+              openDetail(currentWorkoutIndex);
+            }
+          }
+          return true;
+        }
+      } catch (error) {
+        console.error('Error restoring workout state:', error);
+      }
+    }
+    return false;
+  }
+
+  function clearWorkoutState() {
+    localStorage.removeItem('fitmate-workout-state');
+  }
+
+  function getCurrentView() {
+    if (document.getElementById('view-player').classList.contains('active-view')) return 'player';
+    if (document.getElementById('view-detail').classList.contains('active-view')) return 'detail';
+    return 'list';
+  }
 
   // Background music initialization
   function initializeBackgroundMusic() {
@@ -422,7 +539,7 @@
             <div class="mt-3 flex items-center gap-6">
               <div class="flex items-center gap-2 text-sm">
                 <svg class="w-5 h-5 text-pink-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-                <span class="text-gray-800 dark:text-gray-200 font-medium">${w.duration}</span>
+                <span class="text-gray-800 dark:text-gray-200 font-medium">~${w.duration}</span>
               </div>
               <div class="flex items-center gap-2 text-sm">
                 <svg class="w-5 h-5 text-pink-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7" opacity="0.3"/></svg>
@@ -458,7 +575,7 @@
     const wx = WORKOUTS[idx];
     detailTitle.textContent = wx.title;
     detailDesc.textContent = wx.desc;
-    detailDuration.textContent = wx.duration;
+    detailDuration.textContent = '~' + wx.duration;
     detailCount.textContent = wx.exercises.length + ' exercises';
     detailBadge.textContent = wx.difficulty.charAt(0).toUpperCase() + wx.difficulty.slice(1);
     // Set badge color based on difficulty
@@ -590,19 +707,53 @@
   // --- Player logic
   function openPlayer(workoutIndex){
     const workout = WORKOUTS[workoutIndex];
-    currentWorkoutIndex = workoutIndex;
-    currentExerciseIndex = 0;
-    currentSet = 1;
-    voiceEnabled = true;
+    
+    // Check if there's an existing workout state to resume
+    const hasExistingState = restoreWorkoutState();
+    
+    if (!hasExistingState || currentWorkoutIndex !== workoutIndex) {
+      // Initialize new workout session
+      currentWorkoutIndex = workoutIndex;
+      currentExerciseIndex = 0;
+      currentSet = 1;
+      voiceEnabled = true;
+      
+      // Initialize workout session tracking
+      workoutStartTime = new Date();
+      workoutTotalTime = 0;
+      completedExercises = [];
+      window.lastPlayerNextState = null; // Reset duplicate call prevention
+      sessionExercises = workout.exercises.map(ex => ({
+        title: ex.title,
+        sets: ex.sets || 1,
+        reps: ex.reps || 0,
+        durationSeconds: ex.durationSeconds || 0,
+        muscles: ex.muscles || 'Unknown'
+      }));
+    }
+    
+    voiceEnabled = true; // Always ensure voice is enabled when opening player
+    
+    // Start workout timer if not already running
+    if (!workoutTimer && workoutStartTime) {
+      clearInterval(workoutTimer);
+      workoutTimer = setInterval(() => {
+        workoutTotalTime++;
+      }, 1000);
+    }
+    
     updatePlayerForExercise(currentExerciseIndex);
     showView('view-player');
     
-    // Only start timer for time-based exercises
+    // Only start timer for time-based exercises if not already running
     const ex = workout.exercises[currentExerciseIndex];
     const isRepBased = ex.reps && ex.reps > 0;
-    if (!isRepBased) {
+    if (!isRepBased && !timerInterval) {
       setTimeout(()=> startPlayerTimer(), 200);
     }
+    
+    // Save workout state
+    saveWorkoutState();
   }
 
   function updatePlayerForExercise(i){
@@ -696,6 +847,7 @@
     playerPause.title = 'Reset Rest Timer';
     
     speak(`Rest for ${currentEx.rest} seconds.`);
+    saveWorkoutState();
     
     timerInterval = setInterval(()=>{
       if (isPaused) return;
@@ -714,6 +866,7 @@
           if (!isRepBased) {
             startPlayerTimer();
           }
+          saveWorkoutState();
         }, 700);
       }
     }, 1000);
@@ -754,10 +907,12 @@
         isPaused = false; 
         playerPause.innerHTML = '||'; 
         try{ speechSynthesis.resume(); }catch(e){} 
+        saveWorkoutState();
       } else { 
         isPaused = true; 
         playerPause.innerHTML = '▶'; 
         try{ speechSynthesis.pause(); }catch(e){} 
+        saveWorkoutState();
       }
     }
   }
@@ -765,6 +920,14 @@
   function playerNext(){
     const workout = WORKOUTS[currentWorkoutIndex];
     const currentEx = workout.exercises[currentExerciseIndex];
+    
+    // Prevent duplicate calls for the same exercise/set combination
+    const currentState = `${currentExerciseIndex}-${currentSet}`;
+    if (window.lastPlayerNextState === currentState) {
+      console.log('Duplicate playerNext call prevented for:', currentState);
+      return;
+    }
+    window.lastPlayerNextState = currentState;
     
     // Check if we need to do more sets of current exercise
     if (currentSet < (currentEx.sets || 1)) {
@@ -780,8 +943,16 @@
         if (!isRepBased) {
           startPlayerTimer();
         }
+        saveWorkoutState();
       }
     } else {
+      // Mark current exercise as completed before moving to next (ensure no duplicates)
+      if (!completedExercises.includes(currentExerciseIndex)) {
+        completedExercises.push(currentExerciseIndex);
+        console.log(`Exercise ${currentExerciseIndex} completed. Total completed: ${completedExercises.length}/${sessionExercises.length}`);
+        saveWorkoutState();
+      }
+      
       // Move to next exercise
       currentSet = 1;
       currentExerciseIndex++;
@@ -789,6 +960,9 @@
         playerFinish();
         return;
       }
+      
+      // Save state after moving to next exercise
+      saveWorkoutState();
       
       // Add rest period between different exercises (30 seconds)
       const nextEx = workout.exercises[currentExerciseIndex];
@@ -819,6 +993,7 @@
               if (!isRepBased) {
                 startPlayerTimer();
               }
+              saveWorkoutState();
             }
           }
         }, 1000);
@@ -838,12 +1013,88 @@
 
   function playerFinish(){
     clearInterval(timerInterval);
+    clearInterval(workoutTimer);
+    
+    // Mark final exercise as completed if not already marked (and it's a valid exercise index)
+    if (currentExerciseIndex < sessionExercises.length && !completedExercises.includes(currentExerciseIndex)) {
+      completedExercises.push(currentExerciseIndex);
+    }
+    
+    // Remove any duplicate entries (safety check)
+    completedExercises = [...new Set(completedExercises)];
+    console.log(`Workout finished. Completed exercises: ${completedExercises.length}, Total exercises: ${sessionExercises.length}`);
+    console.log('Completed exercise indices:', completedExercises);
+    
+    // Calculate workout metrics for health score integration
+    const workoutData = {
+      duration: Math.round(workoutTotalTime / 60), // Convert to minutes
+      exercisesCompleted: completedExercises.length,
+      totalExercises: sessionExercises.length,
+      completionRate: Math.min(100, (completedExercises.length / sessionExercises.length) * 100),
+      timestamp: new Date().toISOString(),
+      type: 'structured_workout',
+      workoutTitle: WORKOUTS[currentWorkoutIndex].title,
+      workoutLevel: WORKOUTS[currentWorkoutIndex].difficulty,
+      exercises: sessionExercises
+    };
+    
+    // Log workout as activity minutes and save to history
+    if (workoutData.duration > 0) {
+      // Log activity minutes to daily intake (same as index.html)
+      const dailyIntake = JSON.parse(localStorage.getItem('dailyIntake') || '{"calories": 0, "protein": 0, "carbs": 0, "fat": 0, "activity": 0, "water": 0}');
+      dailyIntake.activity = (dailyIntake.activity || 0) + workoutData.duration;
+      localStorage.setItem('dailyIntake', JSON.stringify(dailyIntake));
+      
+      // Store workout history for detailed tracking
+      const workoutHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+      workoutHistory.push(workoutData);
+      // Keep only last 30 workouts
+      if (workoutHistory.length > 30) workoutHistory.shift();
+      localStorage.setItem('workoutHistory', JSON.stringify(workoutHistory));
+      
+      // Sync workout data to Firebase if user is logged in
+      if (currentUser) {
+        try {
+          // Save to user's workout history
+          const userWorkoutRef = db.ref(`users/${currentUser.uid}/workoutHistory`);
+          userWorkoutRef.push(workoutData);
+          
+          // Update user's daily intake
+          const userDailyRef = db.ref(`users/${currentUser.uid}/dailyIntake`);
+          userDailyRef.once('value', (snapshot) => {
+            const dailyData = snapshot.val() || {calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0};
+            const currentActivity = dailyData.activity || 0;
+            userDailyRef.update({
+              activity: currentActivity + workoutData.duration
+            });
+          });
+        } catch (error) {
+          console.error('Error syncing workout data to Firebase:', error);
+        }
+      }
+    }
+    
+    // Reset workout session tracking
+    workoutStartTime = null;
+    workoutTotalTime = 0;
+    completedExercises = [];
+    sessionExercises = [];
+    
+    // Update UI
     playerTitle.textContent = 'Workout complete';
     playerSetInfo.textContent = '';
     playerTimer.textContent = '00:00';
     playerReps.textContent = 'Well done!';
     playerProgressFill.style.width = '100%';
-    speak('Workout complete. Great job!');
+    
+    const completionMessage = workoutData.completionRate === 100 
+      ? `Workout completed! Great job! You completed all ${workoutData.totalExercises} exercises in ${workoutData.duration} minutes.`
+      : `Workout session ended. You completed ${workoutData.exercisesCompleted} out of ${workoutData.totalExercises} exercises in ${workoutData.duration} minutes.`;
+    
+    speak(completionMessage);
+    
+    // Clear workout state since workout is completed
+    clearWorkoutState();
     
     // Auto-return to workout detail after 3 seconds
     setTimeout(() => {
@@ -892,6 +1143,68 @@
   });
   playerClose.addEventListener('click', ()=> {
     clearInterval(timerInterval);
+    clearInterval(workoutTimer);
+    
+    // Save partial workout data if user exits early
+    if (workoutStartTime && workoutTotalTime > 0) {
+      // Mark current exercise as completed if user was in the middle of it (and it's a valid exercise index)
+      if (currentExerciseIndex < sessionExercises.length && !completedExercises.includes(currentExerciseIndex)) {
+        completedExercises.push(currentExerciseIndex);
+      }
+      
+      const workoutData = {
+        duration: Math.round(workoutTotalTime / 60),
+        exercisesCompleted: completedExercises.length,
+        totalExercises: sessionExercises.length,
+        completionRate: Math.min(100, (completedExercises.length / sessionExercises.length) * 100),
+        timestamp: new Date().toISOString(),
+        type: 'structured_workout',
+        workoutTitle: WORKOUTS[currentWorkoutIndex].title,
+        workoutLevel: WORKOUTS[currentWorkoutIndex].difficulty,
+        exercises: sessionExercises,
+        incomplete: true // Mark as incomplete workout
+      };
+      
+      // Only save if workout had meaningful duration (at least 1 minute)
+      if (workoutData.duration > 0) {
+        // Log activity minutes to daily intake
+        const dailyIntake = JSON.parse(localStorage.getItem('dailyIntake') || '{"calories": 0, "protein": 0, "carbs": 0, "fat": 0, "activity": 0, "water": 0}');
+        dailyIntake.activity = (dailyIntake.activity || 0) + workoutData.duration;
+        localStorage.setItem('dailyIntake', JSON.stringify(dailyIntake));
+        
+        // Store workout history
+        const workoutHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+        workoutHistory.push(workoutData);
+        if (workoutHistory.length > 30) workoutHistory.shift();
+        localStorage.setItem('workoutHistory', JSON.stringify(workoutHistory));
+        
+        // Sync to Firebase if user is logged in
+        if (currentUser) {
+          try {
+            const userWorkoutRef = db.ref(`users/${currentUser.uid}/workoutHistory`);
+            userWorkoutRef.push(workoutData);
+            
+            const userDailyRef = db.ref(`users/${currentUser.uid}/dailyIntake`);
+            userDailyRef.once('value', (snapshot) => {
+              const dailyData = snapshot.val() || {calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0};
+              const currentActivity = dailyData.activity || 0;
+              userDailyRef.update({
+                activity: currentActivity + workoutData.duration
+              });
+            });
+          } catch (error) {
+            console.error('Error syncing partial workout data to Firebase:', error);
+          }
+        }
+      }
+    }
+    
+    // Reset workout session tracking
+    workoutStartTime = null;
+    workoutTotalTime = 0;
+    completedExercises = [];
+    sessionExercises = [];
+    
     try{ speechSynthesis.cancel(); }catch(e){}
     // return to detail (same workout)
     openDetail(currentWorkoutIndex);
@@ -984,6 +1297,9 @@
 
   // Initial render
   renderWorkouts();
+
+  // Restore workout state on page load
+  restoreWorkoutState();
 
   // preload voices (some browsers require gesture)
   if ('speechSynthesis' in window) { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices(); }
