@@ -908,7 +908,10 @@
 
     // --- Main App Component ---
     function App() {
-      const [screen, setScreen] = useState('dashboard'); // 'dashboard', 'scan', 'profile', 'planner', 'workout', 'coach', 'progress'
+      const [screen, setScreen] = useState(() => {
+        const savedScreen = localStorage.getItem('fitmate-current-screen');
+        return savedScreen || 'dashboard';
+      }); // 'dashboard', 'scan', 'profile', 'planner', 'workout', 'coach', 'progress'
 
       // --- Clean Theme State Management ---
       const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -975,6 +978,11 @@
           Notification.requestPermission();
         }
       }, []);
+
+      // Persist current screen state
+      useEffect(() => {
+        localStorage.setItem('fitmate-current-screen', screen);
+      }, [screen]);
 
       // Listen for userDataSynced event to refresh React state
       useEffect(() => {
@@ -1389,9 +1397,14 @@
           workoutQualityScore = Math.min(100, structuredWorkoutBonus + completionBonus + consistencyBonus);
         }
         
-        // Weighted calculation with workout quality factor
-        const baseScore = (calorieScore * 0.4) + (activityScore * 0.25) + (waterScore * 0.15);
-        const enhancedScore = baseScore + (workoutQualityScore * 0.2);
+        // Enhanced calculation: workout can replace activity but not vice versa
+        // Max combined workout + activity = 45 points (20% workout + 25% activity)
+        const workoutPoints = workoutQualityScore * 0.2; // Max 20 points
+        const activityPoints = activityScore * 0.25; // Max 25 points
+        const combinedActivityScore = Math.min(45, workoutPoints + activityPoints); // Cap at 45 points
+        
+        const baseScore = (calorieScore * 0.4) + (waterScore * 0.15);
+        const enhancedScore = baseScore + combinedActivityScore;
         
         return Math.round(Math.min(100, enhancedScore));
       };
@@ -1429,9 +1442,9 @@
                 </div>
                 <p className="text-gray-600 dark:text-gray-400 mt-2">Today's Score / 100</p>
                 <div className="text-xs text-gray-500 dark:text-gray-400 mt-2 space-y-1">
-                  <p><span className="font-bold text-pink-500">50%</span> Nutrition</p>
-                  <p><span className="font-bold text-cyan-500">30%</span> Activity</p>
-                  <p><span className="font-bold text-blue-500">20%</span> Hydration</p>
+                  <p><span className="font-bold text-pink-500">40%</span> Nutrition</p>
+                  <p><span className="font-bold text-purple-500">45%</span> Activity + Workouts (max)</p>
+                  <p><span className="font-bold text-blue-500">15%</span> Hydration</p>
                 </div>
               </div>
             </div>
@@ -2093,7 +2106,7 @@
     // Current month days
     for (let i = 1; i <= daysInMonth; i++) {
       const date = new Date(year, month, i);
-      const isAvailable = date >= new Date() && date.getDay() !== 0; // Available if not in the past and not Sunday
+      const isAvailable = date >= new Date(); // Available if not in the past (including Sundays)
       
       days.push({
         dayOfMonth: i,
@@ -2212,6 +2225,13 @@
     const controller = new AbortController();
     setAbortController(controller);
     
+    // Clear ALL cached slots to ensure changes apply to all dates
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith('fitmate-slots-')) {
+        localStorage.removeItem(key);
+      }
+    });
+    
     // Check localStorage cache first
     const localCacheKey = `fitmate-slots-${dateString}`;
     const localCache = localStorage.getItem(localCacheKey);
@@ -2248,17 +2268,18 @@
     setIsLoadingSlots(true);
     
     try {
-      // Generate time slots from 9 AM to 5 PM
+      // Generate time slots from 6 AM to 9 PM (45-minute sessions)
       const slots = [];
-      const startHour = 9;
-      const endHour = 17;
+      const startHour = 6;
+      const endHour = 21;
       
       for (let hour = startHour; hour < endHour; hour++) {
-        const hourFormatted = hour > 12 ? hour - 12 : hour;
+        const hourFormatted = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
         const period = hour >= 12 ? 'PM' : 'AM';
         
-        slots.push(`${hourFormatted}:00 ${period}`);
-        slots.push(`${hourFormatted}:30 ${period}`);
+        // 45-minute slots with timezone-friendly labels for US/Canada clients
+        slots.push(`${hourFormatted}:00 ${period} EST/EDT`);
+        slots.push(`${hourFormatted}:45 ${period} EST/EDT`);
       }
       
       // Fetch booked slots for this date
@@ -6693,7 +6714,14 @@ Respond ONLY with a valid JSON object in this exact format:
           if (carbProgress > 120) highAreas.push('carbs');
           if (fatProgress > 120) highAreas.push('fat');
           
-          let prompt = `You are an AI Health Coach specializing in FITNESS and NUTRITION. Analyze the user's question type and provide HIGHLY RELEVANT responses.
+          // Get workout history for enhanced coaching
+          const workoutHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+          const recentWorkouts = workoutHistory.slice(-5); // Last 5 workouts
+          const workoutContext = recentWorkouts.map(w => 
+            `${w.workoutTitle} (${w.workoutLevel || 'Unknown'} level) - ${w.completionRate}% completed on ${new Date(w.timestamp).toLocaleDateString()}`
+          ).join('; ');
+          
+          let prompt = `You are an AI Health Coach specializing in FITNESS, WORKOUTS, and NUTRITION. You have comprehensive knowledge of the FitnessMate app's features and can provide expert guidance.
 
 📊 USER'S CURRENT STATUS:
 Daily Intake vs Goals:
@@ -6704,28 +6732,46 @@ Daily Intake vs Goals:
 - Activity: ${Math.min(effectiveActivityCtx, goals.activity)}/${goals.activity} mins (${Math.min(100, Number(activityProgress))}%)
 - Water: ${dailyIntake.water}/${goals.water} glasses (${waterProgress}%)
 
+🏋️ WORKOUT DATA:
+- Recent workouts: ${workoutContext || 'No recent workouts'}
+- Available workout types: Upper Body, Lower Body, Full Body, Core & Abs, Cardio HIIT
+- Difficulty levels: Beginner, Intermediate, Advanced
+- Features: AI Form Coach, Workout Planner, Progress Tracking
+
+🎯 HEALTH SCORING SYSTEM:
+- Nutrition: 40% (based on macro balance and calorie goals)
+- Activity + Workouts: 45% max (workouts can replace activity points)
+- Hydration: 15% (water intake vs goals)
+- Workouts provide structured exercise that counts toward activity goals
+- Quality workouts can compensate for lower general activity
+
 Recent meals: ${mealContext || 'None logged'}
 ${lowAreas.length > 0 ? `\n⚠️ LOW AREAS: ${lowAreas.join(', ')}` : ''}
 ${highAreas.length > 0 ? `\n🔴 HIGH AREAS: ${highAreas.join(', ')}` : ''}
 
-🎯 RESPONSE RULES:
-1. IDENTIFY QUESTION TYPE FIRST:
-   - INJURY/PAIN → Focus on recovery, rest, medical advice
-   - EXERCISE → Focus on form, progression, alternatives
-   - NUTRITION → Focus on macros, meal timing, food choices
-   - GENERAL HEALTH → Focus on lifestyle, habits, wellness
+🎯 ENHANCED RESPONSE RULES:
+1. IDENTIFY QUESTION TYPE:
+   - WORKOUT PLANNING → Recommend specific workouts based on goals/level
+   - EXERCISE FORM → Reference AI Form Coach feature for technique help
+   - WORKOUT PROGRESS → Analyze completion rates and suggest improvements
+   - INJURY/PAIN → Focus on recovery, rest, form correction
+   - NUTRITION → Use macro data and meal timing advice
+   - HEALTH SCORE → Explain the 40/45/15 scoring system
+   - APP FEATURES → Guide users to relevant FitnessMate tools
 
-2. RESPONSE FORMAT (MAX 100 WORDS):
-   - Start with direct answer to their specific question
-   - Provide 2-3 bullet points with actionable tips
-   - Use relevant emojis for readability
+2. RESPONSE FORMAT (MAX 120 WORDS):
+   - Direct answer to their specific question
+   - 2-3 actionable bullet points
    - Reference their actual data when applicable
+   - Suggest relevant app features (Workout Planner, AI Form Coach, etc.)
+   - Use emojis for readability
 
-3. CONTEXT MATCHING:
-   - For injury questions: Prioritize safety and recovery
-   - For exercise questions: Focus on technique and progression
-   - For nutrition questions: Use their macro data and goals
-   - Always stay within your expertise scope
+3. WORKOUT EXPERTISE:
+   - Recommend difficulty progression (Beginner → Intermediate → Advanced)
+   - Suggest workout types based on goals and current activity
+   - Explain how workouts contribute to health score
+   - Reference specific exercises and proper form
+   - Encourage use of AI Form Coach for technique improvement
 
 User's question: "${userMessage.text}"`;
 
@@ -7171,7 +7217,12 @@ User's question: "${userMessage.text}"`;
                       <div className="text-xs opacity-90">Avg Completion</div>
                     </div>
                     <div className="bg-gradient-to-br from-green-500 to-emerald-500 p-4 rounded-2xl text-white text-center">
-                      <div className="text-2xl font-bold">{Math.round(totalWorkoutTime/60)}h</div>
+                      <div className="text-2xl font-bold">
+                        {totalWorkoutTime >= 60 
+                          ? `${Math.floor(totalWorkoutTime/60)}h ${totalWorkoutTime%60}m`
+                          : `${totalWorkoutTime}m`
+                        }
+                      </div>
                       <div className="text-xs opacity-90">Total Time</div>
                     </div>
                     <div className="bg-gradient-to-br from-orange-500 to-red-500 p-4 rounded-2xl text-white text-center">
@@ -7206,6 +7257,43 @@ User's question: "${userMessage.text}"`;
                       })}
                     </div>
                   </div>
+                  
+                  {/* Recent Workouts */}
+                  {workoutHistory.length > 0 && (
+                    <div className="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-2xl">
+                      <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">📋 Recent Workouts</h4>
+                      <div className="space-y-2 max-h-40 overflow-y-auto">
+                        {workoutHistory.slice(-5).reverse().map((workout, index) => (
+                          <div key={index} className="flex justify-between items-center p-3 bg-white dark:bg-gray-600 rounded-lg text-xs">
+                            <div className="flex-1">
+                              <div className="font-medium text-gray-800 dark:text-gray-200">{workout.workoutTitle}</div>
+                              <div className="text-gray-500 dark:text-gray-400 space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                                    workout.workoutLevel === 'beginner' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
+                                    workout.workoutLevel === 'intermediate' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' :
+                                    'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                                  }`}>
+                                    {workout.workoutLevel ? workout.workoutLevel.charAt(0).toUpperCase() + workout.workoutLevel.slice(1) : 'Beginner'}
+                                  </span>
+                                  <span>•</span>
+                                  <span>{workout.duration}min</span>
+                                  <span>•</span>
+                                  <span>{Math.round(workout.completionRate)}% complete</span>
+                                </div>
+                                <div className="text-xs">
+                                  {new Date(workout.timestamp).toLocaleDateString()} at {new Date(workout.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-green-600 dark:text-green-400 font-medium">{workout.exercisesCompleted}/{workout.totalExercises}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   
                   {/* Workout Quality Insights */}
                   {workoutHistory.length > 0 && (
@@ -7979,7 +8067,6 @@ ${habits.map(habit => {
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </body>
 </html>
-
 
 
 
