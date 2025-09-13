@@ -1192,39 +1192,66 @@
       }, [formAnalysis, user, syncAIContent]);
 
       // Function to add a new meal to the log
-      const handleLogMeal = (mealData) => {
-        const updatedIntake = {
-          calories: dailyIntake.calories + (mealData.calories || 0),
-          protein: dailyIntake.protein + (mealData.protein || 0),
-          carbs: dailyIntake.carbs + (mealData.carbs || 0),
-          fat: dailyIntake.fat + (mealData.fat || 0),
-          activity: dailyIntake.activity,
-          water: dailyIntake.water
-        };
-        
-        setDailyIntake(updatedIntake);
+      const handleLogMeal = async (mealData) => {
+        try {
+          // Validate meal data to prevent crashes
+          if (!mealData || typeof mealData !== 'object') {
+            console.error('Invalid meal data provided');
+            alert('❌ Invalid meal data. Please try scanning again.');
+            return;
+          }
 
-        const newMeal = {
-          id: Date.now(),
-          name: mealData.name,
-          calories: mealData.calories,
-          image: mealData.image || 'https://placehold.co/100x100/cccccc/333333?text=Meal',
-          mood: mealData.mood || 'Neutral',
-        };
-        const updatedMeals = [newMeal, ...recentMeals];
-        setRecentMeals(updatedMeals);
-        
-        // Sync to Firebase immediately
-        if (user) {
-          syncDailyIntake(updatedIntake);
-          syncMealsData(updatedMeals);
-          // Dispatch event to refresh UI from localStorage
-          setTimeout(() => {
-            window.dispatchEvent(new CustomEvent('userDataSynced'));
-          }, 100);
+          const updatedIntake = {
+            calories: dailyIntake.calories + (Number(mealData.calories) || 0),
+            protein: dailyIntake.protein + (Number(mealData.protein) || 0),
+            carbs: dailyIntake.carbs + (Number(mealData.carbs) || 0),
+            fat: dailyIntake.fat + (Number(mealData.fat) || 0),
+            activity: dailyIntake.activity,
+            water: dailyIntake.water
+          };
+          
+          // Update local state immediately for better UX
+          setDailyIntake(updatedIntake);
+
+          const newMeal = {
+            id: Date.now(),
+            name: mealData.name || 'Unknown Meal',
+            calories: Number(mealData.calories) || 0,
+            image: mealData.image || 'https://placehold.co/100x100/cccccc/333333?text=Meal',
+            mood: mealData.mood || 'Neutral',
+          };
+          const updatedMeals = [newMeal, ...recentMeals];
+          setRecentMeals(updatedMeals);
+          
+          // Navigate to dashboard immediately to prevent blank screen
+          setScreen('dashboard');
+          
+          // Sync to Firebase in background with error handling
+          if (user) {
+            try {
+              await Promise.all([
+                syncDailyIntake(updatedIntake),
+                syncMealsData(updatedMeals)
+              ]);
+              
+              // Dispatch event to refresh UI from localStorage
+              setTimeout(() => {
+                window.dispatchEvent(new CustomEvent('userDataSynced'));
+              }, 100);
+              
+              console.log('✅ Meal logged and synced successfully');
+            } catch (syncError) {
+              console.error('⚠️ Meal logged locally but sync failed:', syncError);
+              // Don't show error to user as meal is already logged locally
+              // Firebase will retry sync automatically
+            }
+          }
+          
+        } catch (error) {
+          console.error('❌ Error logging meal:', error);
+          alert('❌ Failed to log meal. Please try again.');
+          // Don't navigate away if there's an error
         }
-        
-        setScreen('dashboard');
       };
 
       // Function to log daily activity
@@ -3934,28 +3961,92 @@
       });
 
       const handleImageChange = (event) => {
-        const file = event.target.files[0];
-        if (file) {
-          const previewUrl = URL.createObjectURL(file);
-          setImagePreview(previewUrl);
+        try {
+          const file = event.target.files[0];
+          
+          if (!file) {
+            console.log('📱 No file selected');
+            return;
+          }
+          
+          // Mobile-specific file validation
+          if (!file.type.startsWith('image/')) {
+            setError('Please select a valid image file (JPG, PNG, etc.)');
+            return;
+          }
+          
+          // Check file size for mobile optimization
+          const maxSize = 10 * 1024 * 1024; // 10MB
+          if (file.size > maxSize) {
+            setError('Image too large. Please use a smaller image (max 10MB).');
+            return;
+          }
+          
+          console.log('📱 Valid image selected:', file.name, `${(file.size / 1024 / 1024).toFixed(2)}MB`);
+          
+          // Reset states before processing
           setScanResult(null);
           setError(null);
           setSelectedMood(null);
+          
+          // Create preview URL with error handling
+          let previewUrl;
+          try {
+            previewUrl = URL.createObjectURL(file);
+            setImagePreview(previewUrl);
+          } catch (urlError) {
+            console.error('📱 Failed to create preview URL:', urlError);
+            setError('Failed to preview image. Please try again.');
+            return;
+          }
+          
+          // Start scanning process
           handleScan(file, previewUrl);
+          
+        } catch (error) {
+          console.error('📱 Image change handler failed:', error);
+          setError('Failed to process image. Please try again.');
+          setImagePreview(null);
+          setScanResult(null);
         }
       };
 
       const handleScan = async (file, previewUrl) => {
         setIsLoading(true);
         setError(null);
+        
+        // Mobile-specific timeout for API calls
+        const MOBILE_TIMEOUT = 30000; // 30 seconds
+        
         try {
-          const base64ImageData = await fileToBase64(file);
+          // Validate file before processing
+          if (!file || !file.type.startsWith('image/')) {
+            throw new Error('Please select a valid image file.');
+          }
+          
+          // Check file size (mobile optimization)
+          if (file.size > 10 * 1024 * 1024) { // 10MB limit
+            throw new Error('Image too large. Please use a smaller image.');
+          }
+          
+          console.log('📱 Processing image on mobile:', file.name, file.size);
+          
+          const base64ImageData = await Promise.race([
+            fileToBase64(file),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Image processing timeout')), 10000)
+            )
+          ]);
           
           // Convert to full data URL for persistent storage
           const reader = new FileReader();
-          const imageDataUrl = await new Promise((resolve) => {
+          const imageDataUrl = await new Promise((resolve, reject) => {
             reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = () => reject(new Error('Failed to read image'));
             reader.readAsDataURL(file);
+            
+            // Timeout for file reading
+            setTimeout(() => reject(new Error('File reading timeout')), 5000);
           });
           
           const prompt = `Analyze the food in this image.
@@ -3988,27 +4079,70 @@ Respond ONLY with a valid JSON object in this format:
             ],
           };
 
+          // Add mobile-specific timeout and retry logic
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), MOBILE_TIMEOUT);
+          
           const response = await fetch(NETLIFY_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            signal: controller.signal
           });
+          
+          clearTimeout(timeoutId);
 
           if (!response.ok) {
             throw new Error(`API Error: ${response.status} ${response.statusText}`);
           }
 
           const result = await response.json();
+          
+          // Validate API response structure
+          if (!result || !result.candidates || !result.candidates[0] || !result.candidates[0].content) {
+            throw new Error('Invalid API response format');
+          }
+          
           const textResponse = result.candidates[0].content.parts[0].text || '';
           const jsonString = textResponse.replace(/```json|```/g, '').trim();
-          const data = JSON.parse(jsonString);
+          
+          let data;
+          try {
+            data = JSON.parse(jsonString);
+          } catch (parseError) {
+            console.error('JSON parsing failed:', parseError);
+            throw new Error('Failed to parse nutritional data. Please try again.');
+          }
+          
+          // Validate required fields
+          if (!data.name && !data.total_calories) {
+            throw new Error('Could not identify food in image. Please try a clearer photo.');
+          }
           
           // Use the persistent data URL instead of the temporary blob URL
           data.image = imageDataUrl;
           setScanResult(data);
+          
+          console.log('✅ Mobile scan completed successfully');
+          
         } catch (err) {
-          console.error("Gemini API call failed:", err);
-          setError('Could not analyze the image. Please try again.');
+          console.error("📱 Mobile scan failed:", err);
+          
+          let errorMessage = 'Could not analyze the image. ';
+          
+          if (err.name === 'AbortError') {
+            errorMessage += 'Request timed out. Please check your connection and try again.';
+          } else if (err.message.includes('timeout')) {
+            errorMessage += 'Processing took too long. Please try a smaller image.';
+          } else if (err.message.includes('network') || err.message.includes('fetch')) {
+            errorMessage += 'Network error. Please check your connection.';
+          } else if (err.message.includes('file') || err.message.includes('image')) {
+            errorMessage += err.message;
+          } else {
+            errorMessage += 'Please try again with a clearer photo.';
+          }
+          
+          setError(errorMessage);
         } finally {
           setIsLoading(false);
         }
@@ -4121,16 +4255,59 @@ Respond ONLY with a valid JSON object in this format:
                 )}
 
                 <button
-                  onClick={() => onLogMeal({
-                    ...scanResult,
-                    calories: scanResult.total_calories,
-                    protein: scanResult.total_protein,
-                    carbs: scanResult.total_carbs,
-                    fat: scanResult.total_fat,
-                    image: scanResult.image,
-                    mood: selectedMood
-                  })}
-                  className="w-full mt-4 bg-green-500 text-white font-bold py-3 rounded-xl hover:bg-green-600 transition-colors"
+                  onClick={(e) => {
+                    try {
+                      // Prevent double-clicks on mobile
+                      e.preventDefault();
+                      e.currentTarget.disabled = true;
+                      
+                      // Validate scan result data before logging
+                      if (!scanResult || typeof scanResult !== 'object') {
+                        console.error('Invalid scan result data');
+                        alert('❌ Invalid meal data. Please scan again.');
+                        e.currentTarget.disabled = false;
+                        return;
+                      }
+                      
+                      // Ensure required nutritional data exists
+                      const mealData = {
+                        ...scanResult,
+                        name: scanResult.name || scanResult.food_name || 'Scanned Meal',
+                        calories: Number(scanResult.total_calories) || Number(scanResult.calories) || 0,
+                        protein: Number(scanResult.total_protein) || Number(scanResult.protein) || 0,
+                        carbs: Number(scanResult.total_carbs) || Number(scanResult.carbs) || 0,
+                        fat: Number(scanResult.total_fat) || Number(scanResult.fat) || 0,
+                        image: scanResult.image || null,
+                        mood: selectedMood || 'Neutral'
+                      };
+                      
+                      // Validate that we have meaningful nutritional data
+                      if (mealData.calories <= 0 && mealData.protein <= 0 && mealData.carbs <= 0 && mealData.fat <= 0) {
+                        console.error('No nutritional data found');
+                        alert('❌ No nutritional information found. Please try scanning again.');
+                        e.currentTarget.disabled = false;
+                        return;
+                      }
+                      
+                      console.log('📱 Logging meal on mobile:', mealData);
+                      
+                      // Call the meal logging function
+                      onLogMeal(mealData);
+                      
+                      // Re-enable button after a short delay
+                      setTimeout(() => {
+                        if (e.currentTarget) {
+                          e.currentTarget.disabled = false;
+                        }
+                      }, 2000);
+                      
+                    } catch (error) {
+                      console.error('❌ Mobile meal logging error:', error);
+                      alert('❌ Failed to log meal. Please try again.');
+                      e.currentTarget.disabled = false;
+                    }
+                  }}
+                  className="w-full mt-4 bg-green-500 text-white font-bold py-3 rounded-xl hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Log this Meal
                 </button>
