@@ -429,7 +429,7 @@
     localStorage.setItem('fitmate-workout-state', JSON.stringify(workoutState));
   }
 
-  function restoreWorkoutState() {
+  function restoreWorkoutState(fromPageLoad = false) {
     const savedState = localStorage.getItem('fitmate-workout-state');
     if (savedState) {
       try {
@@ -448,10 +448,11 @@
           completedExercises = state.completedExercises || [];
           sessionExercises = state.sessionExercises || [];
           
-          // Only restore view if not called from openPlayer
-          if (arguments.length === 0) {
+          // Only restore view if called from page load and not already in a workout session
+          if (fromPageLoad && !window.workoutSessionActive) {
             // Called from page load, restore the appropriate view
             if (state.currentView === 'player' && workoutStartTime) {
+              window.workoutSessionActive = true; // Mark session as active
               showView('view-player');
               updatePlayerForExercise(currentExerciseIndex);
               if (workoutStartTime) {
@@ -484,6 +485,7 @@
 
   function clearWorkoutState() {
     localStorage.removeItem('fitmate-workout-state');
+    window.workoutSessionActive = false; // Clear session state flag
   }
 
   function getCurrentView() {
@@ -708,8 +710,16 @@
   function openPlayer(workoutIndex){
     const workout = WORKOUTS[workoutIndex];
     
-    // Check if there's an existing workout state to resume
-    const hasExistingState = restoreWorkoutState();
+    // Check if there's an existing workout state to resume (but not from page load)
+    const hasExistingState = restoreWorkoutState(false);
+    
+    // Prevent duplicate session initialization
+    if (window.workoutSessionActive && currentWorkoutIndex === workoutIndex && hasExistingState) {
+      // Resume existing session
+      updatePlayerForExercise(currentExerciseIndex);
+      showView('view-player');
+      return;
+    }
     
     if (!hasExistingState || currentWorkoutIndex !== workoutIndex) {
       // Initialize new workout session
@@ -723,6 +733,7 @@
       workoutTotalTime = 0;
       completedExercises = [];
       window.lastPlayerNextState = null; // Reset duplicate call prevention
+      window.workoutSessionActive = true; // Mark session as active
       sessionExercises = workout.exercises.map(ex => ({
         title: ex.title,
         sets: ex.sets || 1,
@@ -953,13 +964,15 @@
         saveWorkoutState();
       }
       
-      // Move to next exercise
-      currentSet = 1;
-      currentExerciseIndex++;
-      if (currentExerciseIndex >= workout.exercises.length){
+      // Check if this was the last exercise
+      if (currentExerciseIndex >= workout.exercises.length - 1){
         playerFinish();
         return;
       }
+      
+      // Move to next exercise
+      currentSet = 1;
+      currentExerciseIndex++;
       
       // Save state after moving to next exercise
       saveWorkoutState();
@@ -1204,6 +1217,7 @@
     workoutTotalTime = 0;
     completedExercises = [];
     sessionExercises = [];
+    window.workoutSessionActive = false; // Clear session state
     
     try{ speechSynthesis.cancel(); }catch(e){}
     // return to detail (same workout)
@@ -1299,7 +1313,7 @@
   renderWorkouts();
 
   // Restore workout state on page load
-  restoreWorkoutState();
+  restoreWorkoutState(true);
 
   // preload voices (some browsers require gesture)
   if ('speechSynthesis' in window) { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices(); }
