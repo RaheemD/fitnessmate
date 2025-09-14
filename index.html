@@ -1212,24 +1212,17 @@
           }
           
           try {
-            // Check image size and determine compression strategy
+            // First, check if the image is already small enough (under 500KB)
             const base64Length = base64Image.length;
             const estimatedSizeKB = Math.ceil((base64Length * 3) / 4096); // Rough estimate
             
-            if (estimatedSizeKB < 300) {
+            if (estimatedSizeKB < 500) {
               console.log('📏 Image already small enough:', estimatedSizeKB + 'KB, skipping compression');
               resolve(base64Image);
               return;
             }
             
-            console.log('📏 Compressing image:', estimatedSizeKB + 'KB');
-            
-            // For very large images (>3MB), use more aggressive compression
-            if (estimatedSizeKB > 3000) {
-              maxWidth = 100; // Smaller thumbnail for very large images
-              quality = 0.5;  // Lower quality for better compression
-              console.log('📸 Very large image detected, using aggressive compression');
-            }
+            console.log('📏 Compressing large image:', estimatedSizeKB + 'KB');
             
             // Mobile-safe approach with memory limits - use Image element instead of createImageBitmap
             const img = new Image();
@@ -1314,37 +1307,12 @@
           let processedImage = mealData.image || 'https://placehold.co/100x100/cccccc/333333?text=Meal';
           
           if (mealData.image && mealData.image.startsWith('data:image/')) {
-            // Always use the original image immediately - let compression handle size issues
+            // SIMPLE MOBILE FIX: Always use the original image immediately for both desktop and mobile
             processedImage = mealData.image;
-            console.log('📸 Using original image for meal display');
             
-            // Deferred compression for all devices (after UI is stable)
-            setTimeout(() => {
-              try {
-                compressImageForMobile(mealData.image, 150, 0.8).then(compressed => {
-                  // Only update if compression actually made the image smaller
-                  const originalSizeKB = Math.ceil((mealData.image.length * 3) / 4096);
-                  const compressedSizeKB = Math.ceil((compressed.length * 3) / 4096);
-                  
-                  if (compressedSizeKB < originalSizeKB) {
-                    setRecentMeals(prevMeals => 
-                      prevMeals.map(meal => 
-                        meal.id === mealId ? { ...meal, image: compressed } : meal
-                      )
-                    );
-                    console.log('✅ Image compressed for meal:', mealId, originalSizeKB + 'KB → ' + compressedSizeKB + 'KB');
-                  } else {
-                    console.log('📏 Compression didn\'t reduce size, keeping original');
-                  }
-                }).catch(error => {
-                  console.warn('Image compression failed (non-critical):', error);
-                  // Compression failure is not critical - we already have the original image
-                });
-              } catch (error) {
-                console.warn('Image processing error (non-critical):', error);
-                // Error is not critical - original image remains
-              }
-            }, 3000); // Longer delay to ensure UI stability on all devices
+            // Mobile devices can handle modern image formats - no need for complex compression
+            // The thumbnail display will handle resizing automatically in CSS
+            console.log('📱 Using original image for mobile display');
           }
           
           const newMeal = {
