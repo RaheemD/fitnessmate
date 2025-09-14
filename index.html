@@ -1551,12 +1551,19 @@
           const prompt = "Give me a short, powerful motivational quote for fitness. Respond with only the quote itself, no extra text or quotation marks.";
 
           try {
-            const response = await fetch(GEMINI_API_URL, {
+            const payload = {
+            contents: [
+              {
+                parts: [{ text: prompt }]
+              }
+            ],
+          };
+
+          const response = await fetch(NETLIFY_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }]
-            })
+            body: JSON.stringify({ contents: payload.contents }),
+            signal: AbortSignal.timeout(25000) // 25 second timeout
           });
 
             if (!response.ok) throw new Error('Failed to fetch quote');
@@ -2885,7 +2892,7 @@
           
           Generate a detailed description for an avatar that represents health, fitness, and wellness with the specified characteristics.`;
 
-            const response = await fetch(GEMINI_API_URL, {
+            const response = await fetch(NETLIFY_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -4779,7 +4786,7 @@ Respond ONLY with a valid JSON object:
   ]
 }`;
 
-          const response = await fetch(GEMINI_API_URL, {
+          const response = await fetch(NETLIFY_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
