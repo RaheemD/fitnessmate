@@ -4763,9 +4763,11 @@ Respond ONLY with a valid JSON object in this format:
           const ingredientList = ingredients.map(ing => ing.name).join(', ');
           const prompt = `Create 3 quick recipes using: ${ingredientList}. Keep under ${goals.calories} calories. JSON only: {"recipes":[{"name":"Recipe","prep_time":"15 min","cook_time":"20 min","servings":2,"calories_per_serving":350,"ingredients_used":["ingredient1"],"instructions":["Step 1"],"nutrition":{"protein":25,"carbs":30,"fat":15}}]}`;
 
-          const response = await fetch(NETLIFY_API_URL, {
+          // Use direct Gemini API with obfuscation (same as other components)
+          const geminiConfig = getDirectGeminiConfig();
+          const response = await fetch(geminiConfig.url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: geminiConfig.headers,
             body: JSON.stringify({
               contents: [{ parts: [{ text: prompt }] }]
             })
