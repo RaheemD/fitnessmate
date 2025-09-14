@@ -1257,46 +1257,32 @@
           // Generate unique meal ID
           const mealId = Date.now();
           
-          // Mobile-safe image handling - use original image but with safety measures
-          const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+          // Universal image handling - always use original image for both desktop and mobile
           let processedImage = mealData.image || 'https://placehold.co/100x100/cccccc/333333?text=Meal';
           
           if (mealData.image && mealData.image.startsWith('data:image/')) {
-            // For mobile, use original image but limit size for stability
-            if (isMobile) {
-              console.log('📱 Mobile device - using original image with size check');
-              // Check if image is too large (rough estimate > 500KB)
-              const base64Length = mealData.image.length - (mealData.image.indexOf(',') + 1);
-              const fileSize = Math.round((base64Length * 3) / 4);
-              
-              if (fileSize > 500000) { // 500KB limit for mobile
-                console.log('📱 Large image detected, using placeholder for mobile stability');
-                processedImage = 'https://placehold.co/100x100/cccccc/333333?text=Meal';
-              } else {
-                processedImage = mealData.image;
+            // Always use the original image immediately for both desktop and mobile
+            processedImage = mealData.image;
+            
+            // Deferred compression for all devices (after UI is stable)
+            setTimeout(() => {
+              try {
+                compressImageForMobile(mealData.image, 150, 0.8).then(compressed => {
+                  setRecentMeals(prevMeals => 
+                    prevMeals.map(meal => 
+                      meal.id === mealId ? { ...meal, image: compressed } : meal
+                    )
+                  );
+                  console.log('✅ Image compressed for meal:', mealId);
+                }).catch(error => {
+                  console.warn('Image compression failed (non-critical):', error);
+                  // Compression failure is not critical - we already have the original image
+                });
+              } catch (error) {
+                console.warn('Image processing error (non-critical):', error);
+                // Error is not critical - original image remains
               }
-            } else {
-              // Desktop: use original but defer compression
-              processedImage = mealData.image;
-              
-              // Deferred compression for desktop only (after UI update)
-              setTimeout(() => {
-                try {
-                  compressImageForMobile(mealData.image, 150, 0.8).then(compressed => {
-                    setRecentMeals(prevMeals => 
-                      prevMeals.map(meal => 
-                        meal.id === mealId ? { ...meal, image: compressed } : meal
-                      )
-                    );
-                    console.log('✅ Image compressed for desktop meal:', mealId);
-                  }).catch(error => {
-                    console.warn('Desktop image compression failed:', error);
-                  });
-                } catch (error) {
-                  console.warn('Desktop image processing error:', error);
-                }
-              }, 1000); // Long delay to ensure UI stability
-            }
+            }, 2000); // Longer delay to ensure UI stability on all devices
           }
           
           const newMeal = {
