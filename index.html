@@ -592,6 +592,7 @@
             if (remoteData.habits) localStorage.setItem('habits', JSON.stringify(remoteData.habits));
             if (remoteData.mealPlan) localStorage.setItem('mealPlan', JSON.stringify(remoteData.mealPlan));
             if (remoteData.workoutPlan) localStorage.setItem('workoutPlan', JSON.stringify(remoteData.workoutPlan));
+            if (remoteData.workoutHistory) localStorage.setItem('workoutHistory', JSON.stringify(remoteData.workoutHistory));
             if (remoteData.scanResult) localStorage.setItem('scanResult', JSON.stringify(remoteData.scanResult));
             if (remoteData.formAnalysis) localStorage.setItem('formAnalysis', JSON.stringify(remoteData.formAnalysis));
             
@@ -633,6 +634,7 @@
             darkMode: JSON.parse(localStorage.getItem('fitmate-dark-mode') || 'false'),
             mealPlan: JSON.parse(localStorage.getItem('mealPlan') || 'null'),
             workoutPlan: JSON.parse(localStorage.getItem('workoutPlan') || 'null'),
+            workoutHistory: JSON.parse(localStorage.getItem('workoutHistory') || '[]'),
             scanResult: JSON.parse(localStorage.getItem('scanResult') || 'null'),
             formAnalysis: JSON.parse(localStorage.getItem('formAnalysis') || 'null'),
             updatedAt: currentTimestamp
@@ -1758,6 +1760,29 @@
           updateUserData({ profilePicture });
         }
       }, [profilePicture, user]);
+
+      // Listen for remote data sync and update profile picture
+      useEffect(() => {
+        const handleUserDataSync = () => {
+          const syncedProfilePicture = localStorage.getItem('profilePicture');
+          if (syncedProfilePicture && syncedProfilePicture !== profilePicture) {
+            setProfilePicture(syncedProfilePicture);
+          }
+        };
+
+        window.addEventListener('userDataSynced', handleUserDataSync);
+        return () => window.removeEventListener('userDataSynced', handleUserDataSync);
+      }, [profilePicture]);
+
+      // Load profile picture from localStorage when user logs in
+      useEffect(() => {
+        if (user) {
+          const savedProfilePicture = localStorage.getItem('profilePicture');
+          if (savedProfilePicture && savedProfilePicture !== profilePicture) {
+            setProfilePicture(savedProfilePicture);
+          }
+        }
+      }, [user]);
 
       // Save notifications setting to localStorage
       useEffect(() => {
