@@ -1243,72 +1243,97 @@
         });
       };
 
-      // Function to add a new meal to the log
+      // Function to add a new meal to the log - Mobile-optimized crash-resistant version
       const handleLogMeal = (mealData) => {
-        console.log('📝 Logging meal data:', mealData);
+        console.log('📝 Logging meal data (mobile-safe):', mealData);
         
-        // Extract nutritional values with fallbacks
-        const calories = Number(mealData.calories) || Number(mealData.total_calories) || 0;
-        const protein = Number(mealData.protein) || Number(mealData.total_protein) || 0;
-        const carbs = Number(mealData.carbs) || Number(mealData.total_carbs) || 0;
-        const fat = Number(mealData.fat) || Number(mealData.total_fat) || 0;
-        
-        setDailyIntake(prevIntake => ({
-          ...prevIntake,
-          calories: prevIntake.calories + calories,
-          protein: prevIntake.protein + protein,
-          carbs: prevIntake.carbs + carbs,
-          fat: prevIntake.fat + fat,
-        }));
-
-        // Generate unique meal ID
-        const mealId = Date.now();
-        
-        // Process image for mobile compatibility (synchronous approach)
-        let processedImage = mealData.image || 'https://placehold.co/100x100/cccccc/333333?text=Meal';
-        
-        // For mobile compatibility, handle images safely
-        if (mealData.image && mealData.image.startsWith('data:image/')) {
-          try {
-            // Use the original image initially - safer for mobile
+        try {
+          // Extract nutritional values with fallbacks
+          const calories = Number(mealData.calories) || Number(mealData.total_calories) || 0;
+          const protein = Number(mealData.protein) || Number(mealData.total_protein) || 0;
+          const carbs = Number(mealData.carbs) || Number(mealData.total_carbs) || 0;
+          const fat = Number(mealData.fat) || Number(mealData.total_fat) || 0;
+          
+          // Generate unique meal ID
+          const mealId = Date.now();
+          
+          // Mobile-safe image handling - completely avoid base64 processing on mobile
+          const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+          let processedImage = 'https://placehold.co/100x100/cccccc/333333?text=Meal';
+          
+          if (!isMobile && mealData.image && mealData.image.startsWith('data:image/')) {
+            // Desktop: use original but defer processing
             processedImage = mealData.image;
             
-            // Only compress if not on mobile or if browser supports it safely
-            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-            
-            if (!isMobile) {
-              // Compress in background for desktop only
-              setTimeout(() => {
+            // Deferred compression for desktop only (after UI update)
+            setTimeout(() => {
+              try {
                 compressImageForMobile(mealData.image, 150, 0.8).then(compressed => {
                   setRecentMeals(prevMeals => 
                     prevMeals.map(meal => 
                       meal.id === mealId ? { ...meal, image: compressed } : meal
                     )
                   );
-                  console.log('✅ Image compressed and updated for meal:', mealId);
+                  console.log('✅ Image compressed for desktop meal:', mealId);
                 }).catch(error => {
-                  console.warn('Background image compression failed:', error);
+                  console.warn('Desktop image compression failed:', error);
                 });
-              }, 100);
-            } else {
-              console.log('📱 Mobile detected - skipping image compression for stability');
-            }
-          } catch (error) {
-            console.warn('Image processing failed, using placeholder:', error);
-            processedImage = 'https://placehold.co/100x100/cccccc/333333?text=Meal';
+              } catch (error) {
+                console.warn('Desktop image processing error:', error);
+              }
+            }, 1000); // Long delay to ensure UI stability
+          } else if (isMobile) {
+            console.log('📱 Mobile device - using placeholder for stability');
           }
+          
+          const newMeal = {
+            id: mealId,
+            name: mealData.name || mealData.food_name || 'Scanned Meal',
+            calories: calories,
+            image: processedImage,
+            mood: mealData.mood || 'Neutral',
+          };
+          
+          // Batch state updates with proper error boundaries
+          setTimeout(() => {
+            try {
+              // Update daily intake
+              setDailyIntake(prevIntake => ({
+                ...prevIntake,
+                calories: prevIntake.calories + calories,
+                protein: prevIntake.protein + protein,
+                carbs: prevIntake.carbs + carbs,
+                fat: prevIntake.fat + fat,
+              }));
+              
+              // Add to recent meals
+              setRecentMeals(prevMeals => [newMeal, ...prevMeals.slice(0, 9)]); // Limit to 10 items
+              
+              console.log('💾 Meal saved successfully:', newMeal);
+              
+              // Navigate to dashboard with safety delay
+              setTimeout(() => {
+                try {
+                  setScreen('dashboard');
+                } catch (navError) {
+                  console.error('Navigation error:', navError);
+                  // Fallback: reload the page if navigation fails
+                  window.location.reload();
+                }
+              }, 200);
+              
+            } catch (stateError) {
+              console.error('State update error:', stateError);
+              // Emergency fallback: reload to recover from state corruption
+              window.location.reload();
+            }
+          }, 50);
+          
+        } catch (mainError) {
+          console.error('Critical error in handleLogMeal:', mainError);
+          // Ultimate fallback: reload the entire application
+          window.location.reload();
         }
-        const newMeal = {
-          id: mealId,
-          name: mealData.name || mealData.food_name || 'Scanned Meal',
-          calories: calories,
-          image: processedImage,
-          mood: mealData.mood || 'Neutral',
-        };
-        
-        console.log('💾 Saving meal:', newMeal);
-        setRecentMeals(prevMeals => [newMeal, ...prevMeals]);
-        setScreen('dashboard');
       };
 
       // Function to log daily activity
