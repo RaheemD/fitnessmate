@@ -4761,30 +4761,7 @@ Respond ONLY with a valid JSON object in this format:
         setError(null);
         try {
           const ingredientList = ingredients.map(ing => ing.name).join(', ');
-          const prompt = `Based on these available ingredients: ${ingredientList}
-Create 3 healthy recipe suggestions that:
-1. Use primarily these ingredients (can suggest 1-2 common pantry staples if needed)
-2. Fit within a ${goals.calories} calorie daily target
-3. Are practical and easy to make
-4. Include estimated nutritional information
-
-Respond ONLY with a valid JSON object:
-{
-  "recipes": [
-    {
-      "name": "Recipe Name",
-      "prep_time": "15 minutes",
-      "cook_time": "20 minutes",
-      "servings": 2,
-      "calories_per_serving": 350,
-      "ingredients_used": ["ingredient1", "ingredient2"],
-      "additional_needed": ["optional items"],
-      "instructions": ["Step 1", "Step 2", "Step 3"],
-      "nutrition": {"protein": 25, "carbs": 30, "fat": 15},
-      "health_tip": "A tip to make it healthier"
-    }
-  ]
-}`;
+          const prompt = `Create 3 quick recipes using: ${ingredientList}. Keep recipes simple, under ${goals.calories} calories total. Respond ONLY with valid JSON: {"recipes":[{"name":"Recipe","prep_time":"15 min","cook_time":"20 min","servings":2,"calories_per_serving":350,"ingredients_used":["ingredient1"],"instructions":["Step 1"],"nutrition":{"protein":25,"carbs":30,"fat":15},"health_tip":"Tip"}]}`;
 
           const response = await fetch(NETLIFY_API_URL, {
             method: 'POST',
