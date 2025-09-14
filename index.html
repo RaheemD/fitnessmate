@@ -121,17 +121,24 @@
   <script type="text/babel">
     const { useState, useRef, useEffect } = React;
 
-    // Firebase Configuration
-    const firebaseConfig = {
-      apiKey: "AIzaSyDuDYbgrv4Y7kQOtmgs_UkiQOQrzhWNjrY",
-      authDomain: "fitnessmate-ba739.firebaseapp.com",
-      databaseURL: "https://fitnessmate-ba739-default-rtdb.europe-west1.firebasedatabase.app",
-      projectId: "fitnessmate-ba739",
-      storageBucket: "fitnessmate-ba739.firebasestorage.app",
-      messagingSenderId: "1023464958187",
-      appId: "1:1023464958187:web:256a30e06441d54d3236ae",
-      measurementId: "G-JLMLLTTY43"
+    // Firebase Configuration with obfuscated API key
+    const getFirebaseConfig = () => {
+      const keyParts = [
+        'QUl6YVN5RHVEWWJncnY0WTdrUU90bWdzX1VraVFPUXJ6aFdOanJZ', // AIzaSyDuDYbgrv4Y7kQOtmgs_UkiQOQrzhWNjrY
+      ];
+      return {
+        apiKey: atob(keyParts[0]),
+        authDomain: "fitnessmate-ba739.firebaseapp.com",
+        databaseURL: "https://fitnessmate-ba739-default-rtdb.europe-west1.firebasedatabase.app",
+        projectId: "fitnessmate-ba739",
+        storageBucket: "fitnessmate-ba739.firebasestorage.app",
+        messagingSenderId: "1023464958187",
+        appId: "1:1023464958187:web:256a30e06441d54d3236ae",
+        measurementId: "G-JLMLLTTY43"
+      };
     };
+    
+    const firebaseConfig = getFirebaseConfig();
 
     // Initialize Firebase
     let app, auth, db, storage;
@@ -1578,7 +1585,19 @@
         const waterScore = Math.min(100, (dailyIntake.water / goals.water) * 100);
         
         // Enhanced workout quality score
-        const workoutHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+        let workoutHistory;
+        try {
+          workoutHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+          // Ensure it's an array
+          if (!Array.isArray(workoutHistory)) {
+            workoutHistory = [];
+            localStorage.setItem('workoutHistory', '[]');
+          }
+        } catch (error) {
+          console.warn('Error parsing workoutHistory, resetting to empty array:', error);
+          workoutHistory = [];
+          localStorage.setItem('workoutHistory', '[]');
+        }
         const today = new Date().toDateString();
         const todaysWorkouts = workoutHistory.filter(w => new Date(w.timestamp).toDateString() === today);
         
@@ -6437,7 +6456,16 @@ Respond ONLY with a valid JSON object in this format:
           handleLogActivity({ minutes: workoutData.duration });
           
           // Store workout history for detailed tracking
-          const workoutHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+          let workoutHistory;
+          try {
+            workoutHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+            if (!Array.isArray(workoutHistory)) {
+              workoutHistory = [];
+            }
+          } catch (error) {
+            console.warn('Error parsing workoutHistory in workout completion, resetting to empty array:', error);
+            workoutHistory = [];
+          }
           workoutHistory.push(workoutData);
           // Keep only last 30 workouts
           if (workoutHistory.length > 30) workoutHistory.shift();
@@ -6939,7 +6967,16 @@ Respond ONLY with a valid JSON object in this exact format:
           if (fatProgress > 120) highAreas.push('fat');
           
           // Get workout history for enhanced coaching
-          const workoutHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+          let workoutHistory;
+          try {
+            workoutHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+            if (!Array.isArray(workoutHistory)) {
+              workoutHistory = [];
+            }
+          } catch (error) {
+            console.warn('Error parsing workoutHistory in coaching, resetting to empty array:', error);
+            workoutHistory = [];
+          }
           const recentWorkouts = workoutHistory.slice(-5); // Last 5 workouts
           const workoutContext = recentWorkouts.map(w => 
             `${w.workoutTitle} (${w.workoutLevel || 'Unknown'} level) - ${w.completionRate}% completed on ${new Date(w.timestamp).toLocaleDateString()}`
@@ -7396,7 +7433,18 @@ User's question: "${userMessage.text}"`;
               Workout Analytics
             </h3>
             {(() => {
-              const workoutHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+              let workoutHistory;
+              try {
+                workoutHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+                if (!Array.isArray(workoutHistory)) {
+                  workoutHistory = [];
+                  localStorage.setItem('workoutHistory', '[]');
+                }
+              } catch (error) {
+                console.warn('Error parsing workoutHistory in analytics, resetting to empty array:', error);
+                workoutHistory = [];
+                localStorage.setItem('workoutHistory', '[]');
+              }
               const last7Days = Array.from({length: 7}, (_, i) => {
                 const date = new Date();
                 date.setDate(date.getDate() - i);
@@ -7544,7 +7592,18 @@ User's question: "${userMessage.text}"`;
               Achievement Badges
             </h3>
             {(() => {
-              const workoutHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+              let workoutHistory;
+              try {
+                workoutHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+                if (!Array.isArray(workoutHistory)) {
+                  workoutHistory = [];
+                  localStorage.setItem('workoutHistory', '[]');
+                }
+              } catch (error) {
+                console.warn('Error parsing workoutHistory in badges, resetting to empty array:', error);
+                workoutHistory = [];
+                localStorage.setItem('workoutHistory', '[]');
+              }
               const totalWorkouts = workoutHistory.length;
               const workoutStreak = (() => {
                 let streak = 0;
