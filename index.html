@@ -4759,35 +4759,65 @@ Respond ONLY with a valid JSON object in this format:
         
         setIsLoading(true);
         setError(null);
-        try {
-          const ingredientList = ingredients.map(ing => ing.name).join(', ');
-          const prompt = `Create 3 quick recipes using: ${ingredientList}. Keep under ${goals.calories} calories. JSON only: {"recipes":[{"name":"Recipe","prep_time":"15 min","cook_time":"20 min","servings":2,"calories_per_serving":350,"ingredients_used":["ingredient1"],"instructions":["Step 1"],"nutrition":{"protein":25,"carbs":30,"fat":15}}]}`;
+        
+        const maxRetries = 3;
+        let retryCount = 0;
+        
+        while (retryCount <= maxRetries) {
+          try {
+            const ingredientList = ingredients.map(ing => ing.name).join(', ');
+            const prompt = `Create 3 quick recipes using: ${ingredientList}. Keep under ${goals.calories} calories. JSON only: {"recipes":[{"name":"Recipe","prep_time":"15 min","cook_time":"20 min","servings":2,"calories_per_serving":350,"ingredients_used":["ingredient1"],"instructions":["Step 1"],"nutrition":{"protein":25,"carbs":30,"fat":15}}]}`;
 
-          // Use direct Gemini API with obfuscation (same as other components)
-          const geminiConfig = getDirectGeminiConfig();
-          const response = await fetch(geminiConfig.url, {
-            method: 'POST',
-            headers: geminiConfig.headers,
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }]
-            })
-          });
+            // Use direct Gemini API with obfuscation (same as other components)
+            const geminiConfig = getDirectGeminiConfig();
+            const response = await fetch(geminiConfig.url, {
+              method: 'POST',
+              headers: geminiConfig.headers,
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }]
+              })
+            });
 
-          if (!response.ok) {
-            throw new Error(`API Error: ${response.status} ${response.statusText}`);
+            if (response.status === 429) {
+              // Rate limited - wait and retry
+              const retryAfter = response.headers.get('Retry-After') || Math.pow(2, retryCount) * 1000;
+              console.log(`Rate limited. Retrying in ${retryAfter}ms...`);
+              await new Promise(resolve => setTimeout(resolve, retryAfter));
+              retryCount++;
+              continue;
+            }
+
+            if (!response.ok) {
+              throw new Error(`API Error: ${response.status} ${response.statusText}`);
+            }
+
+            const result = await response.json();
+            const textResponse = result.candidates[0].content.parts[0].text || '';
+            const jsonString = textResponse.replace(/```json|```/g, '').trim();
+            const data = JSON.parse(jsonString);
+            setRecipes(data.recipes);
+            break; // Success - exit retry loop
+            
+          } catch (err) {
+            if (retryCount === maxRetries) {
+              console.error("Recipe generation failed after retries:", err);
+              if (err.message.includes('429')) {
+                setError('Too many requests. Please wait a moment and try again.');
+              } else {
+                setError('Could not generate recipes. Please try again.');
+              }
+            }
+            retryCount++;
+            
+            // Wait before retrying (exponential backoff)
+            if (retryCount <= maxRetries) {
+              const waitTime = Math.pow(2, retryCount) * 1000;
+              await new Promise(resolve => setTimeout(resolve, waitTime));
+            }
           }
-
-          const result = await response.json();
-          const textResponse = result.candidates[0].content.parts[0].text || '';
-          const jsonString = textResponse.replace(/```json|```/g, '').trim();
-          const data = JSON.parse(jsonString);
-          setRecipes(data.recipes);
-        } catch (err) {
-          console.error("Recipe generation failed:", err);
-          setError('Could not generate recipes. Please try again.');
-        } finally {
-          setIsLoading(false);
         }
+        
+        setIsLoading(false);
       };
 
       const resetScan = () => {
