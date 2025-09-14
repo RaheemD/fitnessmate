@@ -4684,54 +4684,6 @@ Respond ONLY with a valid JSON object in this format:
       const [imagePreview, setImagePreview] = useState(null);
       const fileInputRef = useRef(null);
 
-      // Load saved recipes from localStorage on component mount
-      useEffect(() => {
-        const savedRecipes = localStorage.getItem('pantryChefRecipes');
-        const savedIngredients = localStorage.getItem('pantryChefIngredients');
-        const savedImagePreview = localStorage.getItem('pantryChefImagePreview');
-        
-        if (savedRecipes) {
-          try {
-            setRecipes(JSON.parse(savedRecipes));
-          } catch (e) {
-            console.error('Error loading saved recipes:', e);
-          }
-        }
-        
-        if (savedIngredients) {
-          try {
-            setIngredients(JSON.parse(savedIngredients));
-          } catch (e) {
-            console.error('Error loading saved ingredients:', e);
-          }
-        }
-        
-        if (savedImagePreview) {
-          setImagePreview(savedImagePreview);
-        }
-      }, []);
-
-      // Save recipes to localStorage whenever recipes state changes
-      useEffect(() => {
-        if (recipes) {
-          localStorage.setItem('pantryChefRecipes', JSON.stringify(recipes));
-        }
-      }, [recipes]);
-
-      // Save ingredients to localStorage whenever ingredients state changes
-      useEffect(() => {
-        if (ingredients) {
-          localStorage.setItem('pantryChefIngredients', JSON.stringify(ingredients));
-        }
-      }, [ingredients]);
-
-      // Save image preview to localStorage whenever it changes
-      useEffect(() => {
-        if (imagePreview) {
-          localStorage.setItem('pantryChefImagePreview', imagePreview);
-        }
-      }, [imagePreview]);
-
       const fileToBase64 = (file) => new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.readAsDataURL(file);
@@ -4843,12 +4795,6 @@ Respond ONLY with a valid JSON object in this format:
         setIngredients(null);
         setRecipes(null);
         setError(null);
-        
-        // Clear localStorage data
-        localStorage.removeItem('pantryChefRecipes');
-        localStorage.removeItem('pantryChefIngredients');
-        localStorage.removeItem('pantryChefImagePreview');
-        
         if (fileInputRef.current) {
           fileInputRef.current.value = '';
         }
