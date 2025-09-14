@@ -1523,7 +1523,8 @@
 
     // Dashboard Screen Component
     const Dashboard = ({ dailyIntake, recentMeals, goals, onLogActivity, onLogWater }) => {
-      const calorieProgress = goals.calories > 0 ? (dailyIntake.calories / goals.calories) * 100 : 0;
+      const rawCalorieProgress = goals.calories > 0 ? (Number(dailyIntake.calories) / Number(goals.calories)) * 100 : 0;
+      const calorieProgress = Math.min(100, Math.max(0, isFinite(rawCalorieProgress) ? rawCalorieProgress : 0));
       const [quote, setQuote] = useState('');
 
       // Fetch daily motivational quote
@@ -1660,8 +1661,8 @@
               <p className="text-5xl font-bold">{Math.round(dailyIntake.calories)}</p>
               <p className="ml-2 mb-1">/ {goals.calories} kcal</p>
             </div>
-            <div className="w-full bg-white/30 rounded-full h-2.5">
-              <div className="bg-white h-2.5 rounded-full" style={{ width: `${calorieProgress}%` }}></div>
+            <div className="w-full bg-white/30 rounded-full h-2.5 overflow-hidden">
+              <div className="bg-white h-2.5 rounded-full max-w-full" style={{ width: `${calorieProgress}%` }}></div>
             </div>
           </div>
 
