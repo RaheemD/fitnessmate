@@ -1212,30 +1212,76 @@
           }
           
           try {
-            // Mobile-safe approach: Use createImageBitmap if available, otherwise skip compression
-            if (typeof createImageBitmap !== 'undefined') {
-              fetch(base64Image)
-                .then(res => res.blob())
-                .then(blob => createImageBitmap(blob))
-                .then(imageBitmap => {
-                  const canvas = document.createElement('canvas');
-                  const ctx = canvas.getContext('2d');
-                  
-                  // Calculate new dimensions
-                  const ratio = Math.min(maxWidth / imageBitmap.width, maxWidth / imageBitmap.height);
-                  canvas.width = imageBitmap.width * ratio;
-                  canvas.height = imageBitmap.height * ratio;
-                  
-                  // Draw and compress
-                  ctx.drawImage(imageBitmap, 0, 0, canvas.width, canvas.height);
-                  const compressedImage = canvas.toDataURL('image/jpeg', quality);
-                  resolve(compressedImage);
-                })
-                .catch(() => resolve(base64Image)); // Fallback to original on error
-            } else {
-              // Fallback for older mobile browsers - just return original
+            // First, check if the image is already small enough (under 500KB)
+            const base64Length = base64Image.length;
+            const estimatedSizeKB = Math.ceil((base64Length * 3) / 4096); // Rough estimate
+            
+            if (estimatedSizeKB < 500) {
+              console.log('📏 Image already small enough:', estimatedSizeKB + 'KB, skipping compression');
               resolve(base64Image);
+              return;
             }
+            
+            console.log('📏 Compressing large image:', estimatedSizeKB + 'KB');
+            
+            // Mobile-safe approach with memory limits - use Image element instead of createImageBitmap
+            const img = new Image();
+            
+            img.onload = function() {
+              const originalWidth = img.width;
+              const originalHeight = img.height;
+              
+              // Memory check: don't process extremely large images on mobile (over 4MP)
+              if (originalWidth * originalHeight > 4000000) {
+                console.warn('📸 Image too large for mobile processing:', originalWidth + 'x' + originalHeight);
+                resolve(base64Image);
+                img.src = '';
+                return;
+              }
+              
+              // Calculate target dimensions
+              const ratio = Math.min(maxWidth / originalWidth, maxWidth / originalHeight);
+              const targetWidth = Math.round(originalWidth * ratio);
+              const targetHeight = Math.round(originalHeight * ratio);
+              
+              // Use canvas for compression
+              const canvas = document.createElement('canvas');
+              canvas.width = targetWidth;
+              canvas.height = targetHeight;
+              const ctx = canvas.getContext('2d');
+              
+              // Draw with memory-efficient settings
+              ctx.imageSmoothingQuality = 'low';
+              ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+              
+              try {
+                const compressedImage = canvas.toDataURL('image/jpeg', quality);
+                
+                // Verify compression actually reduced size
+                const compressedSizeKB = Math.ceil((compressedImage.length * 3) / 4096);
+                console.log('✅ Compression successful:', estimatedSizeKB + 'KB → ' + compressedSizeKB + 'KB');
+                
+                resolve(compressedImage);
+              } catch (compressError) {
+                console.warn('Canvas compression failed:', compressError);
+                resolve(base64Image);
+              }
+              
+              // Clean up memory
+              canvas.width = 0;
+              canvas.height = 0;
+              img.src = '';
+            };
+            
+            img.onerror = () => {
+              console.warn('Image loading failed, using original');
+              resolve(base64Image);
+              img.src = '';
+            };
+            
+            // Set src after event handlers
+            img.src = base64Image;
+            
           } catch (error) {
             console.warn('Image compression failed, using original:', error);
             resolve(base64Image);
@@ -1261,28 +1307,37 @@
           let processedImage = mealData.image || 'https://placehold.co/100x100/cccccc/333333?text=Meal';
           
           if (mealData.image && mealData.image.startsWith('data:image/')) {
-            // Always use the original image immediately for both desktop and mobile
-            processedImage = mealData.image;
+            // Check image size before processing - mobile camera images can be huge
+            const imageSizeKB = Math.ceil((mealData.image.length * 3) / 4096);
             
-            // Deferred compression for all devices (after UI is stable)
-            setTimeout(() => {
-              try {
-                compressImageForMobile(mealData.image, 150, 0.8).then(compressed => {
-                  setRecentMeals(prevMeals => 
-                    prevMeals.map(meal => 
-                      meal.id === mealId ? { ...meal, image: compressed } : meal
-                    )
-                  );
-                  console.log('✅ Image compressed for meal:', mealId);
-                }).catch(error => {
-                  console.warn('Image compression failed (non-critical):', error);
-                  // Compression failure is not critical - we already have the original image
-                });
-              } catch (error) {
-                console.warn('Image processing error (non-critical):', error);
-                // Error is not critical - original image remains
-              }
-            }, 2000); // Longer delay to ensure UI stability on all devices
+            // For very large images (>2MB), use placeholder to prevent mobile crashes
+            if (imageSizeKB > 2000) {
+              console.warn('📸 Image too large for mobile:', imageSizeKB + 'KB, using placeholder');
+              processedImage = 'https://placehold.co/100x100/cccccc/333333?text=Meal';
+            } else {
+              // Use original image for reasonable sizes
+              processedImage = mealData.image;
+              
+              // Deferred compression for all devices (after UI is stable)
+              setTimeout(() => {
+                try {
+                  compressImageForMobile(mealData.image, 150, 0.8).then(compressed => {
+                    setRecentMeals(prevMeals => 
+                      prevMeals.map(meal => 
+                        meal.id === mealId ? { ...meal, image: compressed } : meal
+                      )
+                    );
+                    console.log('✅ Image compressed for meal:', mealId);
+                  }).catch(error => {
+                    console.warn('Image compression failed (non-critical):', error);
+                    // Compression failure is not critical - we already have the original image
+                  });
+                } catch (error) {
+                  console.warn('Image processing error (non-critical):', error);
+                  // Error is not critical - original image remains
+                }
+              }, 2000); // Longer delay to ensure UI stability on all devices
+            }
           }
           
           const newMeal = {
