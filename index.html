@@ -1551,7 +1551,7 @@
           const prompt = "Give me a short, powerful motivational quote for fitness. Respond with only the quote itself, no extra text or quotation marks.";
 
           try {
-            const response = await fetch(NETLIFY_API_URL, {
+            const response = await fetch(GEMINI_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -2885,7 +2885,7 @@
           
           Generate a detailed description for an avatar that represents health, fitness, and wellness with the specified characteristics.`;
 
-            const response = await fetch(NETLIFY_API_URL, {
+            const response = await fetch(GEMINI_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -4779,7 +4779,7 @@ Respond ONLY with a valid JSON object:
   ]
 }`;
 
-          const response = await fetch(NETLIFY_API_URL, {
+          const response = await fetch(GEMINI_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
