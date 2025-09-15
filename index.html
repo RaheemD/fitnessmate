@@ -763,23 +763,29 @@
     };
 
     // --- Centralized API Configuration ---
-    // Netlify Edge Function endpoint
+    // Edge function endpoint
     const NETLIFY_API_URL = '/api/myapi';
     
-    // Simple Gemini config now routes through Edge Function (no client key)
-    const getSimpleGeminiConfig = () => {
-      return NETLIFY_API_URL;
-    };
-    const GEMINI_API_URL = getSimpleGeminiConfig();
-    
-    // Unified Gemini API config via Edge Function
-    const getDirectGeminiConfig = () => {
+    // Edge function API for Gemini
+    const getEdgeGeminiConfig = () => {
+      // Use Netlify Edge Function instead of direct API call
+      const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      const baseUrl = isLocalDev ? 'http://localhost:8888' : '';
+      
       return {
-        url: NETLIFY_API_URL,
+        url: `${baseUrl}/api/myapi`,
         headers: {
           'Content-Type': 'application/json',
         }
       };
+    };
+    
+    // Simple API URL for basic calls
+    const GEMINI_API_URL = getEdgeGeminiConfig().url;
+    
+    // Direct API config for more complex calls
+    const getDirectGeminiConfig = () => {
+      return getEdgeGeminiConfig();
     };
     
     // PDF Generation Utility
