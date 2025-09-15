@@ -4734,7 +4734,14 @@ Respond ONLY with a valid JSON object in this format:
         if (file) {
           const previewUrl = URL.createObjectURL(file);
           setImagePreview(previewUrl);
-          localStorage.setItem('pantryChef_imagePreview', previewUrl);
+          
+          // Store the actual image data as base64 for persistence across refreshes
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            localStorage.setItem('pantryChef_imagePreview', e.target.result);
+          };
+          reader.readAsDataURL(file);
+          
           setIngredients(null);
           localStorage.removeItem('pantryChef_ingredients');
           setRecipes(null);
