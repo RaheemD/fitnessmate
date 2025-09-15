@@ -124,7 +124,7 @@
     // Firebase Configuration with obfuscated API key
     const getFirebaseConfig = () => {
       const keyParts = [
-        // API key removed - now handled securely by Netlify Edge Function
+        'QUl6YVN5RHVEWWJncnY0WTdrUU90bWdzX1VraVFPUXJ6aFdOanJZ', // AIzaSyDuDYbgrv4Y7kQOtmgs_UkiQOQrzhWNjrY
       ];
       return {
         apiKey: atob(keyParts[0]),
@@ -763,13 +763,24 @@
     };
 
     // --- Centralized API Configuration ---
-    // Netlify function endpoint
-    const NETLIFY_API_URL = '/.netlify/edge-functions/myapi';
+    // Netlify Edge Function endpoint
+    const NETLIFY_API_URL = '/api/myapi';
     
-    // Direct Gemini API - Removed, now handled by Netlify Edge Function
-    const GEMINI_API_URL = '/.netlify/edge-functions/myapi';
+    // Simple Gemini config now routes through Edge Function (no client key)
+    const getSimpleGeminiConfig = () => {
+      return NETLIFY_API_URL;
+    };
+    const GEMINI_API_URL = getSimpleGeminiConfig();
     
-    // Direct Gemini API configuration - Removed, now handled by Netlify Edge Function
+    // Unified Gemini API config via Edge Function
+    const getDirectGeminiConfig = () => {
+      return {
+        url: NETLIFY_API_URL,
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      };
+    };
     
     // PDF Generation Utility
     const generatePDF = (title, content, filename) => {
