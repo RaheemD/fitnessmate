@@ -4185,6 +4185,7 @@
         if (file) {
           const previewUrl = URL.createObjectURL(file);
           setImagePreview(previewUrl);
+          localStorage.setItem('pantryChef_imagePreview', previewUrl);
           setScanResult(null);
           setError(null);
           setSelectedMood(null);
@@ -4678,10 +4679,19 @@ Respond ONLY with a valid JSON object in this format:
     // Smart Pantry Chef Component
     const SmartPantryChef = ({ goals }) => {
       const [isLoading, setIsLoading] = useState(false);
-      const [ingredients, setIngredients] = useState(null);
-      const [recipes, setRecipes] = useState(null);
+      const [ingredients, setIngredients] = useState(() => {
+        const saved = localStorage.getItem('pantryChef_ingredients');
+        return saved ? JSON.parse(saved) : null;
+      });
+      const [recipes, setRecipes] = useState(() => {
+        const saved = localStorage.getItem('pantryChef_recipes');
+        return saved ? JSON.parse(saved) : null;
+      });
       const [error, setError] = useState(null);
-      const [imagePreview, setImagePreview] = useState(null);
+      const [imagePreview, setImagePreview] = useState(() => {
+        const saved = localStorage.getItem('pantryChef_imagePreview');
+        return saved || null;
+      });
       const fileInputRef = useRef(null);
 
       const fileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -4696,8 +4706,11 @@ Respond ONLY with a valid JSON object in this format:
         if (file) {
           const previewUrl = URL.createObjectURL(file);
           setImagePreview(previewUrl);
+          localStorage.setItem('pantryChef_imagePreview', previewUrl);
           setIngredients(null);
+          localStorage.removeItem('pantryChef_ingredients');
           setRecipes(null);
+          localStorage.removeItem('pantryChef_recipes');
           setError(null);
           handleScan(file);
         }
@@ -4746,6 +4759,7 @@ Respond ONLY with a valid JSON object in this format:
           const jsonString = textResponse.replace(/```json|```/g, '').trim();
           const data = JSON.parse(jsonString);
           setIngredients(data.ingredients);
+          localStorage.setItem('pantryChef_ingredients', JSON.stringify(data.ingredients));
         } catch (err) {
           console.error("Ingredient recognition failed:", err);
           setError('Could not identify ingredients. Please try again.');
@@ -4782,6 +4796,7 @@ Respond ONLY with a valid JSON object in this format:
           const jsonString = textResponse.replace(/```json|```/g, '').trim();
           const data = JSON.parse(jsonString);
           setRecipes(data.recipes);
+          localStorage.setItem('pantryChef_recipes', JSON.stringify(data.recipes));
         } catch (err) {
           console.error("Recipe generation failed:", err);
           setError('Could not generate recipes. Please try again.');
@@ -4792,8 +4807,11 @@ Respond ONLY with a valid JSON object in this format:
 
       const resetScan = () => {
         setImagePreview(null);
+        localStorage.removeItem('pantryChef_imagePreview');
         setIngredients(null);
+        localStorage.removeItem('pantryChef_ingredients');
         setRecipes(null);
+        localStorage.removeItem('pantryChef_recipes');
         setError(null);
         if (fileInputRef.current) {
           fileInputRef.current.value = '';
