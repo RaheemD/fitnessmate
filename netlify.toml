@@ -1,0 +1,33 @@
+[build]
+  publish = "."
+
+# Edge Functions Configuration
+[[edge_functions]]
+  function = "myapi"
+  path = "/api/myapi"
+
+# Fallback to regular functions if edge functions fail
+[[redirects]]
+  from = "/.netlify/functions/myapi"
+  to = "/.netlify/functions/myapi"
+  status = 200
+  force = false
+
+# Environment variables (add your GEMINI_API_KEY in Netlify dashboard)
+[build.environment]
+  NODE_VERSION = "18"
+
+# Headers for CORS
+[[headers]]
+  for = "/api/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"
+
+[[headers]]
+  for = "/.netlify/functions/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"
