@@ -763,7 +763,9 @@
     };
 
     // --- Centralized API Configuration ---
-    // Netlify function endpoint
+    // Edge function endpoint (faster, less timeout)
+    const NETLIFY_EDGE_API_URL = '/api/myapi';
+    // Netlify function endpoint (fallback)
     const NETLIFY_API_URL = '/.netlify/functions/myapi';
     
     // Direct Gemini API for simplified scan (obfuscated)
@@ -807,6 +809,60 @@
           'Content-Type': 'application/json',
         }
       };
+    };
+    
+    // Smart API Helper - tries edge function first, falls back to regular function
+    const callNetlifyAPI = async (payload, options = {}) => {
+      const { timeout = 25000, retries = 1 } = options;
+      
+      // Try edge function first (faster, less timeout prone)
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+        
+        const response = await fetch(NETLIFY_EDGE_API_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (response.ok) {
+          return await response.json();
+        }
+        throw new Error(`Edge function failed: ${response.status}`);
+      } catch (edgeError) {
+        console.warn('Edge function failed, falling back to regular function:', edgeError.message);
+        
+        // Fallback to regular Netlify function
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), timeout);
+          
+          const response = await fetch(NETLIFY_API_URL, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
+          
+          if (response.ok) {
+            return await response.json();
+          }
+          throw new Error(`Regular function failed: ${response.status}`);
+        } catch (regularError) {
+          console.error('Both edge and regular functions failed:', regularError.message);
+          throw new Error(`API call failed: ${regularError.message}`);
+        }
+      }
     };
     
     // PDF Generation Utility
@@ -1570,16 +1626,8 @@
             ],
           };
 
-          const response = await fetch(NETLIFY_API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contents: payload.contents }),
-            signal: AbortSignal.timeout(25000) // 25 second timeout
-          });
-
-            if (!response.ok) throw new Error('Failed to fetch quote');
-
-            const result = await response.json();
+          // Use smart API helper with edge function fallback
+          const result = await callNetlifyAPI({ contents: payload.contents }, { timeout: 25000 });
             const newQuote = result.candidates[0].content.parts[0].text.trim();
             setQuote(newQuote);
             localStorage.setItem('dailyQuote', newQuote);
