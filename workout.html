@@ -784,7 +784,8 @@
       remainingSeconds = ex.durationSeconds;
     }
     
-    playerProgressLabel.textContent = `${i+1} of ${workout.exercises.length}`;
+    // Show completed exercises out of total to avoid off-by-one when starting next exercise
+  playerProgressLabel.textContent = `${completedExercises.length} of ${workout.exercises.length}`;
     const pct = Math.round((i / workout.exercises.length) * 100);
     playerProgressFill.style.width = pct + '%';
     
@@ -1058,6 +1059,8 @@
           // Save to user's workout history
           const userWorkoutRef = db.ref(`users/${currentUser.uid}/workoutHistory`);
           userWorkoutRef.push(workoutData);
+          // Ensure root updatedAt increases so other clients pick up changes
+          db.ref(`users/${currentUser.uid}`).update({ updatedAt: Date.now() });
           
           // Update user's daily intake
           const userDailyRef = db.ref(`users/${currentUser.uid}/dailyIntake`);
@@ -1147,10 +1150,9 @@
     
     // Save partial workout data if user exits early
     if (workoutStartTime && workoutTotalTime > 0) {
-      // Mark current exercise as completed if user was in the middle of it (and it's a valid exercise index)
-      if (currentExerciseIndex < sessionExercises.length && !completedExercises.includes(currentExerciseIndex)) {
-        completedExercises.push(currentExerciseIndex);
-      }
+      // Do NOT mark current exercise as completed on early exit; only fully finished exercises are counted
+      // This avoids off-by-one (e.g., showing 4/6 when only 3 are done and the 4th hasn't started)
+      // completedExercises remains unchanged here
       
       const workoutData = {
         duration: Math.round(workoutTotalTime / 60),
@@ -1183,6 +1185,8 @@
           try {
             const userWorkoutRef = db.ref(`users/${currentUser.uid}/workoutHistory`);
             userWorkoutRef.push(workoutData);
+            // Ensure root updatedAt increases so other clients pick up changes
+            db.ref(`users/${currentUser.uid}`).update({ updatedAt: Date.now() });
             
             const userDailyRef = db.ref(`users/${currentUser.uid}/dailyIntake`);
             userDailyRef.once('value', (snapshot) => {
