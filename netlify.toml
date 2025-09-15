@@ -1,20 +1,27 @@
+# Netlify configuration for Edge Functions
 [build]
-  publish = "."
-
-[[edge_functions]]
-  function = "myapi"
-  path = "/.netlify/edge-functions/myapi"
+  publish = "Fitmate"
+  command = ""
 
 [functions]
+  # We are using Edge Functions instead of standard functions
   node_bundler = "esbuild"
 
-[[redirects]]
-  from = "/.netlify/functions/myapi"
-  to = "/.netlify/edge-functions/myapi"
-  status = 200
-  force = true
+[edge_functions]
+  directory = "Fitmate/netlify/edge-functions"
 
-[dev]
-  framework = "#static"
-  targetPort = 3000
-  autoLaunch = false
+# Route the API path to the edge function
+[[edge_functions]]
+  path = "/api/myapi"
+  function = "myapi"
+
+# Ensure SPA-style routing for the frontend
+[[redirects]]
+  from = "/workout"
+  to = "/workout.html"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
