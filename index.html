@@ -2951,13 +2951,10 @@
           
           Generate a detailed description for an avatar that represents health, fitness, and wellness with the specified characteristics.`;
 
-            const response = await fetch(NETLIFY_API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+            // Use smart API helper that tries edge function first, then falls back to regular function
+            const response = await callNetlifyAPI({
               contents: [{ parts: [{ text: prompt }] }]
-            })
-          });
+            }, 30000);
 
           if (!response.ok) {
             throw new Error(`API Error: ${response.status}`);
@@ -4837,12 +4834,8 @@ Respond ONLY with a valid JSON object in this format:
             ],
           };
 
-          const response = await fetch(NETLIFY_API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contents: payload.contents }),
-            signal: AbortSignal.timeout(25000) // 25 second timeout
-          });
+          // Use smart API helper that tries edge function first, then falls back to regular function
+          const response = await callNetlifyAPI({ contents: payload.contents }, 25000);
 
           if (!response.ok) {
             throw new Error(`API Error: ${response.status} ${response.statusText}`);
@@ -5879,11 +5872,8 @@ Respond ONLY with a valid JSON object in this format:
                       ],
                     };
 
-                    const response = await fetch(NETLIFY_API_URL, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ contents: payload.contents })
-                    });
+                    // Use smart API helper that tries edge function first, then falls back to regular function
+                    const response = await callNetlifyAPI({ contents: payload.contents }, 30000);
 
                     if (!response.ok) {
                       const errorText = await response.text();
@@ -7144,11 +7134,8 @@ User's question: "${userMessage.text}"`;
             prompt += "\n\nPlease also consider the attached document in your analysis.";
           }
 
-          const response = await fetch(NETLIFY_API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contents: [{ parts }] })
-          });
+          // Use smart API helper that tries edge function first, then falls back to regular function
+          const response = await callNetlifyAPI({ contents: [{ parts }] }, 30000);
 
           if (!response.ok) {
             throw new Error(`API Error: ${response.status} ${response.statusText}`);
@@ -8022,20 +8009,14 @@ ${habits.map(habit => {
 - Only suggest improvements for incomplete items
 - Use actual percentages, not assumptions`;
                         
-                        // Call the AI API
-                        const response = await fetch(NETLIFY_API_URL, {
-                          method: 'POST',
-                          headers: {
-                            'Content-Type': 'application/json',
-                          },
-                          body: JSON.stringify({
-                            contents: [{
-                              parts: [{
-                                text: prompt
-                              }]
+                        // Use smart API helper that tries edge function first, then falls back to regular function
+                        const response = await callNetlifyAPI({
+                          contents: [{
+                            parts: [{
+                              text: prompt
                             }]
-                          })
-                        });
+                          }]
+                        }, 30000);
                         
                         if (!response.ok) throw new Error('Failed to get AI recommendations');
                         
