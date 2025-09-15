@@ -1,22 +1,12 @@
-# Netlify configuration for Edge Functions
 [build]
-  publish = "Fitmate"
-  # Use a custom Edge Functions directory (avoid placing edge code under publish in future)
-  edge_functions = "Fitmate/netlify/edge-functions"
+  publish = "."
 
-[functions]
-  # Standard Functions config (kept for compatibility; not used by Edge Functions)
-  node_bundler = "esbuild"
-
-# Edge function route is declared inline in Fitmate/netlify/edge-functions/myapi.js via export const config = { path: "/api/myapi" }
-
-# Ensure SPA-style routing for the frontend
-[[redirects]]
-  from = "/workout"
-  to = "/workout.html"
-  status = 200
+[[edge_functions]]
+  function = "myapi"
+  path = "/api/myapi"
 
 [[redirects]]
-  from = "/*"
-  to = "/index.html"
+  from = "/.netlify/functions/myapi"
+  to = "/api/myapi"
   status = 200
+  force = true
