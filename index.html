@@ -124,7 +124,7 @@
     // Firebase Configuration with obfuscated API key
     const getFirebaseConfig = () => {
       const keyParts = [
-        'QUl6YVN5RHVEWWJncnY0WTdrUU90bWdzX1VraVFPUXJ6aFdOanJZ', // AIzaSyDuDYbgrv4Y7kQOtmgs_UkiQOQrzhWNjrY
+        // API key removed - now handled securely by Netlify Edge Function
       ];
       return {
         apiKey: atob(keyParts[0]),
@@ -763,107 +763,13 @@
     };
 
     // --- Centralized API Configuration ---
-    // Edge function endpoint (faster, less timeout)
-    const NETLIFY_EDGE_API_URL = '/api/myapi';
-    // Netlify function endpoint (fallback)
-    const NETLIFY_API_URL = '/.netlify/functions/myapi';
+    // Netlify function endpoint
+    const NETLIFY_API_URL = '/.netlify/edge-functions/myapi';
     
-    // Direct Gemini API for simplified scan (obfuscated)
-    const getSimpleGeminiConfig = () => {
-      const keyParts = [
-        'QUl6YVN5QllodmZt',           // AIzaSyBYhvfm
-        'SnhYMl9UX214eGhQNmUxVQ==',   // JxX2_T_mxxhP6e1U
-        'SVdkSnpnQ2J5MDg='            // IWdJzgCby08
-      ];
-      const apiKey = keyParts.map(part => atob(part)).join('');
-      return `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-    };
-    const GEMINI_API_URL = getSimpleGeminiConfig();
+    // Direct Gemini API - Removed, now handled by Netlify Edge Function
+    const GEMINI_API_URL = '/.netlify/edge-functions/myapi';
     
-    // Direct Gemini API with basic obfuscation
-    const getDirectGeminiConfig = () => {
-      // Basic obfuscation - Base64 encoded parts
-      const apiParts = [
-        'aHR0cHM6Ly9nZW5lcmF0aXZlbGFuZ3VhZ2UuZ29vZ2xlYXBpcy5jb20=', // https://generativelanguage.googleapis.com
-        'djFiZXRh', // v1beta
-        'bW9kZWxzL2dlbWluaS0xLjUtZmxhc2g=', // models/gemini-1.5-flash
-        'Z2VuZXJhdGVDb250ZW50', // generateContent
-      ];
-      
-      // Real obfuscated API key parts
-      const keyParts = [
-        'QUl6YVN5QllodmZt',           // AIzaSyBYhvfm
-        'SnhYMl9UX214eGhQNmUxVQ==',   // JxX2_T_mxxhP6e1U
-        'SVdkSnpnQ2J5MDg='            // IWdJzgCby08
-      ];
-      
-      const baseUrl = atob(apiParts[0]);
-      const version = atob(apiParts[1]);
-      const model = atob(apiParts[2]);
-      const action = atob(apiParts[3]);
-      const apiKey = keyParts.map(part => atob(part)).join('');
-      
-      return {
-        url: `${baseUrl}/${version}/${model}:${action}?key=${apiKey}`,
-        headers: {
-          'Content-Type': 'application/json',
-        }
-      };
-    };
-    
-    // Smart API Helper - tries edge function first, falls back to regular function
-    const callNetlifyAPI = async (payload, options = {}) => {
-      const { timeout = 25000, retries = 1 } = options;
-      
-      // Try edge function first (faster, less timeout prone)
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeout);
-        
-        const response = await fetch(NETLIFY_EDGE_API_URL, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(payload),
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (response.ok) {
-          return await response.json();
-        }
-        throw new Error(`Edge function failed: ${response.status}`);
-      } catch (edgeError) {
-        console.warn('Edge function failed, falling back to regular function:', edgeError.message);
-        
-        // Fallback to regular Netlify function
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), timeout);
-          
-          const response = await fetch(NETLIFY_API_URL, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(payload),
-            signal: controller.signal
-          });
-          
-          clearTimeout(timeoutId);
-          
-          if (response.ok) {
-            return await response.json();
-          }
-          throw new Error(`Regular function failed: ${response.status}`);
-        } catch (regularError) {
-          console.error('Both edge and regular functions failed:', regularError.message);
-          throw new Error(`API call failed: ${regularError.message}`);
-        }
-      }
-    };
+    // Direct Gemini API configuration - Removed, now handled by Netlify Edge Function
     
     // PDF Generation Utility
     const generatePDF = (title, content, filename) => {
@@ -1626,8 +1532,16 @@
             ],
           };
 
-          // Use smart API helper with edge function fallback
-          const result = await callNetlifyAPI({ contents: payload.contents }, { timeout: 25000 });
+          const response = await fetch(NETLIFY_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: payload.contents }),
+            signal: AbortSignal.timeout(25000) // 25 second timeout
+          });
+
+            if (!response.ok) throw new Error('Failed to fetch quote');
+
+            const result = await response.json();
             const newQuote = result.candidates[0].content.parts[0].text.trim();
             setQuote(newQuote);
             localStorage.setItem('dailyQuote', newQuote);
@@ -2951,10 +2865,13 @@
           
           Generate a detailed description for an avatar that represents health, fitness, and wellness with the specified characteristics.`;
 
-            // Use smart API helper that tries edge function first, then falls back to regular function
-            const response = await callNetlifyAPI({
+            const response = await fetch(NETLIFY_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
               contents: [{ parts: [{ text: prompt }] }]
-            }, 30000);
+            })
+          });
 
           if (!response.ok) {
             throw new Error(`API Error: ${response.status}`);
@@ -4834,8 +4751,12 @@ Respond ONLY with a valid JSON object in this format:
             ],
           };
 
-          // Use smart API helper that tries edge function first, then falls back to regular function
-          const response = await callNetlifyAPI({ contents: payload.contents }, 25000);
+          const response = await fetch(NETLIFY_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: payload.contents }),
+            signal: AbortSignal.timeout(25000) // 25 second timeout
+          });
 
           if (!response.ok) {
             throw new Error(`API Error: ${response.status} ${response.statusText}`);
@@ -5872,8 +5793,11 @@ Respond ONLY with a valid JSON object in this format:
                       ],
                     };
 
-                    // Use smart API helper that tries edge function first, then falls back to regular function
-                    const response = await callNetlifyAPI({ contents: payload.contents }, 30000);
+                    const response = await fetch(NETLIFY_API_URL, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ contents: payload.contents })
+                    });
 
                     if (!response.ok) {
                       const errorText = await response.text();
@@ -7134,8 +7058,11 @@ User's question: "${userMessage.text}"`;
             prompt += "\n\nPlease also consider the attached document in your analysis.";
           }
 
-          // Use smart API helper that tries edge function first, then falls back to regular function
-          const response = await callNetlifyAPI({ contents: [{ parts }] }, 30000);
+          const response = await fetch(NETLIFY_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: [{ parts }] })
+          });
 
           if (!response.ok) {
             throw new Error(`API Error: ${response.status} ${response.statusText}`);
@@ -8009,14 +7936,20 @@ ${habits.map(habit => {
 - Only suggest improvements for incomplete items
 - Use actual percentages, not assumptions`;
                         
-                        // Use smart API helper that tries edge function first, then falls back to regular function
-                        const response = await callNetlifyAPI({
-                          contents: [{
-                            parts: [{
-                              text: prompt
+                        // Call the AI API
+                        const response = await fetch(NETLIFY_API_URL, {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                          },
+                          body: JSON.stringify({
+                            contents: [{
+                              parts: [{
+                                text: prompt
+                              }]
                             }]
-                          }]
-                        }, 30000);
+                          })
+                        });
                         
                         if (!response.ok) throw new Error('Failed to get AI recommendations');
                         
