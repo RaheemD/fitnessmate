@@ -126,10 +126,6 @@
             <div class="mt-2 progress-track">
               <div id="player-progress-fill" class="progress-fill"></div>
             </div>
-            <!-- Session continuity disclaimer -->
-            <div class="mt-2 text-xs text-gray-500 dark:text-gray-400 px-2">
-              💡 Tip: If you exit (×) the player and refresh the page, a new workout session will resume where you left
-            </div>
           </div>
 
           <div class="flex items-center gap-2">
@@ -415,16 +411,7 @@
   let sessionExercises = [];
 
   // Workout state persistence functions
-  // Flag to prevent saving during Firebase sync
-  let isSyncInProgress = false;
-
   function saveWorkoutState() {
-    // Don't save during Firebase sync to prevent timestamp conflicts
-    if (isSyncInProgress) {
-      console.log('⏸️ Skipping workout state save during Firebase sync');
-      return;
-    }
-    
     const workoutState = {
       currentWorkoutIndex,
       currentExerciseIndex,
@@ -442,7 +429,7 @@
     localStorage.setItem('fitmate-workout-state', JSON.stringify(workoutState));
   }
 
-  function restoreWorkoutState(fromPageLoad = false) {
+  function restoreWorkoutState() {
     const savedState = localStorage.getItem('fitmate-workout-state');
     if (savedState) {
       try {
@@ -461,11 +448,10 @@
           completedExercises = state.completedExercises || [];
           sessionExercises = state.sessionExercises || [];
           
-          // Only restore view if called from page load and not already in a workout session
-          if (fromPageLoad && !window.workoutSessionActive) {
+          // Only restore view if not called from openPlayer
+          if (arguments.length === 0) {
             // Called from page load, restore the appropriate view
             if (state.currentView === 'player' && workoutStartTime) {
-              window.workoutSessionActive = true; // Mark session as active
               showView('view-player');
               updatePlayerForExercise(currentExerciseIndex);
               if (workoutStartTime) {
@@ -497,13 +483,7 @@
   }
 
   function clearWorkoutState() {
-    // Don't clear state during Firebase sync
-    if (isSyncInProgress) {
-      console.log('⏸️ Skipping workout state clear during Firebase sync');
-      return;
-    }
     localStorage.removeItem('fitmate-workout-state');
-    window.workoutSessionActive = false; // Clear session state flag
   }
 
   function getCurrentView() {
@@ -728,27 +708,8 @@
   function openPlayer(workoutIndex){
     const workout = WORKOUTS[workoutIndex];
     
-    // Check if there's an existing workout state to resume (but not from page load)
-    const hasExistingState = restoreWorkoutState(false);
-    
-    // Prevent duplicate session initialization - check for existing state regardless of workoutSessionActive flag
-    if (hasExistingState && currentWorkoutIndex === workoutIndex && workoutStartTime) {
-      // Resume existing session
-      window.workoutSessionActive = true; // Reactivate session
-      updatePlayerForExercise(currentExerciseIndex);
-      showView('view-player');
-      
-      // Restart workout timer if needed
-      if (!workoutTimer && workoutStartTime) {
-        clearInterval(workoutTimer);
-        workoutTimer = setInterval(() => {
-          workoutTotalTime++;
-        }, 1000);
-      }
-      
-      console.log('✅ Resumed existing workout session');
-      return;
-    }
+    // Check if there's an existing workout state to resume
+    const hasExistingState = restoreWorkoutState();
     
     if (!hasExistingState || currentWorkoutIndex !== workoutIndex) {
       // Initialize new workout session
@@ -762,7 +723,6 @@
       workoutTotalTime = 0;
       completedExercises = [];
       window.lastPlayerNextState = null; // Reset duplicate call prevention
-      window.workoutSessionActive = true; // Mark session as active
       sessionExercises = workout.exercises.map(ex => ({
         title: ex.title,
         sets: ex.sets || 1,
@@ -993,15 +953,13 @@
         saveWorkoutState();
       }
       
-      // Check if this was the last exercise
-      if (currentExerciseIndex >= workout.exercises.length - 1){
-        playerFinish();
-        return;
-      }
-      
       // Move to next exercise
       currentSet = 1;
       currentExerciseIndex++;
+      if (currentExerciseIndex >= workout.exercises.length){
+        playerFinish();
+        return;
+      }
       
       // Save state after moving to next exercise
       saveWorkoutState();
@@ -1057,8 +1015,10 @@
     clearInterval(timerInterval);
     clearInterval(workoutTimer);
     
-    // Don't automatically mark the final exercise as completed here
-    // It should already be marked as completed in playerNext() when the user actually finishes it
+    // Mark final exercise as completed if not already marked (and it's a valid exercise index)
+    if (currentExerciseIndex < sessionExercises.length && !completedExercises.includes(currentExerciseIndex)) {
+      completedExercises.push(currentExerciseIndex);
+    }
     
     // Remove any duplicate entries (safety check)
     completedExercises = [...new Set(completedExercises)];
@@ -1187,8 +1147,10 @@
     
     // Save partial workout data if user exits early
     if (workoutStartTime && workoutTotalTime > 0) {
-      // Don't mark current exercise as completed when user exits early
-      // Only completed exercises (marked in playerNext) should count
+      // Mark current exercise as completed if user was in the middle of it (and it's a valid exercise index)
+      if (currentExerciseIndex < sessionExercises.length && !completedExercises.includes(currentExerciseIndex)) {
+        completedExercises.push(currentExerciseIndex);
+      }
       
       const workoutData = {
         duration: Math.round(workoutTotalTime / 60),
@@ -1237,9 +1199,11 @@
       }
     }
     
-    // Don't reset workout session tracking when exiting - allow for resumption
-    // Only clear the active session flag
-    window.workoutSessionActive = false; // Clear session state but preserve workout data for resumption
+    // Reset workout session tracking
+    workoutStartTime = null;
+    workoutTotalTime = 0;
+    completedExercises = [];
+    sessionExercises = [];
     
     try{ speechSynthesis.cancel(); }catch(e){}
     // return to detail (same workout)
@@ -1335,46 +1299,7 @@
   renderWorkouts();
 
   // Restore workout state on page load
-  restoreWorkoutState(true);
-
-  // Listen for userDataSynced event to prevent duplicate sessions
-  window.addEventListener('userDataSynced', () => {
-    // Set sync flag to prevent saving during sync
-    isSyncInProgress = true;
-    
-    // Prevent Firebase sync from overwriting workout session timestamps
-    const savedState = localStorage.getItem('fitmate-workout-state');
-    if (savedState) {
-      try {
-        const state = JSON.parse(savedState);
-        const stateAge = new Date() - new Date(state.timestamp);
-        if (stateAge < 24 * 60 * 60 * 1000) {
-          // If there's any workout session data (active or paused), preserve it
-          // Check for workoutStartTime in both current state and saved state
-          const hasWorkoutSession = workoutStartTime || state.workoutStartTime || 
-                                   (state.completedExercises && state.completedExercises.length > 0) ||
-                                   (state.sessionExercises && state.sessionExercises.length > 0);
-          
-          if (hasWorkoutSession) {
-            // Don't update localStorage during sync to preserve session continuity
-            console.log('🔄 Firebase sync detected - preserving workout session data (active or paused)');
-          } else {
-            // Only update state variables if no workout session exists
-            completedExercises = state.completedExercises || [];
-            sessionExercises = state.sessionExercises || [];
-            console.log('✅ Workout state synced - no active session detected');
-          }
-        }
-      } catch (error) {
-        console.error('Error handling workout sync:', error);
-      }
-    }
-    
-    // Clear sync flag after a short delay
-    setTimeout(() => {
-      isSyncInProgress = false;
-    }, 1000);
-  });
+  restoreWorkoutState();
 
   // preload voices (some browsers require gesture)
   if ('speechSynthesis' in window) { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices(); }
