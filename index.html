@@ -271,6 +271,12 @@
               // Sync AI-generated content
               if (userData.mealPlan) localStorage.setItem('mealPlan', JSON.stringify(userData.mealPlan));
               if (userData.workoutPlan) localStorage.setItem('workoutPlan', JSON.stringify(userData.workoutPlan));
+              if (userData.workoutHistory) {
+                const wh = userData.workoutHistory;
+                const whArray = Array.isArray(wh) ? wh : (wh && typeof wh === 'object' ? Object.values(wh) : []);
+                try { whArray.sort((a,b) => new Date(a.timestamp) - new Date(b.timestamp)); } catch (e) {}
+                localStorage.setItem('workoutHistory', JSON.stringify(whArray));
+              }
               if (userData.scanResult) localStorage.setItem('scanResult', JSON.stringify(userData.scanResult));
               if (userData.formAnalysis) localStorage.setItem('formAnalysis', JSON.stringify(userData.formAnalysis));
               
@@ -599,7 +605,12 @@
             if (remoteData.habits) localStorage.setItem('habits', JSON.stringify(remoteData.habits));
             if (remoteData.mealPlan) localStorage.setItem('mealPlan', JSON.stringify(remoteData.mealPlan));
             if (remoteData.workoutPlan) localStorage.setItem('workoutPlan', JSON.stringify(remoteData.workoutPlan));
-            if (remoteData.workoutHistory) localStorage.setItem('workoutHistory', JSON.stringify(remoteData.workoutHistory));
+            if (remoteData.workoutHistory) {
+              const wh = remoteData.workoutHistory;
+              const whArray = Array.isArray(wh) ? wh : (wh && typeof wh === 'object' ? Object.values(wh) : []);
+              try { whArray.sort((a,b) => new Date(a.timestamp) - new Date(b.timestamp)); } catch (e) {}
+              localStorage.setItem('workoutHistory', JSON.stringify(whArray));
+            }
             if (remoteData.scanResult) localStorage.setItem('scanResult', JSON.stringify(remoteData.scanResult));
             if (remoteData.formAnalysis) localStorage.setItem('formAnalysis', JSON.stringify(remoteData.formAnalysis));
             
@@ -6514,6 +6525,8 @@ Respond ONLY with a valid JSON object in this format:
           if (user) {
             const userRef = db.ref(`users/${user.uid}/workoutHistory`);
             userRef.push(workoutData);
+            // Bump root timestamp so other clients pick up latest workout history
+            db.ref(`users/${user.uid}`).update({ updatedAt: Date.now() });
           }
         }
         
