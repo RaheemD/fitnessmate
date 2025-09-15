@@ -4395,12 +4395,24 @@ Respond ONLY with a valid JSON object in this format:
 
     // Menu Decoder Component
     const MenuDecoder = ({ goals }) => {
-      const [imagePreview, setImagePreview] = useState(null);
+      const [imagePreview, setImagePreview] = useState(() => {
+        const saved = localStorage.getItem('menuDecoder_imagePreview');
+        return saved || null;
+      });
       const [isLoading, setIsLoading] = useState(false);
-      const [menuItems, setMenuItems] = useState(null);
-      const [recommendations, setRecommendations] = useState(null);
+      const [menuItems, setMenuItems] = useState(() => {
+        const saved = localStorage.getItem('menuDecoder_menuItems');
+        return saved ? JSON.parse(saved) : null;
+      });
+      const [recommendations, setRecommendations] = useState(() => {
+        const saved = localStorage.getItem('menuDecoder_recommendations');
+        return saved ? JSON.parse(saved) : null;
+      });
       const [error, setError] = useState(null);
-      const [userGoals, setUserGoals] = useState('high protein, low carb');
+      const [userGoals, setUserGoals] = useState(() => {
+        const saved = localStorage.getItem('menuDecoder_userGoals');
+        return saved || 'high protein, low carb';
+      });
       const fileInputRef = useRef(null);
 
       const fileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -4412,8 +4424,11 @@ Respond ONLY with a valid JSON object in this format:
 
       const resetScan = () => {
         setImagePreview(null);
+        localStorage.removeItem('menuDecoder_imagePreview');
         setMenuItems(null);
+        localStorage.removeItem('menuDecoder_menuItems');
         setRecommendations(null);
+        localStorage.removeItem('menuDecoder_recommendations');
         setError(null);
       };
 
@@ -4421,10 +4436,15 @@ Respond ONLY with a valid JSON object in this format:
         const file = e.target.files[0];
         if (file) {
           const reader = new FileReader();
-          reader.onload = (e) => setImagePreview(e.target.result);
+          reader.onload = (e) => {
+            setImagePreview(e.target.result);
+            localStorage.setItem('menuDecoder_imagePreview', e.target.result);
+          };
           reader.readAsDataURL(file);
           setMenuItems(null);
+          localStorage.removeItem('menuDecoder_menuItems');
           setRecommendations(null);
+          localStorage.removeItem('menuDecoder_recommendations');
           setError(null);
           handleScan(file);
         }
@@ -4496,10 +4516,15 @@ Respond ONLY with a valid JSON object in this format:
           const jsonString = textResponse.replace(/```json|```/g, '').trim();
           const data = JSON.parse(jsonString);
           setMenuItems(data.menu_items);
+          localStorage.setItem('menuDecoder_menuItems', JSON.stringify(data.menu_items));
           setRecommendations({
             top: data.top_recommendations,
             avoid: data.items_to_avoid
           });
+          localStorage.setItem('menuDecoder_recommendations', JSON.stringify({
+            top: data.top_recommendations,
+            avoid: data.items_to_avoid
+          }));
         } catch (err) {
           console.error("Menu analysis failed:", err);
           setError('Could not analyze menu. Please try again with a clearer image.');
@@ -4523,7 +4548,10 @@ Respond ONLY with a valid JSON object in this format:
                 <input
                   type="text"
                   value={userGoals}
-                  onChange={(e) => setUserGoals(e.target.value)}
+                  onChange={(e) => {
+                    setUserGoals(e.target.value);
+                    localStorage.setItem('menuDecoder_userGoals', e.target.value);
+                  }}
                   placeholder="e.g., high protein, low carb, heart healthy"
                   className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200"
                 />
