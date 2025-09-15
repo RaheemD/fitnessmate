@@ -4463,25 +4463,27 @@ Respond ONLY with a valid JSON object in this format:
     };
 
     // Menu Decoder Component
-    const MenuDecoder = ({ goals }) => {
-      const [imagePreview, setImagePreview] = useState(() => {
-        const saved = localStorage.getItem('menuDecoder_imagePreview');
-        return saved || null;
-      });
-      const [isLoading, setIsLoading] = useState(false);
-      const [menuItems, setMenuItems] = useState(() => {
-        const saved = localStorage.getItem('menuDecoder_menuItems');
-        return saved ? JSON.parse(saved) : null;
-      });
-      const [recommendations, setRecommendations] = useState(() => {
-        const saved = localStorage.getItem('menuDecoder_recommendations');
-        return saved ? JSON.parse(saved) : null;
-      });
-      const [error, setError] = useState(null);
-      const [userGoals, setUserGoals] = useState(() => {
-        const saved = localStorage.getItem('menuDecoder_userGoals');
-        return saved || 'high protein, low carb';
-      });
+    const MenuDecoder = ({ goals, menuState, setMenuState }) => {
+      const { imagePreview, isLoading, menuItems, recommendations, error, userGoals } = menuState;
+      
+      const setIsLoading = (value) => setMenuState(prev => ({ ...prev, isLoading: value }));
+      const setImagePreview = (value) => {
+        setMenuState(prev => ({ ...prev, imagePreview: value }));
+        localStorage.setItem('menuDecoder_imagePreview', value || '');
+      };
+      const setMenuItems = (value) => {
+        setMenuState(prev => ({ ...prev, menuItems: value }));
+        localStorage.setItem('menuDecoder_menuItems', JSON.stringify(value));
+      };
+      const setRecommendations = (value) => {
+        setMenuState(prev => ({ ...prev, recommendations: value }));
+        localStorage.setItem('menuDecoder_recommendations', JSON.stringify(value));
+      };
+      const setError = (value) => setMenuState(prev => ({ ...prev, error: value }));
+      const setUserGoals = (value) => {
+        setMenuState(prev => ({ ...prev, userGoals: value }));
+        localStorage.setItem('menuDecoder_userGoals', value);
+      };
       const fileInputRef = useRef(null);
 
       const fileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -4779,21 +4781,23 @@ Respond ONLY with a valid JSON object in this format:
     };
 
     // Smart Pantry Chef Component
-    const SmartPantryChef = ({ goals }) => {
-      const [isLoading, setIsLoading] = useState(false);
-      const [ingredients, setIngredients] = useState(() => {
-        const saved = localStorage.getItem('pantryChef_ingredients');
-        return saved ? JSON.parse(saved) : null;
-      });
-      const [recipes, setRecipes] = useState(() => {
-        const saved = localStorage.getItem('pantryChef_recipes');
-        return saved ? JSON.parse(saved) : null;
-      });
-      const [error, setError] = useState(null);
-      const [imagePreview, setImagePreview] = useState(() => {
-        const saved = localStorage.getItem('pantryChef_imagePreview');
-        return saved || null;
-      });
+    const SmartPantryChef = ({ goals, pantryState, setPantryState }) => {
+      const { isLoading, ingredients, recipes, error, imagePreview } = pantryState;
+      
+      const setIsLoading = (value) => setPantryState(prev => ({ ...prev, isLoading: value }));
+      const setIngredients = (value) => {
+        setPantryState(prev => ({ ...prev, ingredients: value }));
+        localStorage.setItem('pantryChef_ingredients', JSON.stringify(value));
+      };
+      const setRecipes = (value) => {
+        setPantryState(prev => ({ ...prev, recipes: value }));
+        localStorage.setItem('pantryChef_recipes', JSON.stringify(value));
+      };
+      const setError = (value) => setPantryState(prev => ({ ...prev, error: value }));
+      const setImagePreview = (value) => {
+        setPantryState(prev => ({ ...prev, imagePreview: value }));
+        localStorage.setItem('pantryChef_imagePreview', value || '');
+      };
       const fileInputRef = useRef(null);
 
       const fileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -5358,6 +5362,35 @@ Respond ONLY with a valid JSON object in this format:
     const MealPlanner = ({ goals, mealPlan, setMealPlan, isLoading, setIsLoading, error, setError }) => {
       const [activeTab, setActiveTab] = useState('planner'); // 'planner', 'pantry', or 'menu'
       const [preferences, setPreferences] = useState({ cuisine: '', diet: '', calories: goals.calories, allergies: [] });
+      
+      // State to persist Smart Pantry Chef and Menu Decoder data
+      const [pantryState, setPantryState] = useState(() => {
+        const savedIngredients = localStorage.getItem('pantryChef_ingredients');
+        const savedRecipes = localStorage.getItem('pantryChef_recipes');
+        const savedImagePreview = localStorage.getItem('pantryChef_imagePreview');
+        return {
+          isLoading: false,
+          ingredients: savedIngredients ? JSON.parse(savedIngredients) : null,
+          recipes: savedRecipes ? JSON.parse(savedRecipes) : null,
+          error: null,
+          imagePreview: savedImagePreview || null
+        };
+      });
+      
+      const [menuState, setMenuState] = useState(() => {
+        const savedMenuItems = localStorage.getItem('menuDecoder_menuItems');
+        const savedRecommendations = localStorage.getItem('menuDecoder_recommendations');
+        const savedImagePreview = localStorage.getItem('menuDecoder_imagePreview');
+        const savedUserGoals = localStorage.getItem('menuDecoder_userGoals');
+        return {
+          isLoading: false,
+          menuItems: savedMenuItems ? JSON.parse(savedMenuItems) : null,
+          recommendations: savedRecommendations ? JSON.parse(savedRecommendations) : null,
+          error: null,
+          imagePreview: savedImagePreview || null,
+          userGoals: savedUserGoals || 'high protein, low carb'
+        };
+      });
 
       const handlePreferenceChange = (key, value) => {
         setPreferences(prev => ({ ...prev, [key]: value }));
@@ -5606,11 +5639,19 @@ Respond ONLY with a valid JSON object in this exact format:
           )}
 
           {activeTab === 'pantry' && (
-            <SmartPantryChef goals={goals} />
+            <SmartPantryChef 
+              goals={goals} 
+              pantryState={pantryState}
+              setPantryState={setPantryState}
+            />
           )}
 
           {activeTab === 'menu' && (
-            <MenuDecoder goals={goals} />
+            <MenuDecoder 
+              goals={goals}
+              menuState={menuState}
+              setMenuState={setMenuState}
+            />
           )}
         </div>
       );
