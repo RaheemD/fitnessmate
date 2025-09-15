@@ -7967,7 +7967,13 @@ ${habits.map(habit => {
                           headers: {
                             'Content-Type': 'application/json',
                           },
-                          body: JSON.stringify({ prompt })
+                          body: JSON.stringify({
+                            contents: [{
+                              parts: [{
+                                text: prompt
+                              }]
+                            }]
+                          })
                         });
                         
                         if (!response.ok) throw new Error('Failed to get AI recommendations');
