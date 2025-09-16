@@ -74,7 +74,7 @@ export default async (request) => {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${apiKey}`,
         "X-Title": "Fitmate",
-        "HTTP-Referer": "https://fitmate.netlify.app"
+        "HTTP-Referer": "https://fitnessmate.netlify.app"
       },
       body: JSON.stringify(requestBody),
     }, 10000); // 10s timeout - adjust if needed
