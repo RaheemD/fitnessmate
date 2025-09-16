@@ -1,119 +1,90 @@
-// netlify/edge-functions/myapi.js
-// Netlify Edge Function (Deno runtime). Paste exactly and deploy.
+// netlify/functions/myapi.js
+const fetch = require('node-fetch');
 
-export default async (request) => {
-  // Handle preflight CORS
-  if (request.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
+exports.handler = async (event) => {
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 204,
       headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization'
       },
-    });
-  }
-
-  // Only POST allowed
-  if (request.method !== "POST") {
-    return jsonError("Method not allowed. Use POST.", 405);
-  }
-
-  // Get OpenRouter API key from Netlify environment (make sure variable is set)
-  const apiKey = Deno.env.get("OPENROUTER_API_KEY") || "";
-  if (!apiKey) return jsonError("Server misconfigured: OPENROUTER_API_KEY missing", 500);
-
-  // Parse request body safely
-  let body;
-  try {
-    body = await request.json();
-  } catch (err) {
-    return jsonError("Unable to parse JSON body", 400);
-  }
-
-  // Basic payload safeguard for OpenRouter format
-  const payload = body || {};
-  if (!payload.messages && !payload.prompt) {
-    return jsonError("Missing 'messages' or 'prompt' in request body", 400);
-  }
-
-  // Build OpenRouter endpoint
-  const openRouterUrl = "https://openrouter.ai/api/v1/chat/completions";
-
-  // Build request body for OpenRouter (normalize simple prompt to required format)
-  let requestBody;
-  if (payload.messages) {
-    // assume frontend provided a full OpenRouter-style payload
-    requestBody = payload;
-  } else {
-    requestBody = {
-      model: payload.model || "openai/gpt-4o-mini",
-      messages: [{ role: "user", content: String(payload.prompt) }],
-      // Add other fields if needed (temperature, max_tokens, etc.)
+      body: ''
     };
   }
 
-  // helper: fetch with timeout (AbortController)
-  async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, body: JSON.stringify({ error: 'Only POST allowed' }) };
+  }
+
+  let body;
+  try { body = JSON.parse(event.body); } catch (err) {
+    return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) };
+  }
+
+  const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY;
+  if (!OPENROUTER_KEY) {
+    return { statusCode: 500, body: JSON.stringify({ error: 'Server misconfigured: OPENROUTER_API_KEY missing' }) };
+  }
+
+  const model = body.model || 'openai/gpt-4.1-mini';
+  const messages = body.messages || [{ role: 'user', content: body.prompt || 'Hello' }];
+
+  const payload = { model, messages };
+
+  const TIMEOUT_MS = 30000; // 30s per attempt
+  const RETRIES = 2;
+
+  const fetchWithTimeout = (url, opts = {}) => {
     const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), timeoutMs);
+    const id = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    return fetch(url, { ...opts, signal: controller.signal })
+      .finally(() => clearTimeout(id));
+  };
+
+  for (let attempt = 0; attempt <= RETRIES; attempt++) {
     try {
-      const res = await fetch(url, { ...options, signal: controller.signal });
-      clearTimeout(id);
-      return res;
+      const res = await fetchWithTimeout('https://api.openrouter.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${OPENROUTER_KEY}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const text = await res.text();
+      let json;
+      try { json = text ? JSON.parse(text) : null; } catch (e) { json = { raw: text } }
+
+      if (res.ok) {
+        return { statusCode: 200, body: JSON.stringify(json), headers: { 'Access-Control-Allow-Origin': '*' } };
+      }
+
+      // retry transient
+      if ((res.status === 429 || res.status === 503 || res.status === 504) && attempt < RETRIES) {
+        await new Promise(r => setTimeout(r, 300 * (attempt+1)));
+        continue;
+      }
+
+      // non-retryable error -> forward details
+      return { statusCode: res.status || 502, body: JSON.stringify({ error: json || text }) };
     } catch (err) {
-      clearTimeout(id);
-      throw err;
+      if (err.name === 'AbortError') {
+        if (attempt < RETRIES) {
+          await new Promise(r => setTimeout(r, 300 * (attempt+1)));
+          continue;
+        }
+        return { statusCode: 504, body: JSON.stringify({ error: 'Upstream timeout' }) };
+      }
+      if (attempt < RETRIES) {
+        await new Promise(r => setTimeout(r, 300 * (attempt+1)));
+        continue;
+      }
+      return { statusCode: 502, body: JSON.stringify({ error: String(err) }) };
     }
   }
 
-  try {
-    const resp = await fetchWithTimeout(openRouterUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-        "X-Title": "Fitmate",
-        "HTTP-Referer": "https://fitnessmate.netlify.app"
-      },
-      body: JSON.stringify(requestBody),
-    }, 10000); // 10s timeout - adjust if needed
-
-    const text = await resp.text().catch(() => "");
-    let json = null;
-    try { json = text ? JSON.parse(text) : null; } catch (e) { json = null; }
-
-    if (!resp.ok) {
-      // Return provider status and message to frontend for debugging
-      const msg = json?.error?.message || json?.error || json?.message || text || `Provider returned ${resp.status}`;
-      return jsonError(msg, resp.status);
-    }
-
-    // Success — return normalized JSON + CORS headers
-    return new Response(JSON.stringify({ ok: true, data: json }), {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-      },
-    });
-  } catch (err) {
-    // Distinguish abort/timeouts
-    if (err.name === "AbortError") {
-      return jsonError("Provider request timed out", 504);
-    }
-    // Network or other errors
-    return jsonError(`Internal fetch error: ${err.message || String(err)}`, 502);
-  }
-
-  // helper to return consistent JSON error responses with CORS
-  function jsonError(message, status = 500) {
-    return new Response(JSON.stringify({ error: message }), {
-      status,
-      headers: {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-      },
-    });
-  }
+  return { statusCode: 502, body: JSON.stringify({ error: 'Exhausted retries' }) };
 };
