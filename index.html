@@ -922,7 +922,7 @@
     const OPENROUTER_QWEN_VL_MODEL = 'openai/gpt-4o-mini'; // vision
     const getDirectGeminiConfig = () => {
       return {
-        url: '/api/myapi',
+        url: window.location.origin + '/api/myapi',
         headers: {
           'Content-Type': 'application/json'
         }
