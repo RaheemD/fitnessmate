@@ -1,8 +1,6 @@
 // netlify/edge-functions/myapi.js
-// Netlify Edge Function (Deno runtime). Paste exactly and deploy.
-
 export default async (request) => {
-  // Handle preflight CORS
+  // CORS preflight
   if (request.method === "OPTIONS") {
     return new Response(null, {
       status: 204,
@@ -14,51 +12,47 @@ export default async (request) => {
     });
   }
 
-  // Only POST allowed
-  if (request.method !== "POST") {
-    return jsonError("Method not allowed. Use POST.", 405);
+  function jsonResponse(obj, status = 200) {
+    return new Response(JSON.stringify(obj), {
+      status,
+      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+    });
   }
 
-  // Get OpenRouter API key from Netlify environment (make sure variable is set)
-  const apiKey = Deno.env.get("OPENROUTER_API_KEY") || "";
-  if (!apiKey) return jsonError("Server misconfigured: OPENROUTER_API_KEY missing", 500);
+  // Only POST
+  if (request.method !== "POST") return jsonResponse({ error: "Only POST allowed" }, 405);
 
-  // Parse request body safely
+  // Check key presence (don't print the key)
+  const OPENROUTER_KEY = Deno.env.get("OPENROUTER_API_KEY");
+  console.log("OPENROUTER_KEY present?", !!OPENROUTER_KEY);
+  if (!OPENROUTER_KEY) return jsonResponse({ error: "Server misconfigured: OPENROUTER_API_KEY missing" }, 500);
+
+  // Parse JSON safely
   let body;
   try {
     body = await request.json();
   } catch (err) {
-    return jsonError("Unable to parse JSON body", 400);
+    console.error("Invalid JSON in request body:", err);
+    return jsonResponse({ error: "Invalid JSON in request body" }, 400);
   }
 
-  // Basic payload safeguard for OpenRouter format
-  const payload = body || {};
-  if (!payload.messages && !payload.prompt) {
-    return jsonError("Missing 'messages' or 'prompt' in request body", 400);
+  // Validate payload
+  if (!body.messages && !body.prompt) {
+    return jsonResponse({ error: "Missing 'messages' or 'prompt' in body" }, 400);
   }
 
-  // Build OpenRouter endpoint
-  const openRouterUrl = "https://openrouter.ai/api/v1/chat/completions";
+  const model = body.model || "openai/gpt-4.1-mini";
+  const payload = body.messages ? { ...body, model } : { model, messages: [{ role: "user", content: String(body.prompt) }] };
 
-  // Build request body for OpenRouter (normalize simple prompt to required format)
-  let requestBody;
-  if (payload.messages) {
-    // assume frontend provided a full OpenRouter-style payload
-    requestBody = payload;
-  } else {
-    requestBody = {
-      model: payload.model || "openai/gpt-4o-mini",
-      messages: [{ role: "user", content: String(payload.prompt) }],
-      // Add other fields if needed (temperature, max_tokens, etc.)
-    };
-  }
+  const OPENROUTER_URL = "https://api.openrouter.ai/v1/chat/completions";
+  const TIMEOUT_MS = 20000; // 20s per attempt
+  const RETRIES = 2;
 
-  // helper: fetch with timeout (AbortController)
-  async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
+  async function fetchWithTimeout(url, opts = {}, timeout = TIMEOUT_MS) {
     const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), timeoutMs);
+    const id = setTimeout(() => controller.abort(), timeout);
     try {
-      const res = await fetch(url, { ...options, signal: controller.signal });
+      const res = await fetch(url, { ...opts, signal: controller.signal });
       clearTimeout(id);
       return res;
     } catch (err) {
@@ -67,53 +61,73 @@ export default async (request) => {
     }
   }
 
-  try {
-    const resp = await fetchWithTimeout(openRouterUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-        "X-Title": "Fitmate",
-        "HTTP-Referer": "https://fitnessmate.netlify.app"
-      },
-      body: JSON.stringify(requestBody),
-    }, 10000); // 10s timeout - adjust if needed
+  // Try / retry loop
+  for (let attempt = 0; attempt <= RETRIES; attempt++) {
+    try {
+      console.log(`Calling OpenRouter (attempt ${attempt+1}) model=${model}`);
+      const res = await fetchWithTimeout(OPENROUTER_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${OPENROUTER_KEY}`
+        },
+        body: JSON.stringify(payload),
+      }, TIMEOUT_MS);
 
-    const text = await resp.text().catch(() => "");
-    let json = null;
-    try { json = text ? JSON.parse(text) : null; } catch (e) { json = null; }
+      const text = await res.text().catch(() => "");
+      // Always log response status and length (not the full body)
+      console.log("OpenRouter status:", res.status, "responseLength:", text ? text.length : 0);
 
-    if (!resp.ok) {
-      // Return provider status and message to frontend for debugging
-      const msg = json?.error?.message || json?.error || json?.message || text || `Provider returned ${resp.status}`;
-      return jsonError(msg, resp.status);
+      // If empty body, handle gracefully
+      if (!text) {
+        if (res.ok) {
+          // Unexpected: OK with no body — return a friendly message
+          return jsonResponse({ ok: true, data: null, note: "Empty response from OpenRouter" }, 200);
+        } else {
+          // non-OK with empty body -> return status and message
+          return jsonResponse({ error: `Upstream returned ${res.status} with empty body` }, res.status || 502);
+        }
+      }
+
+      // parse JSON if possible
+      let json;
+      try { json = JSON.parse(text); } catch (e) {
+        // Upstream returned non-json — return raw text in a safe wrapper
+        console.warn("OpenRouter returned non-JSON response");
+        return jsonResponse({ error: "Upstream returned non-JSON response", raw: text }, res.status || 502);
+      }
+
+      // Successful upstream
+      if (res.ok) {
+        return jsonResponse({ ok: true, data: json }, 200);
+      }
+
+      // Retry on transient
+      if ((res.status === 429 || res.status === 503 || res.status === 504) && attempt < RETRIES) {
+        const backoff = 300 * (attempt + 1);
+        console.warn(`Transient upstream ${res.status}, retrying after ${backoff}ms`);
+        await new Promise(r => setTimeout(r, backoff));
+        continue;
+      }
+
+      // Non-retryable error — forward parsed json if any
+      return jsonResponse({ error: json || `Upstream returned ${res.status}` }, res.status || 502);
+    } catch (err) {
+      console.error("Fetch error:", err && err.message ? err.message : String(err));
+      if (err.name === "AbortError") {
+        if (attempt < RETRIES) {
+          await new Promise(r => setTimeout(r, 300 * (attempt + 1)));
+          continue;
+        }
+        return jsonResponse({ error: "Upstream request timed out" }, 504);
+      }
+      if (attempt < RETRIES) {
+        await new Promise(r => setTimeout(r, 300 * (attempt + 1)));
+        continue;
+      }
+      return jsonResponse({ error: `Network/fetch error: ${err.message || String(err)}` }, 502);
     }
-
-    // Success — return the original response directly without wrapping
-    return new Response(text, {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-      },
-    });
-  } catch (err) {
-    // Distinguish abort/timeouts
-    if (err.name === "AbortError") {
-      return jsonError("Provider request timed out", 504);
-    }
-    // Network or other errors
-    return jsonError(`Internal fetch error: ${err.message || String(err)}`, 502);
   }
 
-  // helper to return consistent JSON error responses with CORS
-  function jsonError(message, status = 500) {
-    return new Response(JSON.stringify({ error: message }), {
-      status,
-      headers: {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-      },
-    });
-  }
+  return jsonResponse({ error: "Exhausted retries" }, 502);
 };
