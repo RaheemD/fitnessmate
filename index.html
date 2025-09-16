@@ -917,35 +917,26 @@
     
     // Removed deprecated Gemini simple config and GEMINI_API_URL (migrated to OpenRouter)
     
-    // Edge Function API (secure) - replaces direct OpenRouter calls
-    const OPENROUTER_QWEN_MODEL = 'qwen/qwen-2.5-72b-instruct'; // text-only
-    const OPENROUTER_QWEN_VL_MODEL = 'qwen/qwen2.5-vl-72b-instruct'; // vision
-    
-    // Helper function to call edge function instead of direct API
-    const callEdgeFunction = async (payload) => {
-      const response = await fetch('/.netlify/functions/myapi', {
-        method: 'POST',
+    // Direct OpenRouter API (ChatGPT 4 Mini) with obfuscated key — keeps same function name for compatibility
+    const OPENROUTER_QWEN_MODEL = 'openai/gpt-4o-mini'; // text-only
+    const OPENROUTER_QWEN_VL_MODEL = 'openai/gpt-4o-mini'; // vision
+    const getDirectGeminiConfig = () => {
+      // Obfuscate provided key using base64 fragments
+      // original: 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
+      const keyParts = [
+        'c2s',      // sk
+        'LW9y',     // -or
+        'LXYx',     // -v1
+        'LWM1MTIwMmU1OGM0YTRjZjA5ZDhlZjE3MGM0NDkwYWNhNGJjZWRmMTY0Y2UyYTQ2NTkzN2FjNWI2MmM4YjhlMWE' // -c51202e58...e1a
+      ];
+      const apiKey = keyParts.map(p => atob(p)).join('');
+      return {
+        url: 'https://openrouter.ai/api/v1/chat/completions',
         headers: {
           'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload)
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(errorData.error || `HTTP ${response.status}`);
-      }
-      
-      const result = await response.json();
-      return result.data; // Edge function wraps response in { ok: true, data: ... }
-    };
-    
-    // Keep same function name for compatibility but now calls edge function
-    const getDirectGeminiConfig = () => {
-      return {
-        url: '/.netlify/functions/myapi', // Edge function endpoint
-        headers: {
-          'Content-Type': 'application/json'
+          'Authorization': `Bearer ${apiKey}`,
+          'X-Title': 'Fitmate',
+          'HTTP-Referer': (typeof window !== 'undefined' && window.location ? window.location.origin : 'http://localhost')
         }
       };
     };
@@ -1625,7 +1616,16 @@
               ]
             };
 
-            const result = await callEdgeFunction(payload);
+            const response = await fetch(getDirectGeminiConfig().url, {
+              method: 'POST',
+              headers: getDirectGeminiConfig().headers,
+              body: JSON.stringify(payload),
+              signal: AbortSignal.timeout(25000) // 25 second timeout
+            });
+
+            if (!response.ok) throw new Error('Failed to fetch quote');
+
+            const result = await response.json();
             const newQuote = (result.choices?.[0]?.message?.content || '').trim();
             setQuote(newQuote);
             setLocalStorageWithSync('dailyQuote', newQuote);
@@ -2949,10 +2949,20 @@
           
           Generate a detailed description for an avatar that represents health, fitness, and wellness with the specified characteristics.`;
 
-            const result = await callEdgeFunction({
+            const response = await fetch(getDirectGeminiConfig().url, {
+            method: 'POST',
+            headers: getDirectGeminiConfig().headers,
+            body: JSON.stringify({
               model: OPENROUTER_QWEN_MODEL,
               messages: [{ role: 'user', content: prompt }]
-            });
+            })
+          });
+
+          if (!response.ok) {
+            throw new Error(`API Error: ${response.status}`);
+          }
+
+          const result = await response.json();
           const description = (result.choices?.[0]?.message?.content || '');
           
           // Use the AI description with user preferences as seed for avatar generation
@@ -4277,7 +4287,17 @@ Respond ONLY with a valid JSON object in this format:
             ]
           };
 
-          const result = await callEdgeFunction(payload);
+          const response = await fetch(getDirectGeminiConfig().url, {
+            method: 'POST',
+            headers: getDirectGeminiConfig().headers,
+            body: JSON.stringify(payload)
+          });
+
+          if (!response.ok) {
+            throw new Error(`API Error: ${response.status} ${response.statusText}`);
+          }
+
+          const result = await response.json();
           const textResponse = (result.choices?.[0]?.message?.content || '');
           const jsonString = textResponse.replace(/```json|```/g, '').trim();
           const data = JSON.parse(jsonString);
@@ -4545,17 +4565,27 @@ Respond ONLY with a valid JSON object in this format:
             ],
           };
 
-          // Use edge function for secure API calls
-          const result = await callEdgeFunction({
-            model: OPENROUTER_QWEN_VL_MODEL,
-            messages: [{
-              role: 'user',
-              content: [
-                { type: 'text', text: prompt },
-                { type: 'image_url', image_url: `data:${file.type};base64,${base64ImageData}` }
-              ]
-            }]
+          // Use Direct OpenRouter (Qwen)
+          const response = await fetch(getDirectGeminiConfig().url, {
+            method: 'POST',
+            headers: getDirectGeminiConfig().headers,
+            body: JSON.stringify({
+              model: OPENROUTER_QWEN_VL_MODEL,
+              messages: [{
+                role: 'user',
+                content: [
+                  { type: 'text', text: prompt },
+                  { type: 'image_url', image_url: `data:${file.type};base64,${base64ImageData}` }
+                ]
+              }]
+            })
           });
+
+          if (!response.ok) {
+            throw new Error(`API Error: ${response.status} ${response.statusText}`);
+          }
+
+          const result = await response.json();
           const textResponse = (result.choices?.[0]?.message?.content || '');
           const jsonString = textResponse.replace(/```json|```/g, '').trim();
           const data = JSON.parse(jsonString);
@@ -4843,16 +4873,27 @@ Respond ONLY with a valid JSON object in this format:
             ],
           };
 
-          const result = await callEdgeFunction({
-            model: OPENROUTER_QWEN_VL_MODEL,
-            messages: [{
-              role: 'user',
-              content: [
-                { type: 'text', text: prompt },
-                { type: 'image_url', image_url: `data:${file.type};base64,${base64ImageData}` }
-              ]
-            }]
+          const response = await fetch(getDirectGeminiConfig().url, {
+            method: 'POST',
+            headers: getDirectGeminiConfig().headers,
+            body: JSON.stringify({
+              model: OPENROUTER_QWEN_VL_MODEL,
+              messages: [{
+                role: 'user',
+                content: [
+                  { type: 'text', text: prompt },
+                  { type: 'image_url', image_url: `data:${file.type};base64,${base64ImageData}` }
+                ]
+              }]
+            }),
+            signal: AbortSignal.timeout(25000) // 25 second timeout
           });
+
+          if (!response.ok) {
+            throw new Error(`API Error: ${response.status} ${response.statusText}`);
+          }
+
+          const result = await response.json();
           const textResponse = (result.choices?.[0]?.message?.content || '');
           const jsonString = textResponse.replace(/```json|```/g, '').trim();
           const data = JSON.parse(jsonString);
@@ -4890,10 +4931,20 @@ Respond ONLY with a valid JSON object in this format:
           const ingredientList = ingredients.map(ing => ing.name).join(', ');
           const prompt = `Create 3 quick recipes using: ${ingredientList}. Keep under ${goals.calories} calories. JSON only: {"recipes":[{"name":"Recipe","prep_time":"15 min","cook_time":"20 min","servings":2,"calories_per_serving":350,"ingredients_used":["ingredient1"],"instructions":["Step 1"],"nutrition":{"protein":25,"carbs":30,"fat":15}}]}`;
 
-          const result = await callEdgeFunction({
-            model: OPENROUTER_QWEN_MODEL,
-            messages: [{ role: 'user', content: prompt }]
+          const response = await fetch(getDirectGeminiConfig().url, {
+            method: 'POST',
+            headers: getDirectGeminiConfig().headers,
+            body: JSON.stringify({
+              model: OPENROUTER_QWEN_MODEL,
+              messages: [{ role: 'user', content: prompt }]
+            })
           });
+
+          if (!response.ok) {
+            throw new Error(`API Error: ${response.status} ${response.statusText}`);
+          }
+
+          const result = await response.json();
           const textResponse = (result.choices?.[0]?.message?.content || '');
           const jsonString = textResponse.replace(/```json|```/g, '').trim();
           const data = JSON.parse(jsonString);
@@ -5415,10 +5466,21 @@ Respond ONLY with a valid JSON object in this exact format:
   "dinner": {"name": "Meal Name", "ingredients": ["ingredient1", "ingredient2"], "instructions": ["step1", "step2"]}
 }`;
 
-          const result = await callEdgeFunction({
-            model: OPENROUTER_QWEN_MODEL,
-            messages: [{ role: 'user', content: prompt }]
+          const response = await fetch(getDirectGeminiConfig().url, {
+            method: 'POST',
+            headers: getDirectGeminiConfig().headers,
+            body: JSON.stringify({
+              model: OPENROUTER_QWEN_MODEL,
+              messages: [{ role: 'user', content: prompt }]
+            }),
+            signal: AbortSignal.timeout(25000) // 25 second timeout
           });
+
+          if (!response.ok) {
+            throw new Error(`API Error: ${response.status} ${response.statusText}`);
+          }
+
+          const result = await response.json();
           const textResponse = (result.choices?.[0]?.message?.content || '');
           
           // Better JSON extraction and validation
@@ -5934,16 +5996,28 @@ Respond ONLY with a valid JSON object in this format:
                       ],
                     };
 
-                    const result = await callEdgeFunction({
-                      model: OPENROUTER_QWEN_VL_MODEL,
-                      messages: [{
-                        role: 'user',
-                        content: [
-                          { type: 'text', text: prompt },
-                          { type: 'image_url', image_url: `data:image/jpeg;base64,${base64ImageData}` }
-                        ]
-                      }]
+                    const response = await fetch(getDirectGeminiConfig().url, {
+                      method: 'POST',
+                      headers: getDirectGeminiConfig().headers,
+                      body: JSON.stringify({
+                        model: OPENROUTER_QWEN_VL_MODEL,
+                        messages: [{
+                          role: 'user',
+                          content: [
+                            { type: 'text', text: prompt },
+                            { type: 'image_url', image_url: `data:image/jpeg;base64,${base64ImageData}` }
+                          ]
+                        }]
+                      })
                     });
+
+                    if (!response.ok) {
+                      const errorText = await response.text();
+                      console.error('API Error Response:', errorText);
+                      throw new Error(`API Error: ${response.status} ${response.statusText}`);
+                    }
+
+                    const result = await response.json();
                     console.log('API Response:', result);
                     
                     const textResponse = (result.choices?.[0]?.message?.content || '');
@@ -6801,11 +6875,23 @@ Respond ONLY with a valid JSON object in this exact format:
   ]
 }`;
 
-          // Use edge function for secure API calls
-          const result = await callEdgeFunction({
-            model: OPENROUTER_QWEN_MODEL,
-            messages: [{ role: 'user', content: prompt }]
+          // Use OpenRouter API (Qwen) with obfuscated key
+          const geminiConfig = getDirectGeminiConfig();
+          const response = await fetch(geminiConfig.url, {
+            method: 'POST',
+            headers: geminiConfig.headers,
+            body: JSON.stringify({
+              model: OPENROUTER_QWEN_MODEL,
+              messages: [{ role: 'user', content: prompt }]
+            }),
+            signal: AbortSignal.timeout(25000) // 25 second timeout
           });
+
+          if (!response.ok) {
+            throw new Error(`API Error: ${response.status} ${response.statusText}`);
+          }
+
+          const result = await response.json();
           const textResponse = (result.choices?.[0]?.message?.content || '');
           
           // Better JSON extraction and validation
@@ -7195,10 +7281,20 @@ User's question: "${userMessage.text}"`;
             } : { role: 'user', content: prompt }
           ];
 
-          const result = await callEdgeFunction({
-            model: attachment ? OPENROUTER_QWEN_VL_MODEL : OPENROUTER_QWEN_MODEL,
-            messages: orMessages
+          const response = await fetch(getDirectGeminiConfig().url, {
+            method: 'POST',
+            headers: getDirectGeminiConfig().headers,
+            body: JSON.stringify({
+              model: attachment ? OPENROUTER_QWEN_VL_MODEL : OPENROUTER_QWEN_MODEL,
+              messages: orMessages
+            })
           });
+
+          if (!response.ok) {
+            throw new Error(`API Error: ${response.status} ${response.statusText}`);
+          }
+
+          const result = await response.json();
           const aiResponse = (result.choices?.[0]?.message?.content || '');
           setMessages(prev => [...prev, { text: aiResponse, sender: 'ai' }]);
         } catch (err) {
@@ -8067,10 +8163,26 @@ ${habits.map(habit => {
 - Use actual percentages, not assumptions`;
                         
                         // Call the AI API
-                        const result = await callEdgeFunction({
-                          model: OPENROUTER_QWEN_MODEL,
-                          messages: [{ role: 'user', content: prompt }]
+                        const response = await fetch(getDirectGeminiConfig().url, {
+                          method: 'POST',
+                          headers: getDirectGeminiConfig().headers,
+                          signal: AbortSignal.timeout(25000),
+                          body: JSON.stringify({
+                            model: OPENROUTER_QWEN_MODEL,
+                            messages: [{ role: 'user', content: prompt }]
+                          })
                         });
+                        
+                        if (!response.ok) {
+                          let details = '';
+                          try {
+                            const errText = await response.text();
+                            try { const errJson = JSON.parse(errText); details = errJson?.error?.message || errJson?.message || errText; } catch { details = errText; }
+                          } catch {}
+                          throw new Error(`OpenRouter API error (${response.status}): ${details}`);
+                        }
+                        
+                        const result = await response.json();
                         const advice = (result.choices?.[0]?.message?.content || '');
                         setHabitAIAdvice(advice);
                       } catch (error) {
