@@ -19,9 +19,9 @@ export default async (request) => {
     return jsonError("Method not allowed. Use POST.", 405);
   }
 
-  // Get API key from Netlify environment (make sure variable is set)
-  const apiKey = Deno.env.get("GEMINI_API_KEY") || "";
-  if (!apiKey) return jsonError("Server misconfigured: GEMINI_API_KEY missing", 500);
+  // Get OpenRouter API key from Netlify environment (make sure variable is set)
+  const apiKey = Deno.env.get("OPENROUTER_API_KEY") || "";
+  if (!apiKey) return jsonError("Server misconfigured: OPENROUTER_API_KEY missing", 500);
 
   // Parse request body safely
   let body;
@@ -31,25 +31,25 @@ export default async (request) => {
     return jsonError("Unable to parse JSON body", 400);
   }
 
-  // Basic payload safeguard (adjust as your frontend sends)
-  // Allow either 'prompt' or 'contents' payloads - adapt if needed
+  // Basic payload safeguard for OpenRouter format
   const payload = body || {};
-  if (!payload.prompt && !payload.contents) {
-    return jsonError("Missing 'prompt' or 'contents' in request body", 400);
+  if (!payload.messages && !payload.prompt) {
+    return jsonError("Missing 'messages' or 'prompt' in request body", 400);
   }
 
-  // Build Google Gemini endpoint (stable 2.5 flash)
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  // Build OpenRouter endpoint
+  const openRouterUrl = "https://openrouter.ai/api/v1/chat/completions";
 
-  // Build request body for Gemini (normalize simple prompt to required format)
+  // Build request body for OpenRouter (normalize simple prompt to required format)
   let requestBody;
-  if (payload.contents) {
-    // assume frontend provided a full Gemini-style payload
+  if (payload.messages) {
+    // assume frontend provided a full OpenRouter-style payload
     requestBody = payload;
   } else {
     requestBody = {
-      contents: [{ parts: [{ text: String(payload.prompt) }] }],
-      // Add other fields if you need (temperature, safety settings, etc.)
+      model: payload.model || "qwen/qwen-2.5-72b-instruct",
+      messages: [{ role: "user", content: String(payload.prompt) }],
+      // Add other fields if needed (temperature, max_tokens, etc.)
     };
   }
 
@@ -68,10 +68,13 @@ export default async (request) => {
   }
 
   try {
-    const resp = await fetchWithTimeout(geminiUrl, {
+    const resp = await fetchWithTimeout(openRouterUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+        "X-Title": "Fitmate",
+        "HTTP-Referer": "https://fitmate.netlify.app"
       },
       body: JSON.stringify(requestBody),
     }, 10000); // 10s timeout - adjust if needed
