@@ -917,26 +917,14 @@
     
     // Removed deprecated Gemini simple config and GEMINI_API_URL (migrated to OpenRouter)
     
-    // Direct OpenRouter API (ChatGPT 4 Mini) with obfuscated key — keeps same function name for compatibility
+    // Use Netlify Edge Function proxy instead of direct OpenRouter API calls
     const OPENROUTER_QWEN_MODEL = 'openai/gpt-4o-mini'; // text-only
     const OPENROUTER_QWEN_VL_MODEL = 'openai/gpt-4o-mini'; // vision
     const getDirectGeminiConfig = () => {
-      // Obfuscate provided key using base64 fragments
-      // original: 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
-      const keyParts = [
-        'c2s',      // sk
-        'LW9y',     // -or
-        'LXYx',     // -v1
-        'LWM1MTIwMmU1OGM0YTRjZjA5ZDhlZjE3MGM0NDkwYWNhNGJjZWRmMTY0Y2UyYTQ2NTkzN2FjNWI2MmM4YjhlMWE' // -c51202e58...e1a
-      ];
-      const apiKey = keyParts.map(p => atob(p)).join('');
       return {
-        url: 'https://openrouter.ai/api/v1/chat/completions',
+        url: '/api/myapi',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-          'X-Title': 'Fitmate',
-          'HTTP-Referer': (typeof window !== 'undefined' && window.location ? window.location.origin : 'http://localhost')
+          'Content-Type': 'application/json'
         }
       };
     };
