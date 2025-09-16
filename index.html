@@ -915,41 +915,28 @@
     // Edge function endpoint
     const NETLIFY_API_URL = '/api/myapi';
     
-    // Direct Gemini API for simplified scan (obfuscated)
-    const getSimpleGeminiConfig = () => {
-      const keyParts = [
-        'QUl6YVN5QUUwMnhWQy01TXZTWTRYNkpNZGtYNkxTekNGS1FPcW5Z' // AIzaSyAE02xVC-5MvSY4X6JMdkX6LSzCFKQOqnY
-      ];
-      const apiKey = keyParts.map(part => atob(part)).join('');
-      return `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-    };
-    const GEMINI_API_URL = getSimpleGeminiConfig();
+    // Removed deprecated Gemini simple config and GEMINI_API_URL (migrated to OpenRouter)
     
-    // Direct Gemini API with basic obfuscation
+    // Direct OpenRouter API (Qwen) with obfuscated key — keeps same function name for compatibility
+    const OPENROUTER_QWEN_MODEL = 'qwen/qwen-2.5-72b-instruct'; // text-only
+    const OPENROUTER_QWEN_VL_MODEL = 'qwen/qwen2.5-vl-72b-instruct'; // vision
     const getDirectGeminiConfig = () => {
-      // Basic obfuscation - Base64 encoded parts
-      const apiParts = [
-        'aHR0cHM6Ly9nZW5lcmF0aXZlbGFuZ3VhZ2UuZ29vZ2xlYXBpcy5jb20=', // https://generativelanguage.googleapis.com
-        'djFiZXRh', // v1beta
-        'bW9kZWxzL2dlbWluaS0xLjUtZmxhc2g=', // models/gemini-1.5-flash
-        'Z2VuZXJhdGVDb250ZW50', // generateContent
-      ];
-      
-      // Real obfuscated API key parts
+      // Obfuscate provided key using base64 fragments
+      // original: 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
       const keyParts = [
-        'QUl6YVN5QUUwMnhWQy01TXZTWTRYNkpNZGtYNkxTekNGS1FPcW5Z' // AIzaSyAE02xVC-5MvSY4X6JMdkX6LSzCFKQOqnY
+        'c2s',      // sk
+        'LW9y',     // -or
+        'LXYx',     // -v1
+        'LWM1MTIwMmU1OGM0YTRjZjA5ZDhlZjE3MGM0NDkwYWNhNGJjZWRmMTY0Y2UyYTQ2NTkzN2FjNWI2MmM4YjhlMWE' // -c51202e58...e1a
       ];
-      
-      const baseUrl = atob(apiParts[0]);
-      const version = atob(apiParts[1]);
-      const model = atob(apiParts[2]);
-      const action = atob(apiParts[3]);
-      const apiKey = keyParts.map(part => atob(part)).join('');
-      
+      const apiKey = keyParts.map(p => atob(p)).join('');
       return {
-        url: `${baseUrl}/${version}/${model}:${action}?key=${apiKey}`,
+        url: 'https://openrouter.ai/api/v1/chat/completions',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          'X-Title': 'Fitmate',
+          'HTTP-Referer': (typeof window !== 'undefined' && window.location ? window.location.origin : 'http://localhost')
         }
       };
     };
@@ -1605,6 +1592,7 @@
       const rawCalorieProgress = goals.calories > 0 ? (Number(dailyIntake.calories) / Number(goals.calories)) * 100 : 0;
       const calorieProgress = Math.min(100, Math.max(0, isFinite(rawCalorieProgress) ? rawCalorieProgress : 0));
       const [quote, setQuote] = useState('');
+      const { setLocalStorageWithSync } = useAuth();
 
       // Fetch daily motivational quote
       useEffect(() => {
@@ -1622,10 +1610,9 @@
 
           try {
             const payload = {
-              contents: [
-                {
-                  parts: [{ text: prompt }]
-                }
+              model: OPENROUTER_QWEN_MODEL,
+              messages: [
+                { role: 'user', content: prompt }
               ]
             };
 
@@ -1639,7 +1626,7 @@
             if (!response.ok) throw new Error('Failed to fetch quote');
 
             const result = await response.json();
-            const newQuote = result.candidates[0].content.parts[0].text.trim();
+            const newQuote = (result.choices?.[0]?.message?.content || '').trim();
             setQuote(newQuote);
             setLocalStorageWithSync('dailyQuote', newQuote);
             setLocalStorageWithSync('lastQuoteFetchDate', today);
@@ -2966,7 +2953,8 @@
             method: 'POST',
             headers: getDirectGeminiConfig().headers,
             body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }]
+              model: OPENROUTER_QWEN_MODEL,
+              messages: [{ role: 'user', content: prompt }]
             })
           });
 
@@ -2975,7 +2963,7 @@
           }
 
           const result = await response.json();
-          const description = result.candidates[0].content.parts[0].text;
+          const description = (result.choices?.[0]?.message?.content || '');
           
           // Use the AI description with user preferences as seed for avatar generation
           const seed = `${gender}-${style}-${hairColor}-${description.substring(0, 30)}`;
@@ -4234,7 +4222,7 @@
       );
     };
 
-    // Scan Screen Component with Gemini API Integration
+    // Scan Screen Component with OpenRouter (Qwen VL) Integration
     const Scan = ({ onLogMeal }) => {
       const [isLoading, setIsLoading] = useState(false);
       const [scanResult, setScanResult] = useState(null);
@@ -4287,19 +4275,21 @@ Respond ONLY with a valid JSON object in this format:
 }`;
 
           const payload = {
-            contents: [
+            model: OPENROUTER_QWEN_VL_MODEL,
+            messages: [
               {
-                parts: [
-                  { text: prompt },
-                  { inlineData: { mimeType: file.type, data: base64ImageData } }
+                role: 'user',
+                content: [
+                  { type: 'text', text: prompt },
+                  { type: 'image_url', image_url: `data:${file.type};base64,${base64ImageData}` }
                 ]
               }
-            ],
+            ]
           };
 
-          const response = await fetch(GEMINI_API_URL, {
+          const response = await fetch(getDirectGeminiConfig().url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getDirectGeminiConfig().headers,
             body: JSON.stringify(payload)
           });
 
@@ -4308,13 +4298,13 @@ Respond ONLY with a valid JSON object in this format:
           }
 
           const result = await response.json();
-          const textResponse = result.candidates[0].content.parts[0].text || '';
+          const textResponse = (result.choices?.[0]?.message?.content || '');
           const jsonString = textResponse.replace(/```json|```/g, '').trim();
           const data = JSON.parse(jsonString);
           data.image = `data:${file.type};base64,${base64ImageData}`;
           setScanResult(data);
         } catch (err) {
-          console.error("Gemini API call failed:", err);
+          console.error("OpenRouter API call failed:", err);
           setError('Could not analyze the image. Please try again.');
         } finally {
           setIsLoading(false);
@@ -4575,12 +4565,20 @@ Respond ONLY with a valid JSON object in this format:
             ],
           };
 
-          // Use direct Gemini API with obfuscation
-          const geminiConfig = getDirectGeminiConfig();
-          const response = await fetch(geminiConfig.url, {
+          // Use Direct OpenRouter (Qwen)
+          const response = await fetch(getDirectGeminiConfig().url, {
             method: 'POST',
-            headers: geminiConfig.headers,
-            body: JSON.stringify(payload)
+            headers: getDirectGeminiConfig().headers,
+            body: JSON.stringify({
+              model: OPENROUTER_QWEN_VL_MODEL,
+              messages: [{
+                role: 'user',
+                content: [
+                  { type: 'text', text: prompt },
+                  { type: 'image_url', image_url: `data:${file.type};base64,${base64ImageData}` }
+                ]
+              }]
+            })
           });
 
           if (!response.ok) {
@@ -4588,7 +4586,7 @@ Respond ONLY with a valid JSON object in this format:
           }
 
           const result = await response.json();
-          const textResponse = result.candidates[0].content.parts[0].text || '';
+          const textResponse = (result.choices?.[0]?.message?.content || '');
           const jsonString = textResponse.replace(/```json|```/g, '').trim();
           const data = JSON.parse(jsonString);
           setMenuItems(data.menu_items);
@@ -4783,6 +4781,7 @@ Respond ONLY with a valid JSON object in this format:
     // Smart Pantry Chef Component
     const SmartPantryChef = ({ goals, pantryState, setPantryState }) => {
       const { isLoading, ingredients, recipes, error, imagePreview } = pantryState;
+      const { setLocalStorageWithSync } = useAuth();
       
       const setIsLoading = (value) => setPantryState(prev => ({ ...prev, isLoading: value }));
       const setIngredients = (value) => {
@@ -4810,14 +4809,13 @@ Respond ONLY with a valid JSON object in this format:
       const handleImageChange = (event) => {
         const file = event.target.files[0];
         if (file) {
-          const previewUrl = URL.createObjectURL(file);
-          setImagePreview(previewUrl);
-          
-          // Store compressed image data for persistence across refreshes
+          // Use data URL for preview (persists across refresh), mirror Menu Decoder
           const reader = new FileReader();
           reader.onload = async (e) => {
+            const dataUrl = e.target.result;
+            setImagePreview(dataUrl);
             try {
-              const compressedImage = await compressImageForMobile(e.target.result, 300, 0.6);
+              const compressedImage = await compressImageForMobile(dataUrl, 300, 0.6);
               setLocalStorageWithSync('pantryChef_imagePreview', compressedImage);
             } catch (error) {
               console.warn('Failed to store compressed image:', error);
@@ -4835,8 +4833,22 @@ Respond ONLY with a valid JSON object in this format:
       };
 
       const handleScan = async (file) => {
+        // Safety check - if already loading, don't start again
+        if (isLoading) return;
+        
         setIsLoading(true);
         setError(null);
+        
+        // Add manual timeout to prevent freezing
+        const timeoutId = setTimeout(() => {
+          console.warn('Scan timeout triggered - resetting component');
+          setIsLoading(false);
+          setError('Request timed out. Please try scanning again.');
+          // Force clear any stuck state
+          localStorage.removeItem('pantryChef_ingredients');
+          localStorage.removeItem('pantryChef_recipes');
+        }, 30000); // 30 second backup timeout
+        
         try {
           const base64ImageData = await fileToBase64(file);
           const prompt = `Analyze this image of pantry/fridge ingredients.
@@ -4864,7 +4876,16 @@ Respond ONLY with a valid JSON object in this format:
           const response = await fetch(getDirectGeminiConfig().url, {
             method: 'POST',
             headers: getDirectGeminiConfig().headers,
-            body: JSON.stringify({ contents: payload.contents }),
+            body: JSON.stringify({
+              model: OPENROUTER_QWEN_VL_MODEL,
+              messages: [{
+                role: 'user',
+                content: [
+                  { type: 'text', text: prompt },
+                  { type: 'image_url', image_url: `data:${file.type};base64,${base64ImageData}` }
+                ]
+              }]
+            }),
             signal: AbortSignal.timeout(25000) // 25 second timeout
           });
 
@@ -4873,14 +4894,16 @@ Respond ONLY with a valid JSON object in this format:
           }
 
           const result = await response.json();
-          const textResponse = result.candidates[0].content.parts[0].text || '';
+          const textResponse = (result.choices?.[0]?.message?.content || '');
           const jsonString = textResponse.replace(/```json|```/g, '').trim();
           const data = JSON.parse(jsonString);
           setIngredients(data.ingredients);
           localStorage.setItem('pantryChef_ingredients', JSON.stringify(data.ingredients));
+          clearTimeout(timeoutId); // Clear timeout on success
         } catch (err) {
           console.error("Ingredient recognition failed:", err);
           setError('Could not identify ingredients. Please try again.');
+          clearTimeout(timeoutId); // Clear timeout on error
         } finally {
           setIsLoading(false);
         }
@@ -4889,19 +4912,31 @@ Respond ONLY with a valid JSON object in this format:
       const generateRecipes = async () => {
         if (!ingredients || ingredients.length === 0) return;
         
+        // Safety check - if already loading, don't start again
+        if (isLoading) return;
+        
         setIsLoading(true);
         setError(null);
+        
+        // Add manual timeout to prevent freezing
+        const timeoutId = setTimeout(() => {
+          console.warn('Recipe generation timeout triggered - resetting component');
+          setIsLoading(false);
+          setError('Recipe generation timed out. Please try again.');
+          // Force clear any stuck state
+          localStorage.removeItem('pantryChef_recipes');
+        }, 30000); // 30 second backup timeout
+        
         try {
           const ingredientList = ingredients.map(ing => ing.name).join(', ');
           const prompt = `Create 3 quick recipes using: ${ingredientList}. Keep under ${goals.calories} calories. JSON only: {"recipes":[{"name":"Recipe","prep_time":"15 min","cook_time":"20 min","servings":2,"calories_per_serving":350,"ingredients_used":["ingredient1"],"instructions":["Step 1"],"nutrition":{"protein":25,"carbs":30,"fat":15}}]}`;
 
-          // Use direct Gemini API with obfuscation (same as other components)
-          const geminiConfig = getDirectGeminiConfig();
-          const response = await fetch(geminiConfig.url, {
+          const response = await fetch(getDirectGeminiConfig().url, {
             method: 'POST',
-            headers: geminiConfig.headers,
+            headers: getDirectGeminiConfig().headers,
             body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }]
+              model: OPENROUTER_QWEN_MODEL,
+              messages: [{ role: 'user', content: prompt }]
             })
           });
 
@@ -4910,14 +4945,16 @@ Respond ONLY with a valid JSON object in this format:
           }
 
           const result = await response.json();
-          const textResponse = result.candidates[0].content.parts[0].text || '';
+          const textResponse = (result.choices?.[0]?.message?.content || '');
           const jsonString = textResponse.replace(/```json|```/g, '').trim();
           const data = JSON.parse(jsonString);
           setRecipes(data.recipes);
           localStorage.setItem('pantryChef_recipes', JSON.stringify(data.recipes));
+          clearTimeout(timeoutId); // Clear timeout on success
         } catch (err) {
           console.error("Recipe generation failed:", err);
           setError('Could not generate recipes. Please try again.');
+          clearTimeout(timeoutId); // Clear timeout on error
         } finally {
           setIsLoading(false);
         }
@@ -4990,9 +5027,18 @@ Respond ONLY with a valid JSON object in this format:
                 {isLoading && (
                   <div className="p-6 text-center">
                     <div className="animate-spin w-8 h-8 border-4 border-pink-500 border-t-transparent rounded-full mx-auto mb-4"></div>
-                    <p className="text-gray-600 dark:text-gray-400">
+                    <p className="text-gray-600 dark:text-gray-400 mb-4">
                       {!ingredients ? 'Identifying ingredients...' : 'Generating recipes...'}
                     </p>
+                    <button 
+                      onClick={() => {
+                        setIsLoading(false);
+                        setError('Process cancelled. You can try again.');
+                      }}
+                      className="text-sm bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors"
+                    >
+                      Cancel & Reset
+                    </button>
                   </div>
                 )}
 
@@ -5420,13 +5466,12 @@ Respond ONLY with a valid JSON object in this exact format:
   "dinner": {"name": "Meal Name", "ingredients": ["ingredient1", "ingredient2"], "instructions": ["step1", "step2"]}
 }`;
 
-          // Use direct Gemini API with obfuscation (same as Menu Decoder)
-          const geminiConfig = getDirectGeminiConfig();
-          const response = await fetch(geminiConfig.url, {
+          const response = await fetch(getDirectGeminiConfig().url, {
             method: 'POST',
-            headers: geminiConfig.headers,
+            headers: getDirectGeminiConfig().headers,
             body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }]
+              model: OPENROUTER_QWEN_MODEL,
+              messages: [{ role: 'user', content: prompt }]
             }),
             signal: AbortSignal.timeout(25000) // 25 second timeout
           });
@@ -5436,7 +5481,7 @@ Respond ONLY with a valid JSON object in this exact format:
           }
 
           const result = await response.json();
-          const textResponse = result.candidates[0].content.parts[0].text || '';
+          const textResponse = (result.choices?.[0]?.message?.content || '');
           
           // Better JSON extraction and validation
           let jsonString = textResponse.replace(/```json|```/g, '').trim();
@@ -5662,7 +5707,10 @@ Respond ONLY with a valid JSON object in this exact format:
       const [videoPreview, setVideoPreview] = useState(null);
       const [isRecording, setIsRecording] = useState(false);
       const [isLoading, setIsLoading] = useState(false);
-      const [formAnalysis, setFormAnalysis] = useState(null);
+      const [formAnalysis, setFormAnalysis] = useState(() => {
+        const saved = localStorage.getItem('formAnalysis');
+        return saved ? JSON.parse(saved) : null;
+      });
       const [error, setError] = useState(null);
       const [selectedExercise, setSelectedExercise] = useState('squat');
       const [mediaRecorder, setMediaRecorder] = useState(null);
@@ -5722,12 +5770,20 @@ Respond ONLY with a valid JSON object in this exact format:
       { id: 'clean_and_jerk', name: '🏋️‍♂️ Clean & Jerk', tips: 'Clean to front rack, dip and drive, split or squat jerk' }
     ];
 
+      // Persist formAnalysis to localStorage
+      useEffect(() => {
+        if (formAnalysis) {
+          localStorage.setItem('formAnalysis', JSON.stringify(formAnalysis));
+        }
+      }, [formAnalysis]);
+
       const resetAnalysis = () => {
         setVideoPreview(null);
         setFormAnalysis(null);
         setError(null);
         setRecordedChunks([]);
         setRecordingTime(0);
+        localStorage.removeItem('formAnalysis');
         if (recordingTimerRef.current) {
           clearInterval(recordingTimerRef.current);
         }
@@ -5943,7 +5999,16 @@ Respond ONLY with a valid JSON object in this format:
                     const response = await fetch(getDirectGeminiConfig().url, {
                       method: 'POST',
                       headers: getDirectGeminiConfig().headers,
-                      body: JSON.stringify({ contents: payload.contents })
+                      body: JSON.stringify({
+                        model: OPENROUTER_QWEN_VL_MODEL,
+                        messages: [{
+                          role: 'user',
+                          content: [
+                            { type: 'text', text: prompt },
+                            { type: 'image_url', image_url: `data:image/jpeg;base64,${base64ImageData}` }
+                          ]
+                        }]
+                      })
                     });
 
                     if (!response.ok) {
@@ -5955,11 +6020,11 @@ Respond ONLY with a valid JSON object in this format:
                     const result = await response.json();
                     console.log('API Response:', result);
                     
-                    if (!result.candidates || !result.candidates[0] || !result.candidates[0].content) {
+                    const textResponse = (result.choices?.[0]?.message?.content || '');
+                    if (!textResponse) {
                       throw new Error('Invalid API response format');
                     }
                     
-                    const textResponse = result.candidates[0].content.parts[0].text || '';
                     console.log('Raw AI Response:', textResponse);
                     
                     // Clean and parse JSON response
@@ -6810,13 +6875,14 @@ Respond ONLY with a valid JSON object in this exact format:
   ]
 }`;
 
-          // Use direct Gemini API with obfuscation
+          // Use OpenRouter API (Qwen) with obfuscated key
           const geminiConfig = getDirectGeminiConfig();
           const response = await fetch(geminiConfig.url, {
             method: 'POST',
             headers: geminiConfig.headers,
             body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }]
+              model: OPENROUTER_QWEN_MODEL,
+              messages: [{ role: 'user', content: prompt }]
             }),
             signal: AbortSignal.timeout(25000) // 25 second timeout
           });
@@ -6826,7 +6892,7 @@ Respond ONLY with a valid JSON object in this exact format:
           }
 
           const result = await response.json();
-          const textResponse = result.candidates[0].content.parts[0].text || '';
+          const textResponse = (result.choices?.[0]?.message?.content || '');
           
           // Better JSON extraction and validation
           let jsonString = textResponse.replace(/```json|```/g, '').trim();
@@ -7205,10 +7271,23 @@ User's question: "${userMessage.text}"`;
             prompt += "\n\nPlease also consider the attached document in your analysis.";
           }
 
+          const orMessages = [
+            attachment ? {
+              role: 'user',
+              content: [
+                { type: 'text', text: prompt },
+                { type: 'image_url', image_url: `data:${attachment.type};base64,${await fileToBase64(attachment)}` }
+              ]
+            } : { role: 'user', content: prompt }
+          ];
+
           const response = await fetch(getDirectGeminiConfig().url, {
             method: 'POST',
             headers: getDirectGeminiConfig().headers,
-            body: JSON.stringify({ contents: [{ parts }] })
+            body: JSON.stringify({
+              model: attachment ? OPENROUTER_QWEN_VL_MODEL : OPENROUTER_QWEN_MODEL,
+              messages: orMessages
+            })
           });
 
           if (!response.ok) {
@@ -7216,7 +7295,7 @@ User's question: "${userMessage.text}"`;
           }
 
           const result = await response.json();
-          const aiResponse = result.candidates[0].content.parts[0].text;
+          const aiResponse = (result.choices?.[0]?.message?.content || '');
           setMessages(prev => [...prev, { text: aiResponse, sender: 'ai' }]);
         } catch (err) {
           console.error("Chatbot error:", err);
@@ -8087,19 +8166,24 @@ ${habits.map(habit => {
                         const response = await fetch(getDirectGeminiConfig().url, {
                           method: 'POST',
                           headers: getDirectGeminiConfig().headers,
+                          signal: AbortSignal.timeout(25000),
                           body: JSON.stringify({
-                            contents: [{
-                              parts: [{
-                                text: prompt
-                              }]
-                            }]
+                            model: OPENROUTER_QWEN_MODEL,
+                            messages: [{ role: 'user', content: prompt }]
                           })
                         });
                         
-                        if (!response.ok) throw new Error('Failed to get AI recommendations');
+                        if (!response.ok) {
+                          let details = '';
+                          try {
+                            const errText = await response.text();
+                            try { const errJson = JSON.parse(errText); details = errJson?.error?.message || errJson?.message || errText; } catch { details = errText; }
+                          } catch {}
+                          throw new Error(`OpenRouter API error (${response.status}): ${details}`);
+                        }
                         
                         const result = await response.json();
-                        const advice = result.candidates[0].content.parts[0].text;
+                        const advice = (result.choices?.[0]?.message?.content || '');
                         setHabitAIAdvice(advice);
                       } catch (error) {
                         console.error("Failed to get habit recommendations:", error);
