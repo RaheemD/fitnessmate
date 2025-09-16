@@ -47,7 +47,7 @@ export default async (request) => {
     requestBody = payload;
   } else {
     requestBody = {
-      model: payload.model || "qwen/qwen-2.5-72b-instruct",
+      model: payload.model || "openai/gpt-4o-mini",
       messages: [{ role: "user", content: String(payload.prompt) }],
       // Add other fields if needed (temperature, max_tokens, etc.)
     };
