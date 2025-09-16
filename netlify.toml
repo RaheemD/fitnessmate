@@ -1,12 +1,7 @@
 [build]
-  publish = "/"
+  publish = "."
 
+# Edge function mapping
 [[edge_functions]]
   function = "myapi"
   path = "/api/myapi"
-
-[[redirects]]
-  from = "/.netlify/functions/myapi"
-  to = "/api/myapi"
-  status = 200
-  force = true
