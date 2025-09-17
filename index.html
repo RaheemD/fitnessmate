@@ -595,18 +595,19 @@
       };
 
       // Enhanced localStorage setter with auto-sync trigger and quota management
+      // Safe setter that auto-cleans once and retries when quota is exceeded
       const setLocalStorageWithSync = (key, value) => {
         try {
           localStorage.setItem(key, value);
         } catch (error) {
-          if (error.name === 'QuotaExceededError') {
-            console.warn('localStorage quota exceeded, cleaning up...');
+          if (error && (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED')) {
+            console.warn('⚠️ LocalStorage full — cleaning up and retrying...');
             cleanupLocalStorage();
             try {
               localStorage.setItem(key, value);
             } catch (retryError) {
               console.error('Failed to store data even after cleanup:', retryError);
-              // Store only essential data
+              // Avoid storing heavy images if still failing
               if (key.includes('imagePreview') || key === 'profilePicture') {
                 console.warn('Skipping image storage due to quota limits');
                 return;
@@ -741,12 +742,12 @@
           console.log(`localStorage usage: ${totalSizeMB}MB`);
         }
         
-        // Warn if approaching 5MB limit
+        // If approaching 5MB limit, auto-clean once to avoid quota errors
         if (totalSize > 4 * 1024 * 1024) {
-          console.warn('localStorage approaching quota limit, consider cleanup');
-          // Auto-cleanup if very close to limit
-          if (totalSize > 4.5 * 1024 * 1024) {
+          if (!window.__fitmateAutoCleaned) {
+            console.warn('⚠️ localStorage near quota — auto-cleaning large/ephemeral items...');
             cleanupLocalStorage();
+            window.__fitmateAutoCleaned = true; // prevent repeated warnings/cleans this session
           }
         }
         
