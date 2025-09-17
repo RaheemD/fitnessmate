@@ -4307,6 +4307,7 @@
         reader.onerror = error => reject(error);
       });
 
+
       const handleImageChange = (event) => {
         const file = event.target.files[0];
         if (file) {
@@ -4552,6 +4553,34 @@ Respond ONLY with a valid JSON object in this format:
         reader.onerror = error => reject(error);
       });
 
+      // Rebuild a File from stored data URL to resume analysis after a stale preview in Menu Decoder
+      const dataURLtoFile = (dataUrl, fileName = 'menu.jpg') => {
+        try {
+          const [meta, base64] = dataUrl.split(',');
+          const match = /data:(.*?);/i.exec(meta);
+          const mime = match ? match[1] : 'image/jpeg';
+          const binary = atob(base64);
+          const len = binary.length;
+          const bytes = new Uint8Array(len);
+          for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+          return new File([bytes], fileName, { type: mime });
+        } catch (e) { return null; }
+      };
+
+      const resumeMenuScanFromSaved = async () => {
+        try {
+          let dataUrl = localStorage.getItem('menuDecoder_imagePreview');
+          if (!dataUrl && typeof imagePreview === 'string' && imagePreview.startsWith('data:')) {
+            dataUrl = imagePreview;
+          }
+          if (dataUrl) {
+            const file = dataURLtoFile(dataUrl, 'menu.jpg');
+            if (file) { await handleScan(file); return; }
+          }
+          if (fileInputRef.current) fileInputRef.current.click();
+        } catch (err) { setError('Could not resume analysis. Please try again.'); }
+      };
+
       const resetScan = () => {
         setImagePreview(null);
         localStorage.removeItem('menuDecoder_imagePreview');
@@ -4765,6 +4794,16 @@ Respond ONLY with a valid JSON object in this format:
               <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-md overflow-hidden">
                 <img src={imagePreview} alt="Restaurant menu" className="w-full h-64 object-cover" />
                 
+                {!isLoading && !error && !recommendations && !menuItems && (
+                  <div className="p-6 text-center">
+                    <p className="text-gray-600 dark:text-gray-400 mb-4">Image loaded. Ready to analyze.</p>
+                    <div className="flex gap-3 justify-center">
+                      <button onClick={resumeMenuScanFromSaved} className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg">Analyze Now</button>
+                      <button onClick={resetScan} className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg">Choose Different Image</button>
+                    </div>
+                  </div>
+                )}
+                
                 {isLoading && (
                   <div className="p-6 text-center">
                     <div className="animate-spin w-8 h-8 border-4 border-orange-500 border-t-transparent rounded-full mx-auto mb-4"></div>
@@ -4896,6 +4935,34 @@ Respond ONLY with a valid JSON object in this format:
         reader.onload = () => resolve(reader.result.split(',')[1]);
         reader.onerror = error => reject(error);
       });
+
+      // Rebuild a File from stored data URL to resume analysis after a stale preview
+      const dataURLtoFile = (dataUrl, fileName = 'pantry.jpg') => {
+        try {
+          const [meta, base64] = dataUrl.split(',');
+          const match = /data:(.*?);/i.exec(meta);
+          const mime = match ? match[1] : 'image/jpeg';
+          const binary = atob(base64);
+          const len = binary.length;
+          const bytes = new Uint8Array(len);
+          for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+          return new File([bytes], fileName, { type: mime });
+        } catch (e) { return null; }
+      };
+
+      const resumePantryScanFromSaved = async () => {
+        try {
+          let dataUrl = localStorage.getItem('pantryChef_imagePreview');
+          if (!dataUrl && typeof imagePreview === 'string' && imagePreview.startsWith('data:')) {
+            dataUrl = imagePreview;
+          }
+          if (dataUrl) {
+            const file = dataURLtoFile(dataUrl, 'pantry.jpg');
+            if (file) { await handleScan(file); return; }
+          }
+          if (fileInputRef.current) fileInputRef.current.click();
+        } catch (err) { setError('Could not resume analysis. Please try again.'); }
+      };
 
       const handleImageChange = (event) => {
         const file = event.target.files[0];
@@ -5138,6 +5205,16 @@ Respond ONLY with a valid JSON object in this format:
             <div className="max-w-md mx-auto">
               <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-md overflow-hidden">
                 <img src={imagePreview} alt="Scanned ingredients" className="w-full h-64 object-cover" />
+                
+                {!isLoading && !error && !ingredients && !recipes && (
+                  <div className="p-6 text-center">
+                    <p className="text-gray-600 dark:text-gray-400 mb-4">Image loaded. Ready to analyze.</p>
+                    <div className="flex gap-3 justify-center">
+                      <button onClick={resumePantryScanFromSaved} className="bg-pink-500 hover:bg-pink-600 text-white px-4 py-2 rounded-lg">Analyze Now</button>
+                      <button onClick={resetScan} className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg">Choose Different Image</button>
+                    </div>
+                  </div>
+                )}
                 
                 {isLoading && (
                   <div className="p-6 text-center">
@@ -5521,8 +5598,21 @@ Respond ONLY with a valid JSON object in this format:
 
     // Meal Planner Screen Component
     const MealPlanner = ({ goals, mealPlan, setMealPlan, isLoading, setIsLoading, error, setError }) => {
-      const [activeTab, setActiveTab] = useState('planner'); // 'planner', 'pantry', or 'menu'
+      const [activeTab, setActiveTab] = useState(() => localStorage.getItem('mealPlanner_activeTab') || 'planner'); // 'planner', 'pantry', or 'menu'
       const [preferences, setPreferences] = useState({ cuisine: '', diet: '', calories: goals.calories, allergies: [] });
+      
+      // Persist active tab to localStorage so we remember last selected tab
+      useEffect(() => {
+        try {
+          if (typeof setLocalStorageWithSync === 'function') {
+            setLocalStorageWithSync('mealPlanner_activeTab', activeTab);
+          } else {
+            localStorage.setItem('mealPlanner_activeTab', activeTab);
+          }
+        } catch (e) {
+          // ignore storage errors
+        }
+      }, [activeTab]);
       
       // State to persist Smart Pantry Chef and Menu Decoder data
       const [pantryState, setPantryState] = useState(() => {
@@ -6515,7 +6605,19 @@ Respond ONLY with a valid JSON object in this format:
 
     // Workout Planner Screen Component
     const WorkoutPlanner = ({ workoutPlan, setWorkoutPlan, isLoading, setIsLoading, error, setError }) => {
-      const [activeTab, setActiveTab] = useState('planner'); // 'planner', 'coach', or 'exercises'
+      const [activeTab, setActiveTab] = useState(() => localStorage.getItem('workoutPlanner_activeTab') || 'planner'); // 'planner', 'coach', or 'exercises'
+      // Persist active tab to localStorage so we remember last selected tab
+      useEffect(() => {
+        try {
+          if (typeof setLocalStorageWithSync === 'function') {
+            setLocalStorageWithSync('workoutPlanner_activeTab', activeTab);
+          } else {
+            localStorage.setItem('workoutPlanner_activeTab', activeTab);
+          }
+        } catch (e) {
+          // ignore storage errors
+        }
+      }, [activeTab]);
       const [preferences, setPreferences] = useState({ goal: '', type: '', level: '', equipment: [] });
       const [selectedExercise, setSelectedExercise] = useState(null);
       const [currentSet, setCurrentSet] = useState(1);
@@ -7513,8 +7615,19 @@ User's question: "${userMessage.text}"`;
       const [currentDate, setCurrentDate] = useState(new Date());
       const [selectedDay, setSelectedDay] = useState(null);
       const [viewMode, setViewMode] = useState('month'); // 'month' or 'year'
-      const [activeTab, setActiveTab] = useState('progress'); // 'progress' or 'habits'
-      const [habits, setHabits] = useState(() => {
+      const [activeTab, setActiveTab] = useState(() => localStorage.getItem('progress_activeTab') || 'progress'); // 'progress' or 'habits'
+    useEffect(() => {
+      try {
+        if (typeof setLocalStorageWithSync === 'function') {
+          setLocalStorageWithSync('progress_activeTab', activeTab);
+        } else {
+          localStorage.setItem('progress_activeTab', activeTab);
+        }
+      } catch (e) {
+        // ignore storage errors
+      }
+    }, [activeTab]);
+    const [habits, setHabits] = useState(() => {
         const savedHabits = localStorage.getItem('habits');
         return savedHabits ? JSON.parse(savedHabits) : [];
       });
