@@ -121,6 +121,28 @@
   <script type="text/babel">
     const { useState, useRef, useEffect } = React;
 
+    // Global safe stub to avoid ReferenceError before the real helper is defined
+    if (typeof window !== 'undefined' && typeof window.setLocalStorageWithSync === 'undefined') {
+      window.setLocalStorageWithSync = function (key, value) {
+        try {
+          localStorage.setItem(key, value);
+        } catch (error) {
+          if (error && (error.name === 'QuotaExceededError' || error.code === 22)) {
+            try {
+              ['pantryChef_imagePreview','menuDecoder_imagePreview','pantryChef_ingredients','pantryChef_recipes','menuDecoder_menuItems','menuDecoder_recommendations','dailyQuote','lastQuoteFetchDate']
+                .forEach(k => { try { localStorage.removeItem(k); } catch (_) {} });
+              localStorage.setItem(key, value);
+            } catch (e) {
+              if (key === 'profilePicture' || /imagePreview/.test(key)) return;
+              console.warn('setLocalStorageWithSync stub failed after cleanup:', e);
+            }
+          } else {
+            console.warn('setLocalStorageWithSync stub store failed:', error);
+          }
+        }
+      };
+    }
+
     // Firebase Configuration with obfuscated API key
     const getFirebaseConfig = () => {
       const keyParts = [
@@ -229,14 +251,19 @@
         }
       };
 
-      const syncUserData = async (user) => {
+      const syncUserData = async (u) => {
         if (!db) {
           console.log('Realtime Database not available - data will be stored locally only');
           return;
         }
+        const effectiveUser = u || (auth && auth.currentUser) || user;
+        if (!effectiveUser || !effectiveUser.uid) {
+          console.log('No authenticated user found for sync; skipping.');
+          return;
+        }
         
         try {
-          const userSnapshot = await db.ref(`users/${user.uid}`).once('value');
+          const userSnapshot = await db.ref(`users/${effectiveUser.uid}`).once('value');
           if (userSnapshot.exists()) {
             const userData = userSnapshot.val();
             const localLastSync = localStorage.getItem('lastSyncTimestamp');
@@ -295,7 +322,7 @@
           } else {
             console.log('No user document found, creating new one');
             // Create comprehensive initial user document
-            await createInitialUserDocument(user);
+            await createInitialUserDocument(effectiveUser);
           }
         } catch (error) {
           if (error.code === 'PERMISSION_DENIED') {
@@ -560,7 +587,7 @@
         autoSyncTimeout = setTimeout(async () => {
           try {
             console.log('🔄 Auto-sync triggered');
-            await syncUserData();
+            await syncUserData(user);
           } catch (error) {
             console.error('Auto-sync failed:', error);
           }
@@ -580,7 +607,7 @@
             } catch (retryError) {
               console.error('Failed to store data even after cleanup:', retryError);
               // Store only essential data
-              if (key.includes('imagePreview')) {
+              if (key.includes('imagePreview') || key === 'profilePicture') {
                 console.warn('Skipping image storage due to quota limits');
                 return;
               }
@@ -592,12 +619,17 @@
         }
         triggerAutoSync();
       };
+      if (typeof window !== 'undefined') { window.setLocalStorageWithSync = setLocalStorageWithSync; }
 
       // Clean up localStorage to free space
       const cleanupLocalStorage = () => {
         const keysToClean = [
           'pantryChef_imagePreview',
           'menuDecoder_imagePreview',
+          'pantryChef_ingredients',
+          'pantryChef_recipes',
+          'menuDecoder_menuItems',
+          'menuDecoder_recommendations',
           'dailyQuote',
           'lastQuoteFetchDate'
         ];
@@ -705,7 +737,9 @@
         }
         
         const totalSizeMB = (totalSize / (1024 * 1024)).toFixed(2);
-        console.log(`localStorage usage: ${totalSizeMB}MB`);
+        if (window.__FITMATE_DEBUG_LS) {
+          console.log(`localStorage usage: ${totalSizeMB}MB`);
+        }
         
         // Warn if approaching 5MB limit
         if (totalSize > 4 * 1024 * 1024) {
@@ -719,8 +753,10 @@
         return { totalSize, totalSizeMB, usage };
       };
 
-      // Check usage periodically
-      setInterval(checkLocalStorageUsage, 60000); // Check every minute
+      // Check usage periodically (once) at a lower frequency to reduce console noise
+      if (!window.__fitmateLSUsageInterval) {
+        window.__fitmateLSUsageInterval = setInterval(checkLocalStorageUsage, 300000); // every 5 minutes
+      }
 
       // Real-time listener for cross-device sync
       React.useEffect(() => {
@@ -1822,9 +1858,17 @@
 
       const fileInputRef = useRef(null);
 
-      // Save profile picture to localStorage whenever it changes
+      // Save profile picture to localStorage whenever it changes (with quota handling)
       useEffect(() => {
-        localStorage.setItem('profilePicture', profilePicture);
+        if (profilePicture) {
+          try {
+            setLocalStorageWithSync('profilePicture', profilePicture);
+          } catch (error) {
+            if (error.name === 'QuotaExceededError') {
+              console.warn('Profile picture too large for localStorage, skipping storage');
+            }
+          }
+        }
       }, [profilePicture]);
 
       // Sync profile picture to Firebase when user is authenticated
@@ -1959,7 +2003,41 @@
         if (file) {
           const reader = new FileReader();
           reader.onload = (e) => {
-            setProfilePicture(e.target.result);
+            // Compress image before storing
+            const img = new Image();
+            img.onload = () => {
+              // Create canvas for compression
+              const canvas = document.createElement('canvas');
+              // Set max dimensions (reduce size)
+              const MAX_WIDTH = 400;
+              const MAX_HEIGHT = 400;
+              let width = img.width;
+              let height = img.height;
+              
+              // Calculate new dimensions while maintaining aspect ratio
+              if (width > height) {
+                if (width > MAX_WIDTH) {
+                  height *= MAX_WIDTH / width;
+                  width = MAX_WIDTH;
+                }
+              } else {
+                if (height > MAX_HEIGHT) {
+                  width *= MAX_HEIGHT / height;
+                  height = MAX_HEIGHT;
+                }
+              }
+              
+              // Set canvas dimensions and draw resized image
+              canvas.width = width;
+              canvas.height = height;
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0, width, height);
+              
+              // Convert to compressed data URL (0.7 quality)
+              const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+              setProfilePicture(compressedDataUrl);
+            };
+            img.src = e.target.result;
           };
           reader.readAsDataURL(file);
         }
@@ -4449,7 +4527,7 @@ Respond ONLY with a valid JSON object in this format:
       const setIsLoading = (value) => setMenuState(prev => ({ ...prev, isLoading: value }));
       const setImagePreview = (value) => {
         setMenuState(prev => ({ ...prev, imagePreview: value }));
-        localStorage.setItem('menuDecoder_imagePreview', value || '');
+        // Do not store raw image here; compressed version will be stored after processing
       };
       const setMenuItems = (value) => {
         setMenuState(prev => ({ ...prev, menuItems: value }));
@@ -4490,7 +4568,30 @@ Respond ONLY with a valid JSON object in this format:
           reader.onload = async (e) => {
             setImagePreview(e.target.result);
             try {
-              const compressedImage = await compressImageForMobile(e.target.result, 300, 0.6);
+              const compress = async (dataUrl) => {
+                if (typeof compressImageForMobile !== 'undefined') return await compressImageForMobile(dataUrl, 300, 0.6);
+                if (typeof window !== 'undefined' && window.compressImageForMobile) return await window.compressImageForMobile(dataUrl, 300, 0.6);
+                return await new Promise((resolve) => {
+                  try {
+                    const img = new Image();
+                    img.onload = () => {
+                      try {
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        let width = img.width, height = img.height;
+                        const maxWidth = 300;
+                        if (width > maxWidth) { height = height * (maxWidth / width); width = maxWidth; }
+                        canvas.width = width; canvas.height = height;
+                        ctx.drawImage(img, 0, 0, width, height);
+                        resolve(canvas.toDataURL('image/jpeg', 0.6));
+                      } catch (e) { resolve(dataUrl); }
+                    };
+                    img.onerror = () => resolve(dataUrl);
+                    img.src = dataUrl;
+                  } catch (e) { resolve(dataUrl); }
+                });
+              };
+              const compressedImage = await compress(e.target.result);
               setLocalStorageWithSync('menuDecoder_imagePreview', compressedImage);
             } catch (error) {
               console.warn('Failed to store compressed image:', error);
@@ -4784,7 +4885,7 @@ Respond ONLY with a valid JSON object in this format:
       const setError = (value) => setPantryState(prev => ({ ...prev, error: value }));
       const setImagePreview = (value) => {
         setPantryState(prev => ({ ...prev, imagePreview: value }));
-        localStorage.setItem('pantryChef_imagePreview', value || '');
+        // Do not store raw image here; compressed version will be stored after processing
       };
       const fileInputRef = useRef(null);
 
@@ -4805,7 +4906,30 @@ Respond ONLY with a valid JSON object in this format:
           const reader = new FileReader();
           reader.onload = async (e) => {
             try {
-              const compressedImage = await compressImageForMobile(e.target.result, 300, 0.6);
+              const compress = async (dataUrl) => {
+                if (typeof compressImageForMobile !== 'undefined') return await compressImageForMobile(dataUrl, 300, 0.6);
+                if (typeof window !== 'undefined' && window.compressImageForMobile) return await window.compressImageForMobile(dataUrl, 300, 0.6);
+                return await new Promise((resolve) => {
+                  try {
+                    const img = new Image();
+                    img.onload = () => {
+                      try {
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        let width = img.width, height = img.height;
+                        const maxWidth = 300;
+                        if (width > maxWidth) { height = height * (maxWidth / width); width = maxWidth; }
+                        canvas.width = width; canvas.height = height;
+                        ctx.drawImage(img, 0, 0, width, height);
+                        resolve(canvas.toDataURL('image/jpeg', 0.6));
+                      } catch (e) { resolve(dataUrl); }
+                    };
+                    img.onerror = () => resolve(dataUrl);
+                    img.src = dataUrl;
+                  } catch (e) { resolve(dataUrl); }
+                });
+              };
+              const compressedImage = await compress(e.target.result);
               setLocalStorageWithSync('pantryChef_imagePreview', compressedImage);
             } catch (error) {
               console.warn('Failed to store compressed image:', error);
