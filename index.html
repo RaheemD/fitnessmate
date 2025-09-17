@@ -955,8 +955,8 @@
     // Removed deprecated Gemini simple config and GEMINI_API_URL (migrated to OpenRouter)
     
     // Direct OpenRouter API (ChatGPT 4 Mini) with obfuscated key
-    const OPENROUTER_QWEN_MODEL = 'openai/gpt-4o-mini'; // text-only
-    const OPENROUTER_QWEN_VL_MODEL = 'openai/gpt-4o-mini'; // vision
+    const OPENROUTER_QWEN_MODEL = 'google/gemini-2.5-flash-lite'; // text-only
+const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash-lite"
     const getDirectGeminiConfig = () => {
       return {
         url: 'https://fitserver-k7r4.onrender.com/api/myapi',
