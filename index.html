@@ -917,14 +917,16 @@
     
     // Removed deprecated Gemini simple config and GEMINI_API_URL (migrated to OpenRouter)
     
-    // Use Netlify Edge Function proxy instead of direct OpenRouter API calls
+    // Direct OpenRouter API (ChatGPT 4 Mini) with obfuscated key
     const OPENROUTER_QWEN_MODEL = 'openai/gpt-4o-mini'; // text-only
     const OPENROUTER_QWEN_VL_MODEL = 'openai/gpt-4o-mini'; // vision
     const getDirectGeminiConfig = () => {
       return {
-        url: '/api/myapi',
+        url: 'https://fitserver-k7r4.onrender.com/api/myapi',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'X-Title': 'Fitmate',
+          'HTTP-Referer': (typeof window !== 'undefined' && window.location ? window.location.origin : 'http://localhost')
         }
       };
     };
