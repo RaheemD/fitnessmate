@@ -6363,9 +6363,16 @@ Respond ONLY with a valid JSON object in this exact format:
                     
                     console.log('Sending analysis request for:', selectedExerciseData.name);
                     
-                    const prompt = `Analyze this image of someone performing a ${selectedExerciseData.name} exercise.
+                    const prompt = `Analyze this image of someone performing a ${selectedExerciseData.name} exercise. You are an AI Form Coach with comprehensive knowledge of the FitMate app and all its features.
 
-Even if the exercise is not clearly visible or the person is not performing the expected exercise, provide constructive feedback.
+Even if the exercise is not clearly visible or the person is not performing the expected exercise, provide constructive feedback and guide them to relevant app features.
+
+**APP CONTEXT AWARENESS:**
+📊 Dashboard: Users can track workout progress and health scores
+🏋️ Workout Planner: 15+ exercises with video guides (Burpee, Inchworm, Jumping Jack, Military Push Ups, Reverse Crunches, etc.)
+🎥 Exercise Videos: Reference specific exercises from the workout database for comparison
+🤖 AI Health Coach: Available for additional fitness guidance and motivation
+👤 Profile: Users can adjust fitness goals and track improvements
 
 Provide detailed form analysis and feedback. Focus on:
 1. Body alignment and posture (if visible)
@@ -6373,24 +6380,25 @@ Provide detailed form analysis and feedback. Focus on:
 3. Common mistakes to avoid
 4. Specific improvements for better form
 5. Safety considerations
+6. **Reference relevant app features** (e.g., "Check the ${selectedExerciseData.name} video in Workout Planner")
 
-If the exercise is not clearly visible, focus on video recording tips and general exercise guidance.
+If the exercise is not clearly visible, focus on video recording tips and guide them to the Workout Planner for proper exercise demonstrations.
 
 Respond ONLY with a valid JSON object in this format:
 {
   "exercise_detected": "${selectedExerciseData.name}",
   "overall_score": 1-10,
   "form_analysis": {
-    "posture": "Analysis of overall posture and alignment or recording feedback",
-    "technique": "Assessment of exercise technique or guidance for better recording",
-    "safety": "Safety considerations and injury prevention"
+    "posture": "Analysis of overall posture and alignment or recording feedback with app feature references",
+    "technique": "Assessment of exercise technique with references to Workout Planner videos",
+    "safety": "Safety considerations and injury prevention tips"
   },
   "feedback": {
     "positive_points": ["What they're doing well or encouraging notes"],
-    "improvements": ["Specific areas to improve or recording suggestions"],
-    "tips": ["Actionable tips for better form or video recording"]
+    "improvements": ["Specific areas to improve with app feature suggestions"],
+    "tips": ["Actionable tips referencing app features like exercise videos or AI Coach"]
   },
-  "next_steps": "Recommendations for progression, modification, or re-recording"
+  "next_steps": "Recommendations for progression, modification, or app feature usage (Dashboard tracking, Workout Planner, etc.)"
 }`;
 
                     const payload = {
@@ -7721,9 +7729,47 @@ Respond ONLY with a valid JSON object in this exact format:
             `${w.workoutTitle} (${w.workoutLevel || 'Unknown'} level) - ${w.completionRate}% completed on ${new Date(w.timestamp).toLocaleDateString()}`
           ).join('; ');
           
-          let prompt = `You are an AI Health Coach specializing in FITNESS, WORKOUTS, and NUTRITION. You have comprehensive knowledge of the FitnessMate app's features and can provide expert guidance.
+          // Calculate current health score
+          const calculateHealthScore = () => {
+            if (!dailyIntake) return 0;
+            
+            // Base scores
+            const calorieScore = Math.max(0, 100 - Math.abs(dailyIntake.calories - goals.calories) / goals.calories * 100);
+            const activityScore = Math.min(100, (effectiveActivityCtx / goals.activity) * 100);
+            const waterScore = Math.min(100, (effectiveWaterCtx / goals.water) * 100);
+            
+            // Enhanced workout quality score
+            const today = new Date().toDateString();
+            const todaysWorkouts = workoutHistory.filter(w => new Date(w.timestamp).toDateString() === today);
+            
+            let workoutQualityScore = 0;
+            if (todaysWorkouts.length > 0) {
+              const avgCompletionRate = todaysWorkouts.reduce((sum, w) => sum + w.completionRate, 0) / todaysWorkouts.length;
+              const totalWorkoutTime = todaysWorkouts.reduce((sum, w) => sum + w.duration, 0);
+              
+              const structuredWorkoutBonus = todaysWorkouts.length * 10;
+              const completionBonus = avgCompletionRate > 80 ? 20 : avgCompletionRate > 60 ? 10 : 0;
+              const consistencyBonus = totalWorkoutTime >= 30 ? 15 : totalWorkoutTime >= 15 ? 10 : 5;
+              
+              workoutQualityScore = Math.min(100, structuredWorkoutBonus + completionBonus + consistencyBonus);
+            }
+            
+            const workoutPoints = workoutQualityScore * 0.2;
+            const activityPoints = activityScore * 0.25;
+            const combinedActivityScore = Math.min(45, workoutPoints + activityPoints);
+            
+            const baseScore = (calorieScore * 0.4) + (waterScore * 0.15);
+            const enhancedScore = baseScore + combinedActivityScore;
+            
+            return Math.round(Math.min(100, enhancedScore));
+          };
+          
+          const currentHealthScore = calculateHealthScore();
+          
+          let prompt = `You are an AI Health Coach specializing in FITNESS, WORKOUTS, and NUTRITION. You have comprehensive knowledge of the FitnessMate app's features and can provide expert guidance on ALL app screens and functionality.
 
 📊 USER'S CURRENT STATUS:
+🎯 OVERALL HEALTH SCORE: ${currentHealthScore}/100
 Daily Intake vs Goals:
 - Calories: ${dailyIntake.calories}/${goals.calories} (${calorieProgress}%)
 - Protein: ${dailyIntake.protein}g/${goals.protein}g (${proteinProgress}%)
@@ -7745,33 +7791,40 @@ Daily Intake vs Goals:
 - Workouts provide structured exercise that counts toward activity goals
 - Quality workouts can compensate for lower general activity
 
+📱 COMPLETE APP KNOWLEDGE:
+DASHBOARD SCREEN: Health score visualization, daily intake tracking (calories/protein/carbs/fat/water), progress bars, recent meals display, motivational quotes, activity logging
+FOOD SCANNER: AI nutritional analysis, portion size input (grams/ml), ingredient breakdown, health tips generation, meal logging with photos, instant calorie calculation
+WORKOUT PLANNER: 15+ exercises with video guides (Burpee, Inchworm, Jumping Jack, Military Push Ups, Reverse Crunches, etc.), session tracking, timer, voice instructions, difficulty progression
+MEAL PLANNER: Recipe generation, pantry scanning, menu decoder for restaurants, dietary goal integration, ingredient analysis
+PROFILE SCREEN: Goal setting, notification preferences, dark mode toggle, consultation booking, data sync, account management
+AI COACHES: Form Coach (exercise technique), Habit Coach (behavior change), personalized recommendations based on user data
+
 Recent meals: ${mealContext || 'None logged'}
 ${lowAreas.length > 0 ? `\n⚠️ LOW AREAS: ${lowAreas.join(', ')}` : ''}
 ${highAreas.length > 0 ? `\n🔴 HIGH AREAS: ${highAreas.join(', ')}` : ''}
 
 🎯 ENHANCED RESPONSE RULES:
-1. IDENTIFY QUESTION TYPE:
-   - WORKOUT PLANNING → Recommend specific workouts based on goals/level
+1. IDENTIFY QUESTION TYPE & DIRECT TO APPROPRIATE SCREEN:
+   - WORKOUT PLANNING → Guide to Workout Planner, recommend specific exercises
    - EXERCISE FORM → Reference AI Form Coach feature for technique help
-   - WORKOUT PROGRESS → Analyze completion rates and suggest improvements
-   - INJURY/PAIN → Focus on recovery, rest, form correction
-   - NUTRITION → Use macro data and meal timing advice
-   - HEALTH SCORE → Explain the 40/45/15 scoring system
-   - APP FEATURES → Guide users to relevant FitnessMate tools
+   - NUTRITION TRACKING → Direct to Food Scanner for accurate logging
+   - MEAL PLANNING → Suggest Meal Planner for recipes and pantry management
+   - GOAL SETTING → Guide to Profile screen for goal adjustments
+   - PROGRESS TRACKING → Reference Dashboard for comprehensive health overview
+   - APP NAVIGATION → Explain which screen to use for specific needs
 
 2. RESPONSE FORMAT (MAX 120 WORDS):
-   - Direct answer to their specific question
-   - 2-3 actionable bullet points
+   - Direct answer with specific app feature recommendations
+   - 2-3 actionable bullet points with screen references
    - Reference their actual data when applicable
-   - Suggest relevant app features (Workout Planner, AI Form Coach, etc.)
-   - Use emojis for readability
+   - Guide users to relevant app sections (e.g., "Check your Dashboard", "Use the Food Scanner")
+   - Use emojis for readability and engagement
 
-3. WORKOUT EXPERTISE:
-   - Recommend difficulty progression (Beginner → Intermediate → Advanced)
-   - Suggest workout types based on goals and current activity
-   - Explain how workouts contribute to health score
-   - Reference specific exercises and proper form
-   - Encourage use of AI Form Coach for technique improvement
+3. COMPREHENSIVE APP GUIDANCE:
+   - Explain how different screens work together for complete health management
+   - Reference specific features like portion size input, exercise videos, health scoring
+   - Encourage cross-feature usage (e.g., scan food → track on dashboard → plan workouts)
+   - Mention specific exercises from database when recommending fitness routines
 
 User's question: "${userMessage.text}"`;
 
@@ -8652,7 +8705,7 @@ User's question: "${userMessage.text}"`;
                         const effectiveActivity = Math.max(dailyIntake.activity || 0, activityHabitMins || 0);
 
                         // Create prompt for the AI
-                        let prompt = `You are an AI Habit Coach. Analyze user data and provide smart recommendations.
+                        let prompt = `You are an AI Habit Coach with comprehensive knowledge of the FitMate app. Analyze user data and provide smart recommendations using all app features.
 
 **HABIT STATUS TODAY:**
 ${habits.map(habit => {
@@ -8667,23 +8720,33 @@ ${habits.map(habit => {
 • Activity: ${Math.min(effectiveActivity, goals.activity)}/${goals.activity}min (${Math.min(100, ((effectiveActivity / goals.activity) * 100)).toFixed(0)}%)
 • Water: ${Math.min(effectiveWater, goals.water)}/${goals.water} glasses (${Math.min(100, ((effectiveWater / goals.water) * 100)).toFixed(0)}%)
 
-**INSTRUCTIONS:**
-1. If habits are completed today, congratulate and suggest maintaining momentum
-2. If habits are incomplete, focus on the most important one to complete
-3. For daily progress, only mention areas below 80%
-4. Be encouraging about completed habits
+**APP FEATURES TO REFERENCE:**
+📊 Dashboard: Track progress and view health score
+🔍 Food Scanner: Log meals accurately with portion sizes
+🏋️ Workout Planner: Access 15+ exercises with video guides
+🍽️ Meal Planner: Generate recipes and scan pantry items
+👤 Profile: Adjust goals and manage preferences
+🤖 AI Coaches: Get form tips and personalized guidance
 
-**FORMAT (exactly 4 lines, max 100 chars total):**
-🎯 [Focus area or congratulations]
-⚡ [Specific action for today]
-🔥 [Simple habit tip]
-💪 [Motivation based on actual progress]
+**INSTRUCTIONS:**
+1. If habits are completed today, congratulate and suggest app features to maintain momentum
+2. If habits are incomplete, recommend specific app screens/features to help complete them
+3. For nutrition goals, suggest Food Scanner for accurate tracking
+4. For activity goals, recommend Workout Planner with specific exercises
+5. Reference actual app features users can access immediately
+
+**FORMAT (exactly 4 lines, max 120 chars total):**
+🎯 [Focus area with app feature reference]
+⚡ [Specific action using app screen/feature]
+🔥 [App-based habit tip]
+💪 [Motivation with feature suggestion]
 
 **RULES:**
-- Maximum 100 characters total
+- Maximum 120 characters total across all 4 lines
+- Reference specific app screens when relevant (Dashboard, Scanner, Workout, etc.)
 - Acknowledge completed habits positively
-- Only suggest improvements for incomplete items
-- Use actual percentages, not assumptions`;
+- Guide users to appropriate app features for improvement
+- Use actual percentages and app-specific recommendations`;
                         
                         // Call the AI API
                         const response = await fetch(getDirectGeminiConfig().url, {
