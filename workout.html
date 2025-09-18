@@ -144,6 +144,20 @@
         </div>
       </div>
 
+      <!-- Tip/Disclaimer -->
+      <div class="mx-4 mb-4 px-4 py-3 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg">
+        <div class="flex items-start gap-3">
+          <div class="flex-shrink-0 mt-0.5">
+            <svg class="w-4 h-4 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/>
+            </svg>
+          </div>
+          <div class="text-sm text-blue-700 dark:text-blue-300">
+            <span class="font-medium">💡 Tip:</span> If you exit the player and refresh the page, it will start a new session from where you left off.
+          </div>
+        </div>
+      </div>
+
       <div class="flex-1 flex flex-col items-center px-6 pt-6 pb-8 overflow-auto">
         <div class="inline-block bg-transparent"><span class="text-xs font-semibold px-4 py-2 rounded-full bg-green-500 text-black">EXERCISE</span></div>
 
@@ -203,11 +217,11 @@
       difficulty:'beginner',
       tag:'Upper Body',
       exercises:[
-        { title:'Wall Push-ups', sets:2, reps:8, rest:60, muscles:'Chest, Arms', durationSeconds:30, description:'Stand arm\'s length from a wall. Place palms flat against the wall at shoulder height. Lean in and push back to starting position.' },
-        { title:'Military Push Ups', sets:2, reps:5, rest:60, muscles:'Chest, Arms', durationSeconds:35, animation:'Military Push Ups.mp4', description:'Start in plank position with hands directly under shoulders. Lower body as one unit until chest nearly touches ground, then push back up.' },
-        { title:'Arm Circles', sets:2, reps:15, rest:45, muscles:'Shoulders', durationSeconds:25, description:'Stand with arms extended to sides at shoulder height. Make small circles forward, then backward. Keep arms straight throughout.' },
-        { title:'Modified Plank', sets:2, reps:0, rest:60, muscles:'Core, Arms', durationSeconds:20, description:'Start on knees and forearms. Keep body straight from knees to head. Engage core and hold position without letting hips sag.' },
-        { title:'Shoulder Shrugs', sets:2, reps:12, rest:45, muscles:'Shoulders', durationSeconds:25, description:'Stand tall with arms at sides. Lift shoulders straight up toward ears, hold briefly, then lower back down slowly.' }
+        { title:'Wall Push-ups', sets:2, reps:8, rest:60, muscles:'Chest, Arms', durationSeconds:30, animation:'wall push up (2).mp4', description:'Stand arm\'s length from a wall. Place palms flat against the wall at shoulder height. Lean in and push back to starting position.' },
+        { title:'Push Ups', sets:2, reps:5, rest:60, muscles:'Chest, Arms', durationSeconds:35, animation:'Military Push Ups.mp4', description:'Start in plank position with hands directly under shoulders. Lower body as one unit until chest nearly touches ground, then push back up.' },
+        { title:'Arm Circles', sets:2, reps:15, rest:45, muscles:'Shoulders', durationSeconds:25, animation:'arm circles exercise (2).mp4', description:'Stand with arms extended to sides at shoulder height. Make small circles forward, then backward. Keep arms straight throughout.' },
+        { title:'Planks', sets:2, reps:0, rest:60, muscles:'Core, Arms', durationSeconds:20, animation:'Plank.mp4', description:'Start on knees and forearms. Keep body straight from knees to head. Engage core and hold position without letting hips sag.' },
+        { title:'Free Punches', sets:2, reps:12, rest:45, muscles:'Arms, Shoulders', durationSeconds:25, animation:'Punches.mp4', description:'Stand with feet shoulder-width apart. Throw alternating punches forward with controlled movements. Keep core engaged and maintain good form.' }
       ]
     },
 
@@ -218,12 +232,12 @@
       difficulty:'beginner',
       tag:'Lower Body',
       exercises:[
-        { title:'Bodyweight Squats', sets:2, reps:10, rest:60, muscles:'Quadriceps, Glutes', durationSeconds:35, animation:'Squat Reach.mp4', description:'Stand with feet shoulder-width apart. Lower hips back and down as if sitting in a chair. Keep chest up and knees behind toes. Return to standing.' },
+        { title:'Bodyweight Squats', sets:2, reps:10, rest:60, muscles:'Quadriceps, Glutes', durationSeconds:35, animation:'squats.mp4', description:'Stand with feet shoulder-width apart. Lower hips back and down as if sitting in a chair. Keep chest up and knees behind toes. Return to standing.' },
         { title:'Squat Reach', sets:2, reps:8, rest:45, muscles:'Quads, Glutes', durationSeconds:30, animation:'Squat Reach.mp4', description:'Perform a squat while reaching arms overhead. Lower into squat position while raising arms up, then return to standing with arms down.' },
         { title:'Single Leg Hip Rotation', sets:2, reps:10, rest:45, muscles:'Hip Flexors', durationSeconds:35, animation:'Single Leg Hip Rotation.mp4', description:'Stand on one leg, lift the other knee to hip height. Rotate the lifted leg in small circles, engaging hip muscles. Switch legs.' },
-        { title:'Glute Bridge', sets:2, reps:12, rest:45, muscles:'Glutes', durationSeconds:30, description:'Lie on back with knees bent, feet flat on floor. Squeeze glutes and lift hips up, creating straight line from knees to shoulders. Lower slowly.' },
-        { title:'Calf Raise', sets:2, reps:15, rest:30, muscles:'Calves', durationSeconds:25, description:'Stand tall with feet hip-width apart. Rise up onto toes by lifting heels as high as possible. Hold briefly, then lower heels back down slowly.' },
-        { title:'Wall Sit', sets:2, reps:0, rest:60, muscles:'Quads', durationSeconds:20, description:'Stand with back against wall, feet shoulder-width apart. Slide down until thighs are parallel to floor. Hold position with knees at 90 degrees.' }
+        { title:'Glute Bridge', sets:2, reps:12, rest:45, muscles:'Glutes', durationSeconds:30, animation:'Bridge.mp4', description:'Lie on back with knees bent, feet flat on floor. Squeeze glutes and lift hips up, creating straight line from knees to shoulders. Lower slowly.' },
+        { title:'Calf Raise', sets:2, reps:15, rest:30, muscles:'Calves', durationSeconds:25, animation:'calfraise.mp4', description:'Stand tall with feet hip-width apart. Rise up onto toes by lifting heels as high as possible. Hold briefly, then lower heels back down slowly.' },
+        { title:'Wall Sit', sets:2, reps:0, rest:60, muscles:'Quads', durationSeconds:20, animation:'WallSit.mp4', description:'Stand with back against wall, feet shoulder-width apart. Slide down until thighs are parallel to floor. Hold position with knees at 90 degrees.' }
       ]
     },
 
@@ -234,12 +248,12 @@
       difficulty:'beginner',
       tag:'Full Body',
       exercises:[
-        { title:'Marching in Place', sets:2, reps:20, rest:45, muscles:'Full Body', durationSeconds:30, description:'Stand tall and lift knees alternately to hip height. Swing opposite arms naturally. Keep core engaged and maintain steady rhythm.' },
+        { title:'Marching in Place', sets:2, reps:20, rest:45, muscles:'Full Body', durationSeconds:30, animation:'MarchingInPlace.mp4', description:'Stand tall and lift knees alternately to hip height. Swing opposite arms naturally. Keep core engaged and maintain steady rhythm.' },
         { title:'Jumping Jacks', sets:2, reps:15, rest:45, muscles:'Full Body', durationSeconds:25, animation:'Jumping Jack.mp4', description:'Start with feet together, arms at sides. Jump feet apart while raising arms overhead. Jump back to starting position.' },
         { title:'Inchworm', sets:2, reps:6, rest:60, muscles:'Full Body', durationSeconds:40, animation:'Inchworm.mp4', description:'Stand tall, bend forward and place hands on floor. Walk hands forward to plank position, then walk feet toward hands. Return to standing.' },
-        { title:'Modified Burpees', sets:2, reps:5, rest:60, muscles:'Full Body', durationSeconds:40, animation:'Burpee and Jump Exercise (1).mp4', description:'Squat down, place hands on floor, step back to plank. Do a push-up, step feet forward, then jump up with arms overhead.' },
-        { title:'Standing Side Bends', sets:2, reps:12, rest:30, muscles:'Core', durationSeconds:25, description:'Stand with feet hip-width apart, hands on hips. Lean to one side, engaging obliques. Return to center and repeat on other side.' },
-        { title:'Knee Lifts', sets:2, reps:15, rest:45, muscles:'Core, Legs', durationSeconds:30, description:'Stand tall with hands on hips. Lift one knee toward chest, engaging core. Lower and repeat with other leg. Maintain balance throughout.' }
+        { title:'Burpees', sets:2, reps:5, rest:60, muscles:'Full Body', durationSeconds:40, animation:'Burpee and Jump Exercise (1).mp4', description:'Squat down, place hands on floor, step back to plank. Do a push-up, step feet forward, then jump up with arms overhead.' },
+        { title:'Standing Side Bends', sets:2, reps:12, rest:30, muscles:'Core', durationSeconds:25, animation:'StandingSideBends.mp4', description:'Stand with feet hip-width apart, hands on hips. Lean to one side, engaging obliques. Return to center and repeat on other side.' },
+        { title:'Knee Lifts', sets:2, reps:15, rest:45, muscles:'Core, Legs', durationSeconds:30, animation:'KneeLifts.mp4', description:'Stand tall with hands on hips. Lift one knee toward chest, engaging core. Lower and repeat with other leg. Maintain balance throughout.' }
       ]
     },
 
