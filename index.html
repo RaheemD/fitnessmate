@@ -4294,10 +4294,43 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
     // Scan Screen Component with OpenRouter (Qwen VL) Integration
     const Scan = ({ onLogMeal }) => {
       const [isLoading, setIsLoading] = useState(false);
-      const [scanResult, setScanResult] = useState(null);
+      const [scanResult, setScanResult] = useState(() => {
+        try {
+          const saved = localStorage.getItem('foodScanner_scanResult');
+          return saved ? JSON.parse(saved) : null;
+        } catch {
+          return null;
+        }
+      });
       const [error, setError] = useState(null);
-      const [imagePreview, setImagePreview] = useState(null);
-      const [selectedMood, setSelectedMood] = useState(null);
+      const [imagePreview, setImagePreview] = useState(() => {
+        try {
+          return localStorage.getItem('foodScanner_imagePreview') || null;
+        } catch {
+          return null;
+        }
+      });
+      const [selectedMood, setSelectedMood] = useState(() => {
+        try {
+          return localStorage.getItem('foodScanner_selectedMood') || null;
+        } catch {
+          return null;
+        }
+      });
+      const [portionSize, setPortionSize] = useState(() => {
+        try {
+          return localStorage.getItem('foodScanner_portionSize') || '';
+        } catch {
+          return '';
+        }
+      });
+      const [portionUnit, setPortionUnit] = useState(() => {
+        try {
+          return localStorage.getItem('foodScanner_portionUnit') || 'grams';
+        } catch {
+          return 'grams';
+        }
+      });
       const fileInputRef = useRef(null);
 
       const fileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -4311,25 +4344,71 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       const handleImageChange = (event) => {
         const file = event.target.files[0];
         if (file) {
-          const previewUrl = URL.createObjectURL(file);
-          setImagePreview(previewUrl);
+          const reader = new FileReader();
+          reader.onload = async (e) => {
+            const dataUrl = e.target.result;
+            setImagePreview(dataUrl);
+            
+            // Store compressed image in localStorage like Menu Decoder does
+            try {
+              const compress = (dataUrl) => new Promise(resolve => {
+                try {
+                  const img = new Image();
+                  img.onload = () => {
+                    try {
+                      const canvas = document.createElement('canvas');
+                      const ctx = canvas.getContext('2d');
+                      const maxWidth = 800;
+                      const maxHeight = 600;
+                      let { width, height } = img;
+                      if (width > height) {
+                        if (width > maxWidth) { height *= maxWidth / width; width = maxWidth; }
+                      } else {
+                        if (height > maxHeight) { width *= maxHeight / height; height = maxHeight; }
+                      }
+                      canvas.width = width; canvas.height = height;
+                      ctx.drawImage(img, 0, 0, width, height);
+                      resolve(canvas.toDataURL('image/jpeg', 0.6));
+                    } catch (e) { resolve(dataUrl); }
+                  };
+                  img.onerror = () => resolve(dataUrl);
+                  img.src = dataUrl;
+                } catch (e) { resolve(dataUrl); }
+              });
+              const compressedImage = await compress(dataUrl);
+              localStorage.setItem('foodScanner_imagePreview', compressedImage);
+            } catch (error) {
+              console.warn('Failed to store compressed image:', error);
+            }
+          };
+          reader.readAsDataURL(file);
           setScanResult(null);
           setError(null);
           setSelectedMood(null);
-          handleScan(file, previewUrl);
+          handleScan(file);
         }
       };
 
-      const handleScan = async (file, previewUrl) => {
+      const handleScan = async (file) => {
         setIsLoading(true);
         setError(null);
         try {
           const base64ImageData = await fileToBase64(file);
-          const prompt = `Analyze the food in this image.
+          
+          // Build the prompt with portion information if provided
+          let prompt = `Analyze the food in this image.
 1. Identify the main dish.
 2. Break it down into primary ingredients and estimate calories for each.
-3. Provide a total nutritional summary (calories, protein, carbs, fat).
-4. Offer a single, actionable, and encouraging "health_tip" to make this meal healthier next time.
+3. Provide a total nutritional summary (calories, protein, carbs, fat).`;
+
+          // Add portion size information to the prompt if provided
+          if (portionSize && portionSize.trim() !== '') {
+            prompt += `
+4. IMPORTANT: The user has specified that this portion weighs ${portionSize} ${portionUnit}. Please adjust ALL nutritional values (calories, protein, carbs, fat) based on this specific portion size.`;
+          }
+
+          prompt += `
+5. Offer a single, actionable, and encouraging "health_tip" to make this meal healthier next time.
 Respond ONLY with a valid JSON object in this format:
 {
   "name": "Overall Dish Name",
@@ -4373,6 +4452,16 @@ Respond ONLY with a valid JSON object in this format:
           const data = JSON.parse(jsonString);
           data.image = `data:${file.type};base64,${base64ImageData}`;
           setScanResult(data);
+          
+          // Save to localStorage for persistence
+          try {
+            localStorage.setItem('foodScanner_scanResult', JSON.stringify(data));
+            // imagePreview is already saved in handleImageChange
+            if (portionSize) localStorage.setItem('foodScanner_portionSize', portionSize);
+            if (portionUnit) localStorage.setItem('foodScanner_portionUnit', portionUnit);
+          } catch (err) {
+            console.warn('Failed to save scan result to localStorage:', err);
+          }
         } catch (err) {
           console.error("OpenRouter API call failed:", err);
           setError('Could not analyze the image. Please try again.');
@@ -4386,6 +4475,20 @@ Respond ONLY with a valid JSON object in this format:
         setScanResult(null);
         setError(null);
         setSelectedMood(null);
+        setPortionSize('');
+        setPortionUnit('grams');
+        
+        // Clear localStorage when resetting
+        try {
+          localStorage.removeItem('foodScanner_scanResult');
+          localStorage.removeItem('foodScanner_imagePreview');
+          localStorage.removeItem('foodScanner_selectedMood');
+          localStorage.removeItem('foodScanner_portionSize');
+          localStorage.removeItem('foodScanner_portionUnit');
+        } catch (err) {
+          console.warn('Failed to clear localStorage:', err);
+        }
+        
         if (fileInputRef.current) {
           fileInputRef.current.value = '';
         }
@@ -4402,6 +4505,66 @@ Respond ONLY with a valid JSON object in this format:
           </header>
 
           <div className="w-full max-w-md mx-auto">
+            {/* Portion Input Section */}
+            <div className="bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-md mb-4">
+              <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3 text-center">Portion Size (Optional)</h3>
+              <div className="flex items-center space-x-3">
+                <input
+                  type="number"
+                  placeholder="Enter quantity"
+                  value={portionSize}
+                  onChange={(e) => {
+                    setPortionSize(e.target.value);
+                    try {
+                      localStorage.setItem('foodScanner_portionSize', e.target.value);
+                    } catch (err) {
+                      console.warn('Failed to save portion size to localStorage:', err);
+                    }
+                  }}
+                  className="flex-1 p-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+                <div className="flex bg-gray-100 dark:bg-gray-700 rounded-xl p-1">
+                  <button
+                    onClick={() => {
+                      setPortionUnit('grams');
+                      try {
+                        localStorage.setItem('foodScanner_portionUnit', 'grams');
+                      } catch (err) {
+                        console.warn('Failed to save portion unit to localStorage:', err);
+                      }
+                    }}
+                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      portionUnit === 'grams' 
+                        ? 'bg-purple-500 text-white' 
+                        : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    Grams
+                  </button>
+                  <button
+                    onClick={() => {
+                      setPortionUnit('ml');
+                      try {
+                        localStorage.setItem('foodScanner_portionUnit', 'ml');
+                      } catch (err) {
+                        console.warn('Failed to save portion unit to localStorage:', err);
+                      }
+                    }}
+                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      portionUnit === 'ml' 
+                        ? 'bg-purple-500 text-white' 
+                        : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    ML
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 text-center">
+                Add portion size for more accurate nutritional values
+              </p>
+            </div>
+
             <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-md text-center">
               <div className="mb-6">
                 <div className="w-24 h-24 mx-auto mb-4 bg-gradient-to-br from-purple-400 to-pink-500 rounded-full flex items-center justify-center">
@@ -4472,7 +4635,14 @@ Respond ONLY with a valid JSON object in this format:
                     {['Energized', 'Happy', 'Sluggish', 'Bloated'].map(mood => (
                       <button
                         key={mood}
-                        onClick={() => setSelectedMood(mood)}
+                        onClick={() => {
+                          setSelectedMood(mood);
+                          try {
+                            localStorage.setItem('foodScanner_selectedMood', mood);
+                          } catch (err) {
+                            console.warn('Failed to save mood to localStorage:', err);
+                          }
+                        }}
                         className={`p-2 rounded-lg border-2 ${selectedMood === mood ? 'border-pink-500' : 'border-transparent'}`}
                       >
                         <span className="text-3xl">{{ Energized: '⚡️', Happy: '😊', Sluggish: '😴', Bloated: '🤢' }[mood]}</span>
@@ -4514,6 +4684,39 @@ Respond ONLY with a valid JSON object in this format:
                 >
                   Log this Meal
                 </button>
+
+                {/* Action buttons for scanning new or re-analyzing */}
+                <div className="flex gap-3 mt-4">
+                  <button
+                    onClick={resetScan}
+                    className="flex-1 bg-gray-500 text-white font-bold py-2 rounded-xl hover:bg-gray-600 transition-colors"
+                  >
+                    📸 Scan New
+                  </button>
+                  <button
+                    onClick={() => {
+                      const storedImage = localStorage.getItem('foodScanner_imagePreview');
+                      if (storedImage) {
+                        // Convert base64 back to file-like object for re-analysis
+                        fetch(storedImage)
+                          .then(res => res.blob())
+                          .then(blob => {
+                            const file = new File([blob], 'image.jpg', { type: 'image/jpeg' });
+                            handleScan(file);
+                          })
+                          .catch(err => {
+                            console.error('Failed to re-analyze:', err);
+                            setError('Could not re-analyze the image. Please try scanning again.');
+                          });
+                      } else {
+                        setError('No image available for re-analysis. Please scan a new image.');
+                      }
+                    }}
+                    className="flex-1 bg-blue-500 text-white font-bold py-2 rounded-xl hover:bg-blue-600 transition-colors"
+                  >
+                    🔄 Analyze
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -6477,6 +6680,98 @@ Respond ONLY with a valid JSON object in this format:
             </div>
           )}
 
+          {!videoPreview && formAnalysis && (
+            <div className="max-w-md mx-auto mt-6">
+              <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-md overflow-hidden">
+                <div className="p-6">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-bold text-gray-800 dark:text-gray-200">🎯 Last Form Analysis</h3>
+                    <button onClick={resetAnalysis} className="text-purple-500 font-semibold text-sm">Clear</button>
+                  </div>
+
+                  <div className="mb-6 text-center">
+                    <div className={`inline-flex items-center justify-center w-20 h-20 rounded-full text-2xl font-bold ${
+                      formAnalysis.overall_score >= 8
+                        ? 'bg-green-100 text-green-600 dark:bg-green-900/20 dark:text-green-400'
+                        : formAnalysis.overall_score >= 6
+                        ? 'bg-yellow-100 text-yellow-600 dark:bg-yellow-900/20 dark:text-yellow-400'
+                        : 'bg-red-100 text-red-600 dark:bg-red-900/20 dark:text-red-400'
+                    }`}>
+                      {formAnalysis.overall_score}/10
+                    </div>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">Form Score</p>
+                  </div>
+
+                  <div className="space-y-4 mb-6">
+                    <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+                      <h4 className="font-semibold text-blue-800 dark:text-blue-200 mb-2">📐 Posture Analysis</h4>
+                      <p className="text-sm text-blue-700 dark:text-blue-300">{formAnalysis.form_analysis.posture}</p>
+                    </div>
+
+                    <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg">
+                      <h4 className="font-semibold text-purple-800 dark:text-purple-200 mb-2">⚡ Technique</h4>
+                      <p className="text-sm text-purple-700 dark:text-purple-300">{formAnalysis.form_analysis.technique}</p>
+                    </div>
+
+                    <div className="bg-orange-50 dark:bg-orange-900/20 p-4 rounded-lg">
+                      <h4 className="font-semibold text-orange-800 dark:text-orange-200 mb-2">🛡️ Safety</h4>
+                      <p className="text-sm text-orange-700 dark:text-orange-300">{formAnalysis.form_analysis.safety}</p>
+                    </div>
+                  </div>
+
+                  {formAnalysis.feedback?.positive_points?.length > 0 && (
+                    <div className="mb-4">
+                      <h4 className="font-semibold text-green-600 dark:text-green-400 mb-2">✅ What You're Doing Well:</h4>
+                      <ul className="space-y-1">
+                        {formAnalysis.feedback.positive_points.map((point, index) => (
+                          <li key={index} className="text-sm text-gray-600 dark:text-gray-400 flex items-start">
+                            <span className="text-green-500 mr-2">•</span>
+                            {point}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {formAnalysis.feedback?.improvements?.length > 0 && (
+                    <div className="mb-4">
+                      <h4 className="font-semibold text-yellow-600 dark:text-yellow-400 mb-2">🎯 Areas to Improve:</h4>
+                      <ul className="space-y-1">
+                        {formAnalysis.feedback.improvements.map((improvement, index) => (
+                          <li key={index} className="text-sm text-gray-600 dark:text-gray-400 flex items-start">
+                            <span className="text-yellow-500 mr-2">•</span>
+                            {improvement}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {formAnalysis.feedback?.tips?.length > 0 && (
+                    <div className="mb-4">
+                      <h4 className="font-semibold text-purple-600 dark:text-purple-400 mb-2">💡 Pro Tips:</h4>
+                      <ul className="space-y-1">
+                        {formAnalysis.feedback.tips.map((tip, index) => (
+                          <li key={index} className="text-sm text-gray-600 dark:text-gray-400 flex items-start">
+                            <span className="text-purple-500 mr-2">•</span>
+                            {tip}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {formAnalysis.next_steps && (
+                    <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+                      <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-2">🚀 Next Steps:</h4>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">{formAnalysis.next_steps}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {videoPreview && (
             <div className="max-w-md mx-auto">
               <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-md overflow-hidden">
@@ -7139,40 +7434,40 @@ Respond ONLY with a valid JSON object in this exact format:
       };
 
       return (
-        <div className="p-6 pb-24">
-          <header className="mb-6 text-center">
-            <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-200">Workout Hub</h1>
-            <p className="text-gray-500 dark:text-gray-400">Plan workouts or perfect your form</p>
+        <div className="p-4 sm:p-6 pb-24">
+          <header className="mb-4 sm:mb-6 text-center px-2">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-gray-200">Workout Hub</h1>
+            <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400">Plan workouts or perfect your form</p>
           </header>
 
-          {/* Tab Navigation - Fixed light gradients */}
-          <div className="flex mb-6 bg-gray-100 dark:bg-gray-800 rounded-2xl p-1 max-w-lg mx-auto">
+          {/* Tab Navigation - Mobile Optimized */}
+          <div className="flex mb-6 bg-gray-100 dark:bg-gray-800 rounded-2xl p-1 max-w-lg mx-auto mx-4 sm:mx-auto">
             <button
               onClick={() => setActiveTab('planner')}
-              className={`flex-1 py-3 px-2 rounded-xl font-semibold transition-all text-sm ${
+              className={`flex-1 py-3 px-2 sm:px-4 rounded-xl font-semibold transition-all text-xs sm:text-sm ${
                 activeTab === 'planner'
                   ? 'bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 shadow-md'
-                  : 'text-gray-600 dark:text-gray-400'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
               }`}
             >
               📋 Planner
             </button>
             <button
               onClick={() => setActiveTab('coach')}
-              className={`flex-1 py-3 px-2 rounded-xl font-semibold transition-all text-sm ${
+              className={`flex-1 py-3 px-2 sm:px-4 rounded-xl font-semibold transition-all text-xs sm:text-sm ${
                 activeTab === 'coach'
                   ? 'bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 shadow-md'
-                  : 'text-gray-600 dark:text-gray-400'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
               }`}
             >
               🏋️ Form Coach
             </button>
             <button
               onClick={() => setActiveTab('exercises')}
-              className={`flex-1 py-3 px-2 rounded-xl font-semibold transition-all text-sm ${
+              className={`flex-1 py-3 px-2 sm:px-4 rounded-xl font-semibold transition-all text-xs sm:text-sm ${
                 activeTab === 'exercises'
                   ? 'bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 shadow-md'
-                  : 'text-gray-600 dark:text-gray-400'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
               }`}
             >
               💪 Exercises
@@ -7183,17 +7478,17 @@ Respond ONLY with a valid JSON object in this exact format:
           {activeTab === 'planner' && (
             <div>
               {!workoutPlan && (
-                <div className="max-w-md mx-auto">
-                  <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-md space-y-4">
+                <div className="max-w-md mx-auto px-4 sm:px-0">
+                  <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-2xl shadow-md space-y-4 sm:space-y-6">
                     {/* Fitness Goal */}
                     <div>
-                      <h3 className="font-semibold mb-2 text-gray-800 dark:text-gray-200">Fitness Goal</h3>
-                      <div className="grid grid-cols-3 gap-2">
+                      <h3 className="font-semibold mb-2 text-gray-800 dark:text-gray-200 text-sm sm:text-base">Fitness Goal</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         {['Weight Loss', 'Muscle Gain', 'Endurance'].map(g => (
                           <button
                             key={g}
                             onClick={() => handlePreferenceChange('goal', g)}
-                            className={`p-2 rounded-lg border dark:border-gray-700 ${preferences.goal === g ? 'bg-pink-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'}`}
+                            className={`p-3 sm:p-2 rounded-lg border dark:border-gray-700 text-sm sm:text-base font-medium transition-colors ${preferences.goal === g ? 'bg-pink-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
                           >
                             {g}
                           </button>
@@ -7203,13 +7498,13 @@ Respond ONLY with a valid JSON object in this exact format:
 
                     {/* Workout Type */}
                     <div>
-                      <h3 className="font-semibold mb-2 text-gray-800 dark:text-gray-200">Workout Type</h3>
-                      <div className="grid grid-cols-3 gap-2">
+                      <h3 className="font-semibold mb-2 text-gray-800 dark:text-gray-200 text-sm sm:text-base">Workout Type</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         {['Full Body', 'Upper Body', 'Lower Body'].map(t => (
                           <button
                             key={t}
                             onClick={() => handlePreferenceChange('type', t)}
-                            className={`p-2 rounded-lg border dark:border-gray-700 ${preferences.type === t ? 'bg-pink-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'}`}
+                            className={`p-3 sm:p-2 rounded-lg border dark:border-gray-700 text-sm sm:text-base font-medium transition-colors ${preferences.type === t ? 'bg-pink-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
                           >
                             {t}
                           </button>
@@ -7219,13 +7514,13 @@ Respond ONLY with a valid JSON object in this exact format:
 
                     {/* Experience Level */}
                     <div>
-                      <h3 className="font-semibold mb-2 text-gray-800 dark:text-gray-200">Experience Level</h3>
-                      <div className="grid grid-cols-3 gap-2">
+                      <h3 className="font-semibold mb-2 text-gray-800 dark:text-gray-200 text-sm sm:text-base">Experience Level</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         {['Beginner', 'Intermediate', 'Advanced'].map(l => (
                           <button
                             key={l}
                             onClick={() => handlePreferenceChange('level', l)}
-                            className={`p-2 rounded-lg border dark:border-gray-700 text-xs sm:text-sm ${preferences.level === l ? 'bg-pink-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'}`}
+                            className={`p-3 sm:p-2 rounded-lg border dark:border-gray-700 text-sm sm:text-base font-medium transition-colors ${preferences.level === l ? 'bg-pink-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
                           >
                             {l}
                           </button>
@@ -7235,13 +7530,13 @@ Respond ONLY with a valid JSON object in this exact format:
 
                     {/* Equipment */}
                     <div>
-                      <h3 className="font-semibold mb-2 text-gray-800 dark:text-gray-200">Available Equipment</h3>
-                      <div className="grid grid-cols-3 gap-2">
+                      <h3 className="font-semibold mb-2 text-gray-800 dark:text-gray-200 text-sm sm:text-base">Available Equipment</h3>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         {['Bodyweight', 'Dumbbells', 'Barbell', 'Kettlebell', 'Bands', 'Machine'].map(e => (
                           <button
                             key={e}
                             onClick={() => handleEquipmentChange(e)}
-                            className={`p-2 rounded-lg border dark:border-gray-700 text-xs sm:text-sm ${preferences.equipment.includes(e) ? 'bg-pink-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'}`}
+                            className={`p-3 sm:p-2 rounded-lg border dark:border-gray-700 text-xs sm:text-sm font-medium transition-colors ${preferences.equipment.includes(e) ? 'bg-pink-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
                           >
                             {e}
                           </button>
@@ -7253,7 +7548,7 @@ Respond ONLY with a valid JSON object in this exact format:
                   <button
                     onClick={generateWorkoutPlan}
                     disabled={isLoading}
-                    className="w-full mt-6 bg-green-500 text-white font-bold py-4 rounded-2xl shadow-lg hover:bg-green-600 transition-colors disabled:bg-gray-400"
+                    className="w-full mt-4 sm:mt-6 bg-green-500 text-white font-bold py-4 px-6 rounded-2xl shadow-lg hover:bg-green-600 transition-colors disabled:bg-gray-400 text-base sm:text-lg"
                   >
                     {isLoading ? 'Generating...' : 'Generate Workout Plan'}
                   </button>
@@ -8750,36 +9045,65 @@ ${habits.map(habit => {
 
     // Workout Plan Display Component
     const WorkoutPlanDisplay = ({ workoutPlan }) => {
+      // Function to generate YouTube search URL for an exercise
+      const getYouTubeSearchUrl = (exerciseName) => {
+        const searchQuery = `${exerciseName} exercise tutorial how to`;
+        return `https://www.youtube.com/results?search_query=${encodeURIComponent(searchQuery)}`;
+      };
+
       return (
-        <div className="space-y-6">
+        <div className="space-y-4 sm:space-y-6">
           {workoutPlan.exercises.map((exercise, index) => (
-            <div key={index} className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-md">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-bold text-gray-800 dark:text-white">
+            <div key={index} className="bg-white dark:bg-gray-800 rounded-lg p-4 sm:p-6 shadow-md">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-2">
+                <h3 className="text-lg sm:text-xl font-bold text-gray-800 dark:text-white">
                   Exercise {index + 1}: {exercise.name}
                 </h3>
                 <VoiceButton 
                   text={`Exercise ${index + 1}: ${exercise.name}. You will do ${exercise.sets} sets of ${exercise.reps} repetitions. Instructions: ${exercise.instructions}`}
                   buttonId={`exercise-${index}`}
                   label="Listen"
-                  className="ml-2"
+                  className="self-start sm:ml-2"
                 />
               </div>
               
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                <div className="text-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                  <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{exercise.sets}</div>
-                  <div className="text-sm text-gray-600 dark:text-gray-400">Sets</div>
+              <div className="grid grid-cols-2 gap-2 sm:gap-4 mb-4">
+                <div className="text-center p-2 sm:p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                  <div className="text-xl sm:text-2xl font-bold text-blue-600 dark:text-blue-400">{exercise.sets}</div>
+                  <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">Sets</div>
                 </div>
-                <div className="text-center p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                  <div className="text-2xl font-bold text-green-600 dark:text-green-400">{exercise.reps}</div>
-                  <div className="text-sm text-gray-600 dark:text-gray-400">Reps</div>
+                <div className="text-center p-2 sm:p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                  <div className="text-xl sm:text-2xl font-bold text-green-600 dark:text-green-400">{exercise.reps}</div>
+                  <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">Reps</div>
                 </div>
               </div>
               
-              <div>
-                <h4 className="font-semibold text-gray-700 dark:text-gray-300 mb-2">Instructions:</h4>
-                <p className="text-gray-600 dark:text-gray-400">{exercise.instructions}</p>
+              <div className="mb-4">
+                <h4 className="font-semibold text-gray-700 dark:text-gray-300 mb-2 text-sm sm:text-base">Instructions:</h4>
+                <p className="text-gray-600 dark:text-gray-400 text-sm sm:text-base leading-relaxed">{exercise.instructions}</p>
+              </div>
+              
+              {/* YouTube Video Search Link - Mobile Optimized */}
+              <div className="mt-4 p-3 sm:p-4 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="flex items-center">
+                    <svg className="w-5 h-5 sm:w-6 sm:h-6 text-red-600 dark:text-red-400 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                    </svg>
+                    <span className="font-semibold text-red-700 dark:text-red-300 text-sm sm:text-base">Watch Tutorial</span>
+                  </div>
+                  <a 
+                    href={getYouTubeSearchUrl(exercise.name)} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 text-sm sm:text-base w-full sm:w-auto"
+                  >
+                    <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                    Search Videos
+                  </a>
+                </div>
               </div>
             </div>
           ))}
