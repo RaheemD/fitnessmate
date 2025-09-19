@@ -21,8 +21,7 @@
   
   <!-- Custom Booking System - No longer using Calendly -->
   
-  <!-- Stripe.js -->
-  <script src="https://js.stripe.com/v3/"></script>
+  <!-- Stripe.js removed - using invoice-based payment system -->
   
   <!-- Whereby for video meetings -->
   
@@ -2761,6 +2760,18 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         .catch((error) => {
           console.error('Error saving booking to Firebase:', error);
         });
+      
+      // Also save to global bookings for slot availability checking
+      db.ref('globalBookings').push({
+        date: bookingDetails.date,
+        time: bookingDetails.time,
+        userId: user.uid,
+        status: 'confirmed',
+        bookingId: meetingId,
+        createdAt: firebase.database.ServerValue.TIMESTAMP
+      }).catch((error) => {
+        console.error('Error saving to global bookings:', error);
+      });
     }
     
     // Send confirmation email using EmailJS
@@ -2794,7 +2805,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       ),
       emailTimeout
     ]).then(function(response) {
-      console.log('Email sent successfully:', response);
+      console.log('Invoice email sent successfully:', response);
       // Update confirmation message to show email was sent
       setConfirmationMessage({
         type: 'success',
@@ -2860,8 +2871,10 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         userEmail: user.email,
         bookingId: meetingId,
         createdAt: firebase.database.ServerValue.TIMESTAMP,
-        status: 'confirmed',
-        packageType: selectedPackage
+        status: 'pending_payment', // Changed from 'confirmed' to indicate payment pending
+        packageType: selectedPackage,
+        invoiceNumber: `INV-${Date.now()}`,
+        paymentStatus: 'pending'
       };
       
       // Save to user's bookings in Firebase
@@ -2874,9 +2887,25 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         .catch((error) => {
           console.error('Error saving paid booking to Firebase:', error);
         });
+      
+      // Also save to global bookings for slot availability checking
+      db.ref('globalBookings').push({
+        date: bookingDetails.date,
+        time: bookingDetails.time,
+        userId: user.uid,
+        status: 'pending_payment',
+        bookingId: meetingId,
+        createdAt: firebase.database.ServerValue.TIMESTAMP
+      }).catch((error) => {
+        console.error('Error saving to global bookings:', error);
+      });
     }
     
-    // Prepare email template parameters
+    // Prepare email template parameters with invoice details
+    const invoiceNumber = `INV-${Date.now()}`;
+    const dueDate = new Date();
+    dueDate.setDate(dueDate.getDate() + 7); // 7 days from now
+    
     const templateParams = {
       to_email: bookingDetails.email,
       to_name: user?.displayName || 'Fitness Enthusiast',
@@ -2884,15 +2913,20 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       session_time: bookingDetails.time,
       session_type: bookingDetails.package,
       sessions_count: bookingDetails.sessions,
-      amount_paid: bookingDetails.price,
-      meeting_link: wherebyLink
+      amount_due: bookingDetails.price,
+      invoice_number: invoiceNumber,
+      due_date: dueDate.toLocaleDateString(),
+      meeting_link: wherebyLink,
+      payment_instructions: 'Please send payment via bank transfer (SEPA domestic or international Swift transfer), PayPal, or contact us for other payment methods. Your session will be confirmed once payment is received.',
+      bank_details: 'Name: Rahim Dhannani | IBAN: BE45 9670 9853 5289 | Swift/BIC: TRWIBEB1XXX | Bank: Wise, Rue du Trône 100, 3rd floor, Brussels, 1050, Belgium',
+      paypal_email: 'payments@fitmate.com'
     };
     
     // Show immediate confirmation while email is being sent
     setConfirmationMessage({
       type: 'success',
-      title: 'Payment Successful!',
-      message: `Booking confirmed! You've selected ${bookingDetails.sessions} sessions for $${bookingDetails.price}. Confirmation email is being sent...`
+      title: 'Invoice Generated!',
+      message: `Booking reserved! You've selected ${bookingDetails.sessions} sessions for $${bookingDetails.price}. Invoice and payment instructions are being sent...`
     });
     closeBookingModal();
     
@@ -2909,20 +2943,28 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       ),
       paidEmailTimeout
     ]).then(function(response) {
-      console.log('Email sent successfully:', response);
+      console.log('Invoice email sent successfully:', response);
       // Update confirmation message to show email was sent
       setConfirmationMessage({
         type: 'success',
-        title: 'Payment Successful!',
-        message: `Booking confirmed! You've selected ${bookingDetails.sessions} sessions for $${bookingDetails.price}. Confirmation email sent successfully!`
+        title: 'Invoice Sent!',
+        message: `Booking reserved! You've selected ${bookingDetails.sessions} sessions for $${bookingDetails.price}. Invoice and payment instructions sent successfully!`,
+        paymentDetails: {
+          amount: bookingDetails.price,
+          sessions: bookingDetails.sessions,
+          invoiceNumber: invoiceNumber,
+          bankDetails: 'Name: Rahim Dhannani | IBAN: BE45 9670 9853 5289 | Swift/BIC: TRWIBEB1XXX',
+          bankAddress: 'Bank: Wise, Rue du Trône 100, 3rd floor, Brussels, 1050, Belgium',
+          paypalEmail: 'payments@fitmate.com'
+        }
       });
     }).catch(function(error) {
       console.error('Email sending failed or timed out:', error);
       // Update confirmation message to show email issue
       setConfirmationMessage({
         type: 'warning',
-        title: 'Booking Confirmed',
-        message: 'Your booking was confirmed successfully, but there was an issue sending the confirmation email. Please contact support if needed.'
+        title: 'Booking Reserved',
+        message: 'Your booking was reserved successfully, but there was an issue sending the invoice email. Please contact support for payment instructions.'
       });
     });
   };
@@ -3264,7 +3306,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
                             disabled={!selectedPackage} 
                             onClick={handleBookingSubmit}
                           >
-                            {selectedPackage === 'free' ? 'Book Free Session' : 'Proceed to Payment'}
+                            {selectedPackage === 'free' ? 'Book Free Session' : 'Generate Invoice & Book'}
                           </button>
                         </div>
                       </div>
@@ -3296,9 +3338,44 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
                    <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2 will-change-contents">
                      {confirmationMessage.title}
                    </h3>
-                   <p className="text-gray-600 dark:text-gray-400 mb-6 will-change-contents">
+                   <p className="text-gray-600 dark:text-gray-400 mb-4 will-change-contents">
                      {confirmationMessage.message}
                    </p>
+                   
+                   {/* Payment Details Section */}
+                   {confirmationMessage.paymentDetails && (
+                     <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 mb-4 text-left">
+                       <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-3 text-center">💳 Payment Details</h4>
+                       <div className="space-y-2 text-sm">
+                         <div className="flex justify-between">
+                           <span className="text-gray-600 dark:text-gray-400">Amount:</span>
+                           <span className="font-medium text-gray-800 dark:text-gray-200">${confirmationMessage.paymentDetails.amount}</span>
+                         </div>
+                         <div className="flex justify-between">
+                           <span className="text-gray-600 dark:text-gray-400">Sessions:</span>
+                           <span className="font-medium text-gray-800 dark:text-gray-200">{confirmationMessage.paymentDetails.sessions}</span>
+                         </div>
+                         <div className="flex justify-between">
+                           <span className="text-gray-600 dark:text-gray-400">Invoice #:</span>
+                           <span className="font-medium text-gray-800 dark:text-gray-200">{confirmationMessage.paymentDetails.invoiceNumber}</span>
+                         </div>
+                         <hr className="border-gray-200 dark:border-gray-700 my-3" />
+                         <div className="mb-2">
+                           <span className="text-gray-600 dark:text-gray-400 block mb-1">🏦 Bank Transfer:</span>
+                           <div className="text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 p-2 rounded border">
+                             <div>{confirmationMessage.paymentDetails.bankDetails}</div>
+                             <div className="mt-1">{confirmationMessage.paymentDetails.bankAddress}</div>
+                           </div>
+                         </div>
+                         <div>
+                           <span className="text-gray-600 dark:text-gray-400 block mb-1">💰 PayPal:</span>
+                           <div className="text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 p-2 rounded border">
+                             {confirmationMessage.paymentDetails.paypalEmail}
+                           </div>
+                         </div>
+                       </div>
+                     </div>
+                   )}
                    <button
                      onClick={() => setConfirmationMessage(null)}
                      className="w-full bg-pink-500 active:bg-pink-600 text-white font-medium py-3 px-4 rounded-lg transition-colors duration-150 will-change-transform touch-manipulation"
