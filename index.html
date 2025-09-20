@@ -489,7 +489,7 @@
         return hasGoals || hasIntake || hasMeals || hasHistory || hasCoachMessages || hasHabits || hasMealPlan || hasWorkoutPlan;
       };
 
-      const syncUserData = async (u) => {
+      const syncUserData = async (u, retryCount = 0) => {
         if (!supabase) {
           console.log('Supabase Database not available - data will be stored locally only');
           return;
@@ -649,6 +649,15 @@
         } catch (error) {
           if (error.code === 'PERMISSION_DENIED') {
             console.log('Realtime Database access denied - using local storage only');
+          } else if (error.message && error.message.includes('NetworkError')) {
+            console.log('🌐 Network error during sync - will retry on next user action');
+            // Retry logic for network errors
+            if (retryCount < 2) {
+              console.log(`🔄 Retrying sync (attempt ${retryCount + 1}/3)...`);
+              setTimeout(() => {
+                syncUserData(effectiveUser, retryCount + 1);
+              }, 2000 * (retryCount + 1)); // Exponential backoff
+            }
           } else {
             console.error('Error syncing user data:', error);
           }
@@ -2558,7 +2567,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         }
       };
 
-      const fetchBookingHistory = async () => {
+      const fetchBookingHistory = async (retryCount = 0) => {
         if (!user || !db) {
           console.log('User not authenticated or database not available');
           return;
@@ -2585,8 +2594,22 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
           }
         } catch (error) {
           console.error('Error fetching booking history:', error);
-          alert('❌ Error loading booking history. Please try again.');
+          
+          // Retry logic for network errors
+          if (retryCount < 2 && (error.message?.includes('NetworkError') || error.message?.includes('fetch'))) {
+            console.log(`🔄 Retrying booking history fetch (attempt ${retryCount + 1}/3)...`);
+            setTimeout(() => {
+              fetchBookingHistory(retryCount + 1);
+            }, 1000 * (retryCount + 1)); // Exponential backoff
+            return;
+          }
+          
+          // Only show error alert if all retries failed
+          if (retryCount >= 2) {
+            alert('❌ Error loading booking history. Please try again.');
+          }
         } finally {
+          // Always stop loading, regardless of retry count
           setIsLoadingBookings(false);
         }
       };
@@ -3751,6 +3774,92 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
               )}
               
               
+              {/* Test Sync Button - Only show when user is signed in */}
+              {user && (
+                <div className="space-y-2">
+                  <div className="space-y-2">
+                    <button 
+                      onClick={async () => {
+                        console.log('🧪 Testing manual upload...');
+                        try {
+                          // Force sync all current data to Supabase
+                          const allLocalData = {
+                            goals: JSON.parse(localStorage.getItem('goals') || '{}'),
+                            profile_picture: localStorage.getItem('profilePicture') || '',
+                            notifications_enabled: JSON.parse(localStorage.getItem('notificationsEnabled') || 'true'),
+                            daily_intake: JSON.parse(localStorage.getItem('dailyIntake') || '{}'),
+                            recent_meals: JSON.parse(localStorage.getItem('recentMeals') || '[]'),
+                            daily_history: JSON.parse(localStorage.getItem('dailyHistory') || '{}'),
+                            coach_messages: JSON.parse(localStorage.getItem('coachMessages') || '[]'),
+                            habit_ai_advice: localStorage.getItem('habitAIAdvice') || '',
+                            habits: JSON.parse(localStorage.getItem('habits') || '[]'),
+                            dark_mode: JSON.parse(localStorage.getItem('fitmate-dark-mode') || 'false'),
+                            meal_plan: JSON.parse(localStorage.getItem('mealPlan') || 'null'),
+                            workout_plan: JSON.parse(localStorage.getItem('workoutPlan') || 'null'),
+                            scan_result: JSON.parse(localStorage.getItem('scanResult') || 'null'),
+                            form_analysis: JSON.parse(localStorage.getItem('formAnalysis') || 'null'),
+                            updated_at: new Date().toISOString()
+                          };
+                          
+                          await db.updateUser(user.id, allLocalData);
+                          console.log('✅ Manual upload completed successfully!');
+                          alert('✅ Data uploaded successfully! Check another device to see if it appears.');
+                        } catch (error) {
+                          console.error('❌ Manual upload failed:', error);
+                          alert('❌ Upload failed: ' + error.message);
+                        }
+                      }}
+                      className="w-full text-left p-3 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900 text-blue-700 dark:text-blue-300 transition-colors flex items-center gap-2"
+                    >
+                      <span>📤</span>
+                      <span>Upload Data to Cloud</span>
+                    </button>
+                    
+                    <button 
+                      onClick={async () => {
+                        console.log('🧪 Testing manual download...');
+                        try {
+                          // Force download data from Supabase
+                          const userData = await db.getUser(user.id);
+                          if (userData) {
+                            // Update localStorage with remote data
+                            if (userData.goals) localStorage.setItem('goals', JSON.stringify(userData.goals));
+                            if (userData.profile_picture) localStorage.setItem('profilePicture', userData.profile_picture);
+                            if (userData.notifications_enabled !== undefined) localStorage.setItem('notificationsEnabled', JSON.stringify(userData.notifications_enabled));
+                            if (userData.daily_intake) localStorage.setItem('dailyIntake', JSON.stringify(userData.daily_intake));
+                            if (userData.recent_meals) localStorage.setItem('recentMeals', JSON.stringify(userData.recent_meals));
+                            if (userData.daily_history) localStorage.setItem('dailyHistory', JSON.stringify(userData.daily_history));
+                            if (userData.coach_messages) localStorage.setItem('coachMessages', JSON.stringify(userData.coach_messages));
+                            if (userData.habit_ai_advice) localStorage.setItem('habitAIAdvice', userData.habit_ai_advice);
+                            if (userData.habits) localStorage.setItem('habits', JSON.stringify(userData.habits));
+                            if (userData.dark_mode !== undefined) localStorage.setItem('fitmate-dark-mode', userData.dark_mode.toString());
+                            if (userData.meal_plan) localStorage.setItem('mealPlan', JSON.stringify(userData.meal_plan));
+                            if (userData.workout_plan) localStorage.setItem('workoutPlan', JSON.stringify(userData.workout_plan));
+                            if (userData.scan_result) localStorage.setItem('scanResult', JSON.stringify(userData.scan_result));
+                            if (userData.form_analysis) localStorage.setItem('formAnalysis', JSON.stringify(userData.form_analysis));
+                            
+                            // Trigger React state update
+                            window.dispatchEvent(new CustomEvent('userDataSynced'));
+                            
+                            console.log('✅ Manual download completed successfully!');
+                            alert('✅ Data downloaded successfully! Check if your data updated.');
+                          } else {
+                            alert('❌ No data found in cloud.');
+                          }
+                        } catch (error) {
+                          console.error('❌ Manual download failed:', error);
+                          alert('❌ Download failed: ' + error.message);
+                        }
+                      }}
+                      className="w-full text-left p-3 rounded-lg hover:bg-green-100 dark:hover:bg-green-900 text-green-700 dark:text-green-300 transition-colors flex items-center gap-2"
+                    >
+                      <span>📥</span>
+                      <span>Download Data from Cloud</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Updated Notifications with toggle */}
               <div className="flex justify-between items-center p-3">
                 <span className="text-gray-700 dark:text-gray-300">Notifications</span>
