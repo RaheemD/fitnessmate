@@ -13,11 +13,8 @@
     }
   </script>
   
-  <!-- Firebase SDK -->
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+  <!-- Supabase SDK -->
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   
   <!-- Custom Booking System - No longer using Calendly -->
   
@@ -142,40 +139,33 @@
       };
     }
 
-    // Firebase Configuration with obfuscated API key
-    const getFirebaseConfig = () => {
-      const keyParts = [
-        'QUl6YVN5RHVEWWJncnY0WTdrUU90bWdzX1VraVFPUXJ6aFdOanJZ', // AIzaSyDuDYbgrv4Y7kQOtmgs_UkiQOQrzhWNjrY
-      ];
+    // Supabase Configuration
+    const getSupabaseConfig = () => {
+      // Replace these with your actual Supabase project URL and anon key
       return {
-        apiKey: atob(keyParts[0]),
-        authDomain: "fitnessmate-ba739.firebaseapp.com",
-        databaseURL: "https://fitnessmate-ba739-default-rtdb.europe-west1.firebasedatabase.app",
-        projectId: "fitnessmate-ba739",
-        storageBucket: "fitnessmate-ba739.firebasestorage.app",
-        messagingSenderId: "1023464958187",
-        appId: "1:1023464958187:web:256a30e06441d54d3236ae",
-        measurementId: "G-JLMLLTTY43"
+        url: 'https://bhtabgrcxaahkuwrdwec.supabase.co',
+        anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJodGFiZ3JjeGFhaGt1d3Jkd2VjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgzNzc1MjMsImV4cCI6MjA3Mzk1MzUyM30._Cydy4B6QMF353OG8jnhK7juWgz2j4RirATIfCgAflQ'
       };
     };
-    
-    const firebaseConfig = getFirebaseConfig();
 
-    // Initialize Firebase
-    let app, auth, db, storage;
+    const supabaseConfig = getSupabaseConfig();
+
+    // Initialize Supabase
+    let supabase, auth, currentUser = null;
     try {
-      app = firebase.initializeApp(firebaseConfig);
-      auth = firebase.auth();
-      db = firebase.database(); // Using Realtime Database
-      storage = firebase.storage(); // Add if you need file uploads
+      const { createClient } = window.supabase;
+      supabase = createClient(supabaseConfig.url, supabaseConfig.anonKey);
+      auth = supabase.auth;
+      
+      // Auth state change listener will be set up inside React component
     } catch (error) {
-      console.log('Firebase not configured yet:', error.message);
+      console.log('Supabase not configured yet:', error.message);
       // Show user-friendly error message
       setTimeout(() => {
         const errorDiv = document.createElement('div');
         errorDiv.innerHTML = `
           <div style="position: fixed; top: 20px; left: 20px; right: 20px; background: #fee; border: 1px solid #fcc; color: #c33; padding: 15px; border-radius: 8px; z-index: 9999; font-family: Arial, sans-serif;">
-            <strong>⚠️ Firebase Connection Issue:</strong><br>
+            <strong>⚠️ Supabase Connection Issue:</strong><br>
             The app is running in offline mode. Some features may be limited.<br>
             <small>Error: ${error.message}</small>
           </div>
@@ -184,6 +174,198 @@
         setTimeout(() => errorDiv.remove(), 10000);
       }, 1000);
     }
+
+    // Database helper functions for Supabase
+    const db = {
+      // Helper function to clean and validate user data
+      cleanUserData(data) {
+        const cleaned = {};
+        
+        for (const [key, value] of Object.entries(data)) {
+          // Skip null or undefined values
+          if (value === null || value === undefined) {
+            continue;
+          }
+          
+          // Handle different data types
+          if (typeof value === 'string') {
+            // Ensure strings are not empty unless they should be
+            if (value.trim() !== '' || ['profile_picture', 'habit_ai_advice'].includes(key)) {
+              cleaned[key] = value;
+            }
+          } else if (typeof value === 'boolean') {
+            cleaned[key] = value;
+          } else if (typeof value === 'number') {
+            cleaned[key] = value;
+          } else if (typeof value === 'object') {
+            // For JSONB fields, ensure they're valid JSON
+            try {
+              if (Array.isArray(value) || (value && typeof value === 'object')) {
+                cleaned[key] = value;
+              }
+            } catch (e) {
+              console.warn(`Skipping invalid JSON data for field ${key}:`, e);
+            }
+          }
+        }
+        
+        return cleaned;
+      },
+      // User operations
+      async createUser(userId, userData) {
+        const { data, error } = await supabase
+          .from('users')
+          .insert([{ id: userId, ...userData }]);
+        if (error) throw error;
+        return data;
+      },
+
+      async getUser(userId) {
+        const { data, error } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', userId)
+          .single();
+        if (error && error.code !== 'PGRST116') throw error; // PGRST116 = not found
+        return data;
+      },
+
+      async updateUser(userId, updates) {
+        // Validate user ID
+        if (!userId || typeof userId !== 'string') {
+          throw new Error('Invalid user ID provided to updateUser');
+        }
+        
+        // Ensure updated_at is always set to current timestamp
+        const updateData = { ...updates };
+        if (!updateData.updated_at) {
+          updateData.updated_at = new Date().toISOString();
+        }
+        
+        // Validate and clean data before sending to Supabase
+        const cleanedData = this.cleanUserData(updateData);
+        
+        // Don't update if no valid data to update
+        if (Object.keys(cleanedData).length === 0) {
+          console.log('No valid data to update, skipping');
+          return [];
+        }
+        
+        console.log('Updating user data:', { userId, cleanedData });
+        
+        const { data, error } = await supabase
+          .from('users')
+          .update(cleanedData)
+          .eq('id', userId);
+        if (error) {
+          console.error('Supabase update error:', error);
+          throw error;
+        }
+        return data;
+      },
+
+      async upsertUser(userId, userData) {
+        // Validate user ID
+        if (!userId || typeof userId !== 'string') {
+          throw new Error('Invalid user ID provided to upsertUser');
+        }
+        
+        // Ensure updated_at is always set to current timestamp
+        const upsertData = { id: userId, ...userData };
+        if (!upsertData.updated_at) {
+          upsertData.updated_at = new Date().toISOString();
+        }
+        
+        // Validate and clean data before sending to Supabase
+        const cleanedData = this.cleanUserData(upsertData);
+        
+        console.log('Upserting user data:', { userId, cleanedData });
+        
+        const { data, error } = await supabase
+          .from('users')
+          .upsert([cleanedData]);
+        if (error) {
+          console.error('Supabase upsert error:', error);
+          throw error;
+        }
+        return data;
+      },
+
+      // Workout history operations
+      async addWorkoutHistory(userId, workoutData) {
+        const { data, error } = await supabase
+          .from('workout_history')
+          .insert([{ user_id: userId, ...workoutData }]);
+        if (error) throw error;
+        return data;
+      },
+
+      // Booking operations
+      async addBooking(userId, bookingData) {
+        const { data, error } = await supabase
+          .from('bookings')
+          .insert([{ user_id: userId, ...bookingData }]);
+        if (error) throw error;
+        return data;
+      },
+
+      async getBookings(userId) {
+        const { data, error } = await supabase
+          .from('bookings')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        return data || [];
+      },
+
+      async getGlobalBookings(date) {
+        const { data, error } = await supabase
+          .from('bookings')
+          .select('date, time, status')
+          .eq('date', date);
+        if (error) throw error;
+        return data || [];
+      },
+
+      // General query operations
+      async query(table, options = {}) {
+        let query = supabase.from(table).select(options.select || '*');
+        
+        if (options.eq) {
+          for (const [column, value] of Object.entries(options.eq)) {
+            query = query.eq(column, value);
+          }
+        }
+        
+        if (options.order) {
+          query = query.order(options.order.column, { ascending: options.order.ascending !== false });
+        }
+        
+        if (options.limit) {
+          query = query.limit(options.limit);
+        }
+        
+        const { data, error } = await query;
+        if (error) throw error;
+        return data || [];
+      },
+
+      // Real-time subscriptions (similar to Firebase's .on())
+      subscribe(table, callback, options = {}) {
+        let subscription = supabase
+          .channel(`${table}_changes`)
+          .on('postgres_changes', { 
+            event: '*', 
+            schema: 'public', 
+            table: table,
+            ...options 
+          }, callback);
+        
+        subscription.subscribe();
+        return subscription;
+      }
+    };
 
     // Authentication Context
     const AuthContext = React.createContext();
@@ -199,74 +381,105 @@
           return;
         }
 
-        const unsubscribe = auth.onAuthStateChanged((user) => {
-          setUser(user);
+        // Get initial session
+        auth.getSession().then(({ data: { session } }) => {
+          setUser(session?.user || null);
           setLoading(false);
-          if (user) {
+          if (session?.user) {
             // Sync user data when authenticated
-            syncUserData(user);
+            syncUserData(session.user);
           }
         });
 
-        return () => unsubscribe();
-      }, []);
+        // Listen for auth state changes
+        const { data: { subscription } } = auth.onAuthStateChange((event, session) => {
+          const currentUser = session?.user || null;
+          setUser(currentUser);
+          setLoading(false);
+          
+          if (currentUser) {
+            console.log('User signed in:', currentUser.id);
+            // Sync user data when authenticated
+            syncUserData(currentUser);
+          } else {
+            console.log('User signed out');
+          }
+        });
+
+        return () => {
+          subscription?.unsubscribe();
+        };
+      }, [auth]);
 
       const createInitialUserDocument = async (user) => {
-        if (!db) return;
+        if (!supabase) return;
         
         try {
-          await db.ref(`users/${user.uid}`).set({
+          // Ensure we have a valid session before creating user document
+          const { data: { session } } = await auth.getSession();
+          if (!session?.user) {
+            console.log('⏳ No valid session found, skipping user document creation');
+            return;
+          }
+          
+          await db.upsertUser(user.id, {
             // Basic user info
-            displayName: user.displayName || 'User',
+            display_name: user.user_metadata?.display_name || user.email?.split('@')[0] || 'User',
             email: user.email,
-            createdAt: firebase.database.ServerValue.TIMESTAMP,
-            updatedAt: firebase.database.ServerValue.TIMESTAMP,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
             
             // Profile data
             goals: JSON.parse(localStorage.getItem('goals') || '{}'),
-            profilePicture: localStorage.getItem('profilePicture') || '',
-            notificationsEnabled: JSON.parse(localStorage.getItem('notificationsEnabled') || 'true'),
-            darkMode: JSON.parse(localStorage.getItem('fitmate-dark-mode') || 'false'),
+            profile_picture: localStorage.getItem('profilePicture') || '',
+            notifications_enabled: JSON.parse(localStorage.getItem('notificationsEnabled') || 'true'),
+            dark_mode: JSON.parse(localStorage.getItem('fitmate-dark-mode') || 'false'),
             
             // Fitness data
-            dailyIntake: JSON.parse(localStorage.getItem('dailyIntake') || '{"calories":0,"protein":0,"carbs":0,"fat":0,"activity":0,"water":0}'),
-            recentMeals: JSON.parse(localStorage.getItem('recentMeals') || '[]'),
-            dailyHistory: JSON.parse(localStorage.getItem('dailyHistory') || '{}'),
+            daily_intake: JSON.parse(localStorage.getItem('dailyIntake') || '{"calories":0,"protein":0,"carbs":0,"fat":0,"activity":0,"water":0}'),
+            recent_meals: JSON.parse(localStorage.getItem('recentMeals') || '[]'),
+            daily_history: JSON.parse(localStorage.getItem('dailyHistory') || '{}'),
             
             // AI and coaching data
-            coachMessages: JSON.parse(localStorage.getItem('coachMessages') || '[{"text":"Hello! I\'m your AI Health Coach. Ask me anything about your nutrition or meals.","sender":"ai"}]'),
-            habitAIAdvice: localStorage.getItem('habitAIAdvice') || '',
+            coach_messages: JSON.parse(localStorage.getItem('coachMessages') || '[{"text":"Hello! I\'m your AI Health Coach. Ask me anything about your nutrition or meals.","sender":"ai"}]'),
+            habit_ai_advice: localStorage.getItem('habitAIAdvice') || '',
             habits: JSON.parse(localStorage.getItem('habits') || '[]'),
             
             // AI-generated content
-            mealPlan: JSON.parse(localStorage.getItem('mealPlan') || 'null'),
-            workoutPlan: JSON.parse(localStorage.getItem('workoutPlan') || 'null'),
-            scanResult: JSON.parse(localStorage.getItem('scanResult') || 'null'),
-            formAnalysis: JSON.parse(localStorage.getItem('formAnalysis') || 'null')
+            meal_plan: JSON.parse(localStorage.getItem('mealPlan') || 'null'),
+            workout_plan: JSON.parse(localStorage.getItem('workoutPlan') || 'null'),
+            // workout_history: JSON.parse(localStorage.getItem('workoutHistory') || '[]'), // Removed - using separate table
+            scan_result: JSON.parse(localStorage.getItem('scanResult') || 'null'),
+            form_analysis: JSON.parse(localStorage.getItem('formAnalysis') || 'null')
           });
-          console.log('✅ Comprehensive user document created in Realtime Database');
+          console.log('✅ Comprehensive user document created in Supabase Database');
         } catch (error) {
           console.error('Error creating initial user document:', error);
+          console.error('Error details:', {
+            message: error.message,
+            code: error.code,
+            details: error.details,
+            hint: error.hint
+          });
         }
       };
 
       const syncUserData = async (u) => {
-        if (!db) {
-          console.log('Realtime Database not available - data will be stored locally only');
+        if (!supabase) {
+          console.log('Supabase Database not available - data will be stored locally only');
           return;
         }
-        const effectiveUser = u || (auth && auth.currentUser) || user;
-        if (!effectiveUser || !effectiveUser.uid) {
+        const effectiveUser = u || currentUser || user;
+        if (!effectiveUser || !effectiveUser.id) {
           console.log('No authenticated user found for sync; skipping.');
           return;
         }
         
         try {
-          const userSnapshot = await db.ref(`users/${effectiveUser.uid}`).once('value');
-          if (userSnapshot.exists()) {
-            const userData = userSnapshot.val();
+          const userData = await db.getUser(effectiveUser.id);
+          if (userData) {
             const localLastSync = localStorage.getItem('lastSyncTimestamp');
-            const remoteLastSync = userData.updatedAt;
+            const remoteLastSync = userData.updated_at;
             
             console.log('🔄 Intelligent sync - comparing timestamps...');
             console.log('Local last sync:', localLastSync);
@@ -280,31 +493,26 @@
               
               // Sync all user data to localStorage
               if (userData.goals) localStorage.setItem('goals', JSON.stringify(userData.goals));
-              if (userData.profilePicture) localStorage.setItem('profilePicture', userData.profilePicture);
-              if (userData.notificationsEnabled !== undefined) {
-                localStorage.setItem('notificationsEnabled', JSON.stringify(userData.notificationsEnabled));
+              if (userData.profile_picture) localStorage.setItem('profilePicture', userData.profile_picture);
+              if (userData.notifications_enabled !== undefined) {
+                localStorage.setItem('notificationsEnabled', JSON.stringify(userData.notifications_enabled));
               }
               
               // Sync additional user data
-              if (userData.dailyIntake) localStorage.setItem('dailyIntake', JSON.stringify(userData.dailyIntake));
-              if (userData.recentMeals) localStorage.setItem('recentMeals', JSON.stringify(userData.recentMeals));
-              if (userData.dailyHistory) localStorage.setItem('dailyHistory', JSON.stringify(userData.dailyHistory));
-              if (userData.coachMessages) localStorage.setItem('coachMessages', JSON.stringify(userData.coachMessages));
-              if (userData.habitAIAdvice) localStorage.setItem('habitAIAdvice', userData.habitAIAdvice);
+              if (userData.daily_intake) localStorage.setItem('dailyIntake', JSON.stringify(userData.daily_intake));
+              if (userData.recent_meals) localStorage.setItem('recentMeals', JSON.stringify(userData.recent_meals));
+              if (userData.daily_history) localStorage.setItem('dailyHistory', JSON.stringify(userData.daily_history));
+              if (userData.coach_messages) localStorage.setItem('coachMessages', JSON.stringify(userData.coach_messages));
+              if (userData.habit_ai_advice) localStorage.setItem('habitAIAdvice', userData.habit_ai_advice);
               if (userData.habits) localStorage.setItem('habits', JSON.stringify(userData.habits));
-              if (userData.darkMode !== undefined) localStorage.setItem('fitmate-dark-mode', userData.darkMode.toString());
+              if (userData.dark_mode !== undefined) localStorage.setItem('fitmate-dark-mode', userData.dark_mode.toString());
               
               // Sync AI-generated content
-              if (userData.mealPlan) localStorage.setItem('mealPlan', JSON.stringify(userData.mealPlan));
-              if (userData.workoutPlan) localStorage.setItem('workoutPlan', JSON.stringify(userData.workoutPlan));
-              if (userData.workoutHistory) {
-                const wh = userData.workoutHistory;
-                const whArray = Array.isArray(wh) ? wh : (wh && typeof wh === 'object' ? Object.values(wh) : []);
-                try { whArray.sort((a,b) => new Date(a.timestamp) - new Date(b.timestamp)); } catch (e) {}
-                localStorage.setItem('workoutHistory', JSON.stringify(whArray));
-              }
-              if (userData.scanResult) localStorage.setItem('scanResult', JSON.stringify(userData.scanResult));
-              if (userData.formAnalysis) localStorage.setItem('formAnalysis', JSON.stringify(userData.formAnalysis));
+              if (userData.meal_plan) localStorage.setItem('mealPlan', JSON.stringify(userData.meal_plan));
+              if (userData.workout_plan) localStorage.setItem('workoutPlan', JSON.stringify(userData.workout_plan));
+            // workout_history is handled by separate table, not synced here
+              if (userData.scan_result) localStorage.setItem('scanResult', JSON.stringify(userData.scan_result));
+              if (userData.form_analysis) localStorage.setItem('formAnalysis', JSON.stringify(userData.form_analysis));
               
               // Update local sync timestamp
               localStorage.setItem('lastSyncTimestamp', remoteLastSync.toString());
@@ -316,7 +524,7 @@
             } else {
               console.log('📤 Local data is newer, syncing to remote');
               // Push local data to remote if it's newer
-              await syncAllDataToRTDB();
+              await syncAllDataToSupabase();
             }
           } else {
             console.log('No user document found, creating new one');
@@ -333,7 +541,7 @@
       };
 
       const signUp = async (email, password, displayName) => {
-        if (!auth) throw new Error('Firebase Authentication not available');
+        if (!auth) throw new Error('Supabase Authentication not available');
         
         setAuthError(null);
         
@@ -345,39 +553,57 @@
         }
         
         try {
-          const result = await auth.createUserWithEmailAndPassword(email, password);
-          await result.user.updateProfile({ displayName });
-          
-          // Create user document in Realtime Database (if available)
-          if (db) {
-            try {
-              await db.ref(`users/${result.user.uid}`).set({
-                displayName,
-                email,
-                createdAt: firebase.database.ServerValue.TIMESTAMP,
-                goals: JSON.parse(localStorage.getItem('goals') || '{}'),
-                profilePicture: localStorage.getItem('profilePicture') || '',
-                notificationsEnabled: JSON.parse(localStorage.getItem('notificationsEnabled') || 'true')
-              });
-              console.log('✅ User document created in Realtime Database');
-            } catch (dbError) {
-              console.warn('⚠️ Could not create user document in Realtime Database:', dbError.message);
-              // Continue without Realtime Database - user can still use the app
+          const { data, error } = await auth.signUp({
+            email,
+            password,
+            options: {
+              data: {
+                display_name: displayName
+              }
             }
-          } else {
-            console.log('📱 Account created successfully (local mode)');
-          }
+          });
           
-          return result.user;
+          if (error) throw error;
+          
+          // Wait a moment for the user to be fully authenticated
+          setTimeout(async () => {
+            if (supabase && data.user) {
+              try {
+                // Ensure we have a valid session before creating user document
+                const { data: { session } } = await auth.getSession();
+                if (session?.user) {
+                  await db.upsertUser(data.user.id, {
+                    display_name: displayName,
+                    email,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    goals: JSON.parse(localStorage.getItem('goals') || '{}'),
+                    profile_picture: localStorage.getItem('profilePicture') || '',
+                    notifications_enabled: JSON.parse(localStorage.getItem('notificationsEnabled') || 'true')
+                  });
+                  console.log('✅ User document created in Supabase Database');
+                } else {
+                  console.log('⏳ User not fully authenticated yet, will retry later');
+                }
+              } catch (dbError) {
+                console.warn('⚠️ Could not create user document in Supabase Database:', dbError.message);
+                // Continue without Database - user can still use the app
+              }
+            } else {
+              console.log('📱 Account created successfully (local mode)');
+            }
+          }, 1000); // Wait 1 second for authentication to complete
+          
+          return data.user;
         } catch (error) {
           let friendlyMessage = error.message;
           
           // Provide user-friendly error messages
-          if (error.code === 'auth/email-already-in-use') {
+          if (error.message?.includes('already registered')) {
             friendlyMessage = 'This email is already registered. Try signing in instead.';
-          } else if (error.code === 'auth/weak-password') {
+          } else if (error.message?.includes('Password should be at least')) {
             friendlyMessage = 'Password is too weak. Please use at least 6 characters.';
-          } else if (error.code === 'auth/invalid-email') {
+          } else if (error.message?.includes('Invalid email')) {
             friendlyMessage = 'Please enter a valid email address.';
           }
           
@@ -387,24 +613,30 @@
       };
 
       const signIn = async (email, password) => {
-        if (!auth) throw new Error('Firebase Authentication not available');
+        if (!auth) throw new Error('Supabase Authentication not available');
         
         setAuthError(null);
         try {
-          const result = await auth.signInWithEmailAndPassword(email, password);
+          const { data, error } = await auth.signInWithPassword({
+            email,
+            password
+          });
+          
+          if (error) throw error;
+          
           console.log('✅ User signed in successfully');
-          return result.user;
+          return data.user;
         } catch (error) {
           let friendlyMessage = error.message;
           
           // Provide user-friendly error messages
-          if (error.code === 'auth/user-not-found') {
-            friendlyMessage = 'No account found with this email. Please sign up first.';
-          } else if (error.code === 'auth/wrong-password') {
-            friendlyMessage = 'Incorrect password. Please try again.';
-          } else if (error.code === 'auth/invalid-email') {
+          if (error.message?.includes('Invalid login credentials')) {
+            friendlyMessage = 'Invalid email or password. Please check your credentials and try again.';
+          } else if (error.message?.includes('Email not confirmed')) {
+            friendlyMessage = 'Please check your email and confirm your account before signing in.';
+          } else if (error.message?.includes('Invalid email')) {
             friendlyMessage = 'Please enter a valid email address.';
-          } else if (error.code === 'auth/too-many-requests') {
+          } else if (error.message?.includes('Too many requests')) {
             friendlyMessage = 'Too many failed attempts. Please try again later.';
           }
           
@@ -417,7 +649,8 @@
         if (!auth) return;
         
         try {
-          await auth.signOut();
+          const { error } = await auth.signOut();
+          if (error) throw error;
         } catch (error) {
           setAuthError(error.message);
           throw error;
@@ -425,18 +658,19 @@
       };
 
       const resetPassword = async (email) => {
-        if (!auth) throw new Error('Firebase Authentication not available');
+        if (!auth) throw new Error('Supabase Authentication not available');
         
         setAuthError(null);
         try {
-          await auth.sendPasswordResetEmail(email);
+          const { error } = await auth.resetPasswordForEmail(email);
+          if (error) throw error;
           return true;
         } catch (error) {
           let friendlyMessage = error.message;
           
-          if (error.code === 'auth/user-not-found') {
+          if (error.message?.includes('User not found')) {
             friendlyMessage = 'No account found with this email address.';
-          } else if (error.code === 'auth/invalid-email') {
+          } else if (error.message?.includes('Invalid email')) {
             friendlyMessage = 'Please enter a valid email address.';
           }
           
@@ -483,30 +717,28 @@
           return;
         }
         
-        if (!db) {
-          console.log('Realtime Database not available, data saved locally only');
+        if (!supabase) {
+          console.log('Supabase Database not available, data saved locally only');
           return;
         }
         
         try {
-          const currentTimestamp = Date.now();
+          const currentTimestamp = new Date().toISOString();
 
           // Build payload and guard against overwriting valid remote intake with local defaults on fresh devices
           let payload = { ...data };
-          if (payload && typeof payload === 'object' && 'dailyIntake' in payload) {
-            const localIntake = payload.dailyIntake || {};
+          if (payload && typeof payload === 'object' && 'daily_intake' in payload) {
+            const localIntake = payload.daily_intake || {};
             const isLocalDefault = Object.values(localIntake).every(v => Number(v) === 0);
             const localSyncTs = parseInt(localStorage.getItem('lastSyncTimestamp') || '0');
             try {
-              const snap = await db.ref(`users/${user.uid}`).once('value');
-              const remote = snap.exists() ? snap.val() : {};
-              const remoteIntake = remote.dailyIntake || {};
+              const remote = await db.getUser(user.id);
+              const remoteIntake = remote?.daily_intake || {};
               const remoteHasNonZero = Object.values(remoteIntake).some(v => Number(v) > 0);
-              if (localSyncTs === 0 && isLocalDefault && remoteHasNonZero) {
-                // Skip overwriting remote with zeros; also avoid bumping timestamps for intake
-                delete payload.dailyIntake;
-                if ('lastIntakeUpdate' in payload) delete payload.lastIntakeUpdate;
-              }
+                if (localSyncTs === 0 && isLocalDefault && remoteHasNonZero) {
+                  // Skip overwriting remote with zeros
+                  delete payload.daily_intake;
+                }
             } catch (cmpErr) {
               console.warn('Safe-guard compare failed, proceeding:', cmpErr);
             }
@@ -517,37 +749,41 @@
             return;
           }
 
-          await db.ref(`users/${user.uid}`).update({
+          await db.updateUser(user.id, {
             ...payload,
-            updatedAt: currentTimestamp
+            updated_at: new Date().toISOString()
           });
           
           // Update local sync timestamp
-          localStorage.setItem('lastSyncTimestamp', currentTimestamp.toString());
+          localStorage.setItem('lastSyncTimestamp', Date.now().toString());
           
-          console.log('✅ User data updated in Realtime Database with timestamp:', currentTimestamp);
+          console.log('✅ User data updated in Supabase Database with timestamp:', currentTimestamp);
         } catch (error) {
           console.error('Error updating user data:', error);
+          console.error('Error details:', {
+            message: error.message,
+            code: error.code,
+            details: error.details,
+            hint: error.hint
+          });
           
-          // For Realtime Database, if user doesn't exist, create initial document
+          // For Supabase Database, if user doesn't exist, create initial document
           try {
             await createInitialUserDocument(user);
             // Then update with the new data
             const currentTimestamp = Date.now();
 
             let payload = { ...data };
-            if (payload && typeof payload === 'object' && 'dailyIntake' in payload) {
-              const localIntake = payload.dailyIntake || {};
+            if (payload && typeof payload === 'object' && 'daily_intake' in payload) {
+              const localIntake = payload.daily_intake || {};
               const isLocalDefault = Object.values(localIntake).every(v => Number(v) === 0);
               const localSyncTs = parseInt(localStorage.getItem('lastSyncTimestamp') || '0');
               try {
-                const snap = await db.ref(`users/${user.uid}`).once('value');
-                const remote = snap.exists() ? snap.val() : {};
-                const remoteIntake = remote.dailyIntake || {};
+                const remote = await db.getUser(user.id);
+                const remoteIntake = remote?.daily_intake || {};
                 const remoteHasNonZero = Object.values(remoteIntake).some(v => Number(v) > 0);
                 if (localSyncTs === 0 && isLocalDefault && remoteHasNonZero) {
-                  delete payload.dailyIntake;
-                  if ('lastIntakeUpdate' in payload) delete payload.lastIntakeUpdate;
+                  delete payload.daily_intake;
                 }
               } catch (cmpErr) {
                 console.warn('Safe-guard compare failed, proceeding:', cmpErr);
@@ -559,9 +795,9 @@
               return;
             }
 
-            await db.ref(`users/${user.uid}`).update({
+            await db.updateUser(user.id, {
               ...payload,
-              updatedAt: currentTimestamp
+              updated_at: new Date().toISOString()
             });
             localStorage.setItem('lastSyncTimestamp', currentTimestamp.toString());
             console.log('✅ User document created and updated');
@@ -758,110 +994,99 @@
         window.__fitmateLSUsageInterval = setInterval(checkLocalStorageUsage, 300000); // every 5 minutes
       }
 
-      // Real-time listener for cross-device sync
+      // Real-time listener for cross-device sync (using Supabase subscriptions)
       React.useEffect(() => {
-        if (!user || !db) return;
+        if (!user || !supabase) return;
         
-        console.log('🔗 Setting up real-time sync listener for user:', user.uid);
+        console.log('🔗 Setting up real-time sync listener for user:', user.id);
         
-        const userRef = db.ref(`users/${user.uid}`);
-        
-        const handleDataChange = (snapshot) => {
-          if (!snapshot.exists()) return;
-          
-          const remoteData = snapshot.val();
-          const remoteTimestamp = remoteData.updatedAt || 0;
-          const localTimestamp = parseInt(localStorage.getItem('lastSyncTimestamp') || '0');
-          
-          // Only sync if remote data is newer than local
-          if (remoteTimestamp > localTimestamp) {
-            console.log('🔄 Real-time sync: Remote data is newer, updating local data');
+        const subscription = db.subscribe('users', (payload) => {
+          if (payload.new && payload.new.id === user.id) {
+            const remoteData = payload.new;
+            const remoteTimestamp = remoteData.updated_at ? new Date(remoteData.updated_at).getTime() : 0;
+            const localTimestamp = parseInt(localStorage.getItem('lastSyncTimestamp') || '0');
             
-            // Update localStorage silently (without triggering auto-sync)
-            if (remoteData.goals) localStorage.setItem('goals', JSON.stringify(remoteData.goals));
-            if (remoteData.profilePicture) localStorage.setItem('profilePicture', remoteData.profilePicture);
-            if (remoteData.notificationsEnabled !== undefined) localStorage.setItem('notificationsEnabled', JSON.stringify(remoteData.notificationsEnabled));
-            if (remoteData.darkMode !== undefined) localStorage.setItem('fitmate-dark-mode', remoteData.darkMode.toString());
-            if (remoteData.dailyIntake) localStorage.setItem('dailyIntake', JSON.stringify(remoteData.dailyIntake));
-            if (remoteData.recentMeals) localStorage.setItem('recentMeals', JSON.stringify(remoteData.recentMeals));
-            if (remoteData.dailyHistory) localStorage.setItem('dailyHistory', JSON.stringify(remoteData.dailyHistory));
-            if (remoteData.coachMessages) localStorage.setItem('coachMessages', JSON.stringify(remoteData.coachMessages));
-            if (remoteData.habitAIAdvice) localStorage.setItem('habitAIAdvice', remoteData.habitAIAdvice);
-            if (remoteData.habits) localStorage.setItem('habits', JSON.stringify(remoteData.habits));
-            if (remoteData.mealPlan) localStorage.setItem('mealPlan', JSON.stringify(remoteData.mealPlan));
-            if (remoteData.workoutPlan) localStorage.setItem('workoutPlan', JSON.stringify(remoteData.workoutPlan));
-            if (remoteData.workoutHistory) {
-              const wh = remoteData.workoutHistory;
-              const whArray = Array.isArray(wh) ? wh : (wh && typeof wh === 'object' ? Object.values(wh) : []);
-              try { whArray.sort((a,b) => new Date(a.timestamp) - new Date(b.timestamp)); } catch (e) {}
-              localStorage.setItem('workoutHistory', JSON.stringify(whArray));
+            // Only sync if remote data is newer than local
+            if (remoteTimestamp > localTimestamp) {
+              console.log('🔄 Real-time sync: Remote data is newer, updating local data');
+              
+              // Update localStorage silently (without triggering auto-sync)
+              if (remoteData.goals) localStorage.setItem('goals', JSON.stringify(remoteData.goals));
+              if (remoteData.profile_picture) localStorage.setItem('profilePicture', remoteData.profile_picture);
+              if (remoteData.notifications_enabled !== undefined) localStorage.setItem('notificationsEnabled', JSON.stringify(remoteData.notifications_enabled));
+              if (remoteData.dark_mode !== undefined) localStorage.setItem('fitmate-dark-mode', remoteData.dark_mode.toString());
+              if (remoteData.daily_intake) localStorage.setItem('dailyIntake', JSON.stringify(remoteData.daily_intake));
+              if (remoteData.recent_meals) localStorage.setItem('recentMeals', JSON.stringify(remoteData.recent_meals));
+              if (remoteData.daily_history) localStorage.setItem('dailyHistory', JSON.stringify(remoteData.daily_history));
+              if (remoteData.coach_messages) localStorage.setItem('coachMessages', JSON.stringify(remoteData.coach_messages));
+              if (remoteData.habit_ai_advice) localStorage.setItem('habitAIAdvice', remoteData.habit_ai_advice);
+              if (remoteData.habits) localStorage.setItem('habits', JSON.stringify(remoteData.habits));
+              if (remoteData.meal_plan) localStorage.setItem('mealPlan', JSON.stringify(remoteData.meal_plan));
+              if (remoteData.workout_plan) localStorage.setItem('workoutPlan', JSON.stringify(remoteData.workout_plan));
+              // workout_history is handled by separate table, not synced here
+              if (remoteData.scan_result) localStorage.setItem('scanResult', JSON.stringify(remoteData.scan_result));
+              if (remoteData.form_analysis) localStorage.setItem('formAnalysis', JSON.stringify(remoteData.form_analysis));
+              
+              // Update local sync timestamp
+              localStorage.setItem('lastSyncTimestamp', remoteTimestamp.toString());
+              
+              // Dispatch event to update React components
+              window.dispatchEvent(new CustomEvent('userDataSynced'));
+              
+              console.log('✅ Real-time sync completed');
             }
-            if (remoteData.scanResult) localStorage.setItem('scanResult', JSON.stringify(remoteData.scanResult));
-            if (remoteData.formAnalysis) localStorage.setItem('formAnalysis', JSON.stringify(remoteData.formAnalysis));
-            
-            // Update local sync timestamp
-            localStorage.setItem('lastSyncTimestamp', remoteTimestamp.toString());
-            
-            // Dispatch event to update React components
-            window.dispatchEvent(new CustomEvent('userDataSynced'));
-            
-            console.log('✅ Real-time sync completed');
           }
-        };
+        }, { filter: `id=eq.${user.id}` });
         
-        // Listen for data changes
-        userRef.on('value', handleDataChange);
-        
-        // Cleanup listener on unmount or user change
+        // Cleanup subscription on unmount or user change
         return () => {
           console.log('🔌 Removing real-time sync listener');
-          userRef.off('value', handleDataChange);
+          subscription.unsubscribe();
         };
-      }, [user, db]);
+      }, [user, supabase]);
 
-      const syncAllDataToRTDB = async () => {
-        if (!user || !db) return;
+      const syncAllDataToSupabase = async () => {
+        if (!user || !supabase) return;
         
         try {
-          const currentTimestamp = Date.now();
+          const currentTimestamp = new Date().toISOString();
           const allLocalData = {
             goals: JSON.parse(localStorage.getItem('goals') || '{}'),
-            profilePicture: localStorage.getItem('profilePicture') || '',
-            notificationsEnabled: JSON.parse(localStorage.getItem('notificationsEnabled') || 'true'),
-            dailyIntake: JSON.parse(localStorage.getItem('dailyIntake') || '{}'),
-            recentMeals: JSON.parse(localStorage.getItem('recentMeals') || '[]'),
-            dailyHistory: JSON.parse(localStorage.getItem('dailyHistory') || '{}'),
-            coachMessages: JSON.parse(localStorage.getItem('coachMessages') || '[]'),
-            habitAIAdvice: localStorage.getItem('habitAIAdvice') || '',
+            profile_picture: localStorage.getItem('profilePicture') || '',
+            notifications_enabled: JSON.parse(localStorage.getItem('notificationsEnabled') || 'true'),
+            daily_intake: JSON.parse(localStorage.getItem('dailyIntake') || '{}'),
+            recent_meals: JSON.parse(localStorage.getItem('recentMeals') || '[]'),
+            daily_history: JSON.parse(localStorage.getItem('dailyHistory') || '{}'),
+            coach_messages: JSON.parse(localStorage.getItem('coachMessages') || '[]'),
+            habit_ai_advice: localStorage.getItem('habitAIAdvice') || '',
             habits: JSON.parse(localStorage.getItem('habits') || '[]'),
-            darkMode: JSON.parse(localStorage.getItem('fitmate-dark-mode') || 'false'),
-            mealPlan: JSON.parse(localStorage.getItem('mealPlan') || 'null'),
-            workoutPlan: JSON.parse(localStorage.getItem('workoutPlan') || 'null'),
-            workoutHistory: JSON.parse(localStorage.getItem('workoutHistory') || '[]'),
-            scanResult: JSON.parse(localStorage.getItem('scanResult') || 'null'),
-            formAnalysis: JSON.parse(localStorage.getItem('formAnalysis') || 'null'),
-            updatedAt: currentTimestamp
+            dark_mode: JSON.parse(localStorage.getItem('fitmate-dark-mode') || 'false'),
+            meal_plan: JSON.parse(localStorage.getItem('mealPlan') || 'null'),
+            workout_plan: JSON.parse(localStorage.getItem('workoutPlan') || 'null'),
+            // workout_history: JSON.parse(localStorage.getItem('workoutHistory') || '[]'), // Removed - using separate table
+            scan_result: JSON.parse(localStorage.getItem('scanResult') || 'null'),
+            form_analysis: JSON.parse(localStorage.getItem('formAnalysis') || 'null'),
+            updated_at: currentTimestamp
           };
           
-          await db.ref(`users/${user.uid}`).update(allLocalData);
+          await db.updateUser(user.id, allLocalData);
           
           // Update local sync timestamp to match what we just sent
-          localStorage.setItem('lastSyncTimestamp', currentTimestamp.toString());
+          localStorage.setItem('lastSyncTimestamp', Date.now().toString());
           
-          console.log('✅ All local data synced to Realtime Database with timestamp:', currentTimestamp);
+          console.log('✅ All local data synced to Supabase Database with timestamp:', currentTimestamp);
         } catch (error) {
-          console.error('Error syncing all data to Realtime Database:', error);
+          console.error('Error syncing all data to Supabase Database:', error);
           throw error; // Re-throw to handle in calling function
         }
       };
 
       // Sync daily intake data
       const syncDailyIntake = async (dailyIntake) => {
-        if (user && db) {
+        if (user && supabase) {
           try {
             await updateUserData({ 
-              dailyIntake,
-              lastIntakeUpdate: firebase.database.ServerValue.TIMESTAMP
+              daily_intake: dailyIntake
             });
           } catch (error) {
             console.error('Error syncing daily intake:', error);
@@ -871,11 +1096,10 @@
 
       // Sync meals data
       const syncMealsData = async (recentMeals) => {
-        if (user && db) {
+        if (user && supabase) {
           try {
             await updateUserData({ 
-              recentMeals,
-              lastMealsUpdate: firebase.database.ServerValue.TIMESTAMP
+              recent_meals: recentMeals
             });
           } catch (error) {
             console.error('Error syncing meals data:', error);
@@ -885,11 +1109,10 @@
 
       // Sync daily history
       const syncDailyHistory = async (dailyHistory) => {
-        if (user && db) {
+        if (user && supabase) {
           try {
             await updateUserData({ 
-              dailyHistory,
-              lastHistoryUpdate: firebase.database.ServerValue.TIMESTAMP
+              daily_history: dailyHistory
             });
           } catch (error) {
             console.error('Error syncing daily history:', error);
@@ -899,11 +1122,13 @@
 
       // Sync AI-generated content
       const syncAIContent = async (contentType, content) => {
-        if (user && db) {
+        if (user && supabase) {
           try {
+            // Convert camelCase to snake_case for database storage
+            const dbContentType = contentType.replace(/([A-Z])/g, '_$1').toLowerCase();
             await updateUserData({ 
-              [contentType]: content,
-              [`last${contentType}Update`]: firebase.database.ServerValue.TIMESTAMP
+              [dbContentType]: content
+              // Removed last_*_update fields as they don't exist in schema
             });
           } catch (error) {
             console.error(`Error syncing ${contentType}:`, error);
@@ -922,7 +1147,7 @@
         validatePassword,
         updateUserData,
         syncUserData,
-        syncAllDataToRTDB,
+        syncAllDataToSupabase,
         syncDailyIntake,
         syncMealsData,
         syncDailyHistory,
@@ -1200,6 +1425,8 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         };
       }, []);
 
+      // Auth state changes are handled by AuthProvider context
+
       const toggleDarkMode = () => {
         setIsDarkMode(prev => !prev);
       };
@@ -1257,7 +1484,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         localStorage.setItem('lastSavedDate', today);
       }, []);
 
-      // --- Enhanced Data Persistence with Firebase Sync ---
+      // --- Enhanced Data Persistence with Supabase Sync ---
       const { user, updateUserData, syncDailyIntake, syncMealsData, syncDailyHistory, syncAIContent } = useAuth();
       const isRemoteSyncRef = useRef(false);
       // Track initial state to avoid overwriting remote with defaults
@@ -1272,38 +1499,39 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         Number(di.water) === 0
       );
 
-      // Realtime listener to reflect remote changes into UI/localStorage
+      // Realtime listener to reflect remote changes into UI/localStorage (Supabase)
       useEffect(() => {
-        if (!user || !db) return;
-        const userRef = db.ref(`users/${user.uid}`);
-        const handle = (snapshot) => {
-          const userData = snapshot.val();
-          if (!userData) return;
+        if (!user || !supabase) return;
+        
+        const subscription = db.subscribe('users', (payload) => {
+          if (payload.new && payload.new.id === user.id) {
+            const userData = payload.new;
+            if (!userData) return;
 
-          // Update localStorage from remote
-          if (userData.goals) localStorage.setItem('goals', JSON.stringify(userData.goals));
-          if (userData.profilePicture) localStorage.setItem('profilePicture', userData.profilePicture);
-          if (userData.notificationsEnabled !== undefined) localStorage.setItem('notificationsEnabled', JSON.stringify(userData.notificationsEnabled));
-          if (userData.darkMode !== undefined) localStorage.setItem('fitmate-dark-mode', userData.darkMode.toString());
-          if (userData.dailyIntake) localStorage.setItem('dailyIntake', JSON.stringify(userData.dailyIntake));
-          if (userData.recentMeals) localStorage.setItem('recentMeals', JSON.stringify(userData.recentMeals));
-          if (userData.dailyHistory) localStorage.setItem('dailyHistory', JSON.stringify(userData.dailyHistory));
-          if (userData.coachMessages) localStorage.setItem('coachMessages', JSON.stringify(userData.coachMessages));
-          if (userData.habitAIAdvice) localStorage.setItem('habitAIAdvice', userData.habitAIAdvice);
-          if (userData.habits) localStorage.setItem('habits', JSON.stringify(userData.habits));
-          if (userData.mealPlan) localStorage.setItem('mealPlan', JSON.stringify(userData.mealPlan));
-          if (userData.workoutPlan) localStorage.setItem('workoutPlan', JSON.stringify(userData.workoutPlan));
-          if (userData.scanResult) localStorage.setItem('scanResult', JSON.stringify(userData.scanResult));
-          if (userData.formAnalysis) localStorage.setItem('formAnalysis', JSON.stringify(userData.formAnalysis));
+            // Update localStorage from remote (using Supabase column names)
+            if (userData.goals) localStorage.setItem('goals', JSON.stringify(userData.goals));
+            if (userData.profile_picture) localStorage.setItem('profilePicture', userData.profile_picture);
+            if (userData.notifications_enabled !== undefined) localStorage.setItem('notificationsEnabled', JSON.stringify(userData.notifications_enabled));
+            if (userData.dark_mode !== undefined) localStorage.setItem('fitmate-dark-mode', userData.dark_mode.toString());
+            if (userData.daily_intake) localStorage.setItem('dailyIntake', JSON.stringify(userData.daily_intake));
+            if (userData.recent_meals) localStorage.setItem('recentMeals', JSON.stringify(userData.recent_meals));
+            if (userData.daily_history) localStorage.setItem('dailyHistory', JSON.stringify(userData.daily_history));
+            if (userData.coach_messages) localStorage.setItem('coachMessages', JSON.stringify(userData.coach_messages));
+            if (userData.habit_ai_advice) localStorage.setItem('habitAIAdvice', userData.habit_ai_advice);
+            if (userData.habits) localStorage.setItem('habits', JSON.stringify(userData.habits));
+            if (userData.meal_plan) localStorage.setItem('mealPlan', JSON.stringify(userData.meal_plan));
+            if (userData.workout_plan) localStorage.setItem('workoutPlan', JSON.stringify(userData.workout_plan));
+            if (userData.scan_result) localStorage.setItem('scanResult', JSON.stringify(userData.scan_result));
+            if (userData.form_analysis) localStorage.setItem('formAnalysis', JSON.stringify(userData.form_analysis));
 
-          // Prevent feedback loop: mark update as remote, then refresh UI
-          isRemoteSyncRef.current = true;
-          window.dispatchEvent(new CustomEvent('userDataSynced'));
-          setTimeout(() => { isRemoteSyncRef.current = false; }, 300);
-        };
+            // Prevent feedback loop: mark update as remote, then refresh UI
+            isRemoteSyncRef.current = true;
+            window.dispatchEvent(new CustomEvent('userDataSynced'));
+            setTimeout(() => { isRemoteSyncRef.current = false; }, 300);
+          }
+        }, { filter: `id=eq.${user.id}` });
 
-        userRef.on('value', handle);
-        return () => userRef.off('value', handle);
+        return () => subscription.unsubscribe();
       }, [user]);
       
       useEffect(() => { 
@@ -1344,12 +1572,12 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       
       useEffect(() => { 
         localStorage.setItem('coachMessages', JSON.stringify(coachMessages));
-        if (user) updateUserData({ coachMessages });
+        if (user) updateUserData({ coach_messages: coachMessages });
       }, [coachMessages, user, updateUserData]);
       
       useEffect(() => { 
         localStorage.setItem('habitAIAdvice', habitAIAdvice);
-        if (user) updateUserData({ habitAIAdvice });
+        if (user) updateUserData({ habit_ai_advice: habitAIAdvice });
       }, [habitAIAdvice, user, updateUserData]);
       
       // --- AI State Persistence with Firebase Sync ---
@@ -1804,7 +2032,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
 
     // Profile Screen Component
     const Profile = ({ isDarkMode, toggleDarkMode, goals, setGoals, setDailyIntake, setRecentMeals, setDailyHistory, setScreen }) => {
-      const { user, signOut, updateUserData, syncAllDataToRTDB } = useAuth();
+      const { user, signOut, updateUserData, syncAllDataToSupabase } = useAuth();
       const [profilePicture, setProfilePicture] = useState(() => {
         const saved = localStorage.getItem('profilePicture');
         return saved || "https://placehold.co/100x100/EAB543/ffffff?text=User";
@@ -1871,10 +2099,10 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         }
       }, [profilePicture]);
 
-      // Sync profile picture to Firebase when user is authenticated
+      // Sync profile picture to Supabase when user is authenticated
       useEffect(() => {
         if (user && profilePicture) {
-          updateUserData({ profilePicture });
+          updateUserData({ profile_picture: profilePicture });
         }
       }, [profilePicture, user]);
 
@@ -1957,10 +2185,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       const toggleBackgroundMusic = () => {
         setBackgroundMusicEnabled(prev => {
           const newValue = !prev;
-          // Update Firebase if user is authenticated
-          if (user) {
-            updateUserData({ backgroundMusicEnabled: newValue });
-          }
+          // Background music setting is stored locally only (no database sync needed)
           // Control background music
           const audio = document.getElementById('background-music');
           if (audio) {
@@ -2046,6 +2271,11 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       const handleSignOut = async () => {
         try {
           await signOut();
+          // Close modal - user state will be cleared by AuthProvider's auth listener
+          setShowAccountModal(false);
+          // Clear any local storage data
+          localStorage.removeItem('fitmate_user');
+          localStorage.removeItem('fitmate_user_data');
           alert('✅ Successfully signed out!');
         } catch (error) {
           alert('❌ Error signing out: ' + error.message);
@@ -2055,32 +2285,25 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       // Booking History Functions
       // Check if a time slot is available across all users
       const checkSlotAvailability = async (date, timeSlot) => {
-        if (!db) {
+        if (!supabase) {
           console.log('Database not available');
           return false;
         }
         
         try {
-          const usersRef = db.ref('users');
-          const snapshot = await usersRef.once('value');
-          const usersData = snapshot.val();
+          // Use Supabase to get global bookings for the date
+          const globalBookings = await db.getGlobalBookings(date);
           
-          if (!usersData) return true; // No bookings exist, slot is available
-          
-          // Check all users' bookings for the same date and time slot
-          for (const userId in usersData) {
-            const userBookings = usersData[userId].bookings;
-            if (userBookings) {
-              for (const bookingId in userBookings) {
-                const booking = userBookings[bookingId];
-                if (booking.date === date && booking.time === timeSlot && booking.status !== 'cancelled') {
-                  return false; // Slot is already booked
-                }
-              }
-            }
+          if (!globalBookings || globalBookings.length === 0) {
+            return true; // No bookings exist, slot is available
           }
           
-          return true; // Slot is available
+          // Check if the time slot is already booked
+          const isBooked = globalBookings.some(booking => 
+            booking.time === timeSlot && booking.status !== 'cancelled'
+          );
+          
+          return !isBooked; // Return true if not booked, false if booked
         } catch (error) {
           console.error('Error checking slot availability:', error);
           return false; // Assume unavailable on error for safety
@@ -2088,7 +2311,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       };
 
       // Fetch booked slots for a specific date
-      // Memoization cache for Firebase requests
+      // Memoization cache for Supabase requests
       const requestCache = new Map();
       const CACHE_DURATION = 30000; // 30 seconds
       
@@ -2112,53 +2335,20 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
             throw new Error('Request cancelled');
           }
           
-          // Use a more efficient approach with a global bookings index
-          // First, try to get from a global bookings collection if it exists
-          const globalBookingsRef = db.ref('globalBookings');
-          
-          // Add timeout to prevent infinite loading
-          const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('Firebase query timeout')), 10000);
-          });
-          
-          const globalSnapshot = await Promise.race([
-            globalBookingsRef.orderByChild('date').equalTo(date).limitToFirst(50).once('value'),
-            timeoutPromise
-          ]);
-          
-          // Check again after async operation
-          if (signal && signal.aborted) {
-            throw new Error('Request cancelled');
-          }
-          const globalBookings = globalSnapshot.val();
-          
+          // Use Supabase to get global bookings for the date
           const bookedTimes = [];
           
-          if (globalBookings) {
-            // Use global bookings index for faster lookup
-            for (const bookingId in globalBookings) {
-              const booking = globalBookings[bookingId];
-              if (booking.status !== 'cancelled') {
-                bookedTimes.push(booking.time);
-              }
-            }
-          } else {
-            // Check if request was cancelled before fallback
-            if (signal && signal.aborted) {
-              throw new Error('Request cancelled');
-            }
-            
-            // Optimized fallback - only fetch bookings, not full user data
-            const usersRef = db.ref('users');
-            
-            // Add timeout for fallback query too
-            const fallbackTimeoutPromise = new Promise((_, reject) => {
-              setTimeout(() => reject(new Error('Fallback query timeout')), 8000);
+          try {
+            // Add timeout to prevent infinite loading
+            const timeoutPromise = new Promise((_, reject) => {
+              setTimeout(() => reject(new Error('Supabase query timeout')), 10000);
             });
             
-            const snapshot = await Promise.race([
-              usersRef.orderByKey().limitToFirst(100).once('value'),
-              fallbackTimeoutPromise
+            const bookingsPromise = db.getGlobalBookings(date);
+            
+            const globalBookings = await Promise.race([
+              bookingsPromise,
+              timeoutPromise
             ]);
             
             // Check again after async operation
@@ -2166,22 +2356,17 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
               throw new Error('Request cancelled');
             }
             
-            const usersData = snapshot.val();
-            
-            if (usersData) {
-              // Check all users' bookings for the same date
-              for (const userId in usersData) {
-                const userBookings = usersData[userId].bookings;
-                if (userBookings) {
-                  for (const bookingId in userBookings) {
-                    const booking = userBookings[bookingId];
-                    if (booking.date === date && booking.status !== 'cancelled') {
-                      bookedTimes.push(booking.time);
-                    }
-                  }
+            if (globalBookings && globalBookings.length > 0) {
+              // Use global bookings for faster lookup
+              globalBookings.forEach(booking => {
+                if (booking.status !== 'cancelled') {
+                  bookedTimes.push(booking.time);
                 }
-              }
+              });
             }
+          } catch (queryError) {
+            console.warn('Error querying global bookings:', queryError);
+            // Continue with empty booked times if query fails
           }
           
           // Cache the result
@@ -2193,7 +2378,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
           return bookedTimes;
         } catch (error) {
           if (error.message.includes('timeout')) {
-            console.warn('Firebase query timed out, using empty slots');
+            console.warn('Supabase query timed out, using empty slots');
           } else {
             console.error('Error fetching booked slots:', error);
           }
@@ -2209,25 +2394,18 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         
         setIsLoadingBookings(true);
         try {
-          const bookingsRef = db.ref(`users/${user.uid}/bookings`);
-          const snapshot = await bookingsRef.once('value');
-          const bookingsData = snapshot.val();
+          const bookingsData = await db.getBookings(user.id);
           
-          if (bookingsData) {
-            // Convert Firebase object to array and sort by creation date (newest first)
-            const bookingsArray = Object.keys(bookingsData).map(key => {
-              const booking = { id: key, ...bookingsData[key] };
-              
+          if (bookingsData && bookingsData.length > 0) {
+            // Process bookings and sort by creation date (newest first)
+            const bookingsArray = bookingsData.map(booking => {
               // Replace old Jitsi or Daily.co links with new Whereby URL
-              if (booking.meetingLink && (booking.meetingLink.includes('jit.si') || booking.meetingLink.includes('daily.co'))) {
-                booking.meetingLink = 'https://fitness-mate.whereby.com/meeting410ee91d-38a8-4636-bcc8-5b9b86035b45';
-              }
               if (booking.meeting_link && (booking.meeting_link.includes('jit.si') || booking.meeting_link.includes('daily.co'))) {
                 booking.meeting_link = 'https://fitness-mate.whereby.com/meeting410ee91d-38a8-4636-bcc8-5b9b86035b45';
               }
               
               return booking;
-            }).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+            }).sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
             
             setBookingHistory(bookingsArray);
           } else {
@@ -2276,16 +2454,15 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
 
         setIsSyncing(true);
         try {
-          console.log('🔄 Starting intelligent manual sync for user:', user.uid);
+          console.log('🔄 Starting intelligent manual sync for user:', user.id);
           
           // Test database connection first
-          await db.ref(`users/${user.uid}`).once('value');
+          const testUser = await db.getUser(user.id);
           console.log('✅ Database connection verified');
           
           // Get remote data and timestamps
-          const userSnapshot = await db.ref(`users/${user.uid}`).once('value');
-          const remoteData = userSnapshot.exists() ? userSnapshot.val() : null;
-          const remoteTimestamp = remoteData?.updatedAt || 0;
+          const remoteData = await db.getUser(user.id);
+          const remoteTimestamp = remoteData?.updated_at ? new Date(remoteData.updated_at).getTime() : 0;
           
           // Get local timestamp
           const localTimestamp = parseInt(localStorage.getItem('lastSyncTimestamp') || '0');
@@ -2298,12 +2475,12 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
           if (!remoteData) {
             // No remote data exists, push all local data
             console.log('📤 No remote data found, pushing all local data');
-            await syncAllDataToRTDB();
+            await syncAllDataToSupabase();
             syncDirection = 'local-to-remote';
           } else if (localTimestamp > remoteTimestamp) {
             // Local is newer, push local data
             console.log('📤 Local data is newer, pushing to remote');
-            await syncAllDataToRTDB();
+            await syncAllDataToSupabase();
             syncDirection = 'local-to-remote';
           } else if (remoteTimestamp > localTimestamp) {
             // Remote is newer, pull remote data
@@ -2737,41 +2914,28 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
        const meetingId = `FitmateFree${Date.now()}${Math.random().toString(36).substr(2, 9)}`;
        const wherebyLink = `https://fitness-mate.whereby.com/meeting410ee91d-38a8-4636-bcc8-5b9b86035b45`;
     
-    // Store booking in Firebase
+    // Store booking in Supabase
     if (user && db) {
       const bookingData = {
-        ...bookingDetails,
-        meetingLink: wherebyLink,
-        userId: user.uid,
-        userName: user.displayName || 'User',
-        userEmail: user.email,
-        bookingId: meetingId,
-        createdAt: firebase.database.ServerValue.TIMESTAMP,
+        date: bookingDetails.date,
+        time: bookingDetails.time,
+        service: bookingDetails.package,
+        duration: 45, // 45-minute sessions
+        price: bookingDetails.price,
         status: 'confirmed'
+        // Additional fields will be added after database schema is updated
       };
       
-      // Save to user's bookings in Firebase
-      db.ref(`users/${user.uid}/bookings`).push(bookingData)
+      // Save to user's bookings in Supabase
+      db.addBooking(user.id, bookingData)
         .then(() => {
-          console.log('Booking saved to Firebase successfully');
+          console.log('Free booking saved to Supabase successfully');
           // Clear slots cache to ensure fresh data on next load
           setSlotsCache({});
         })
         .catch((error) => {
-          console.error('Error saving booking to Firebase:', error);
+          console.error('Error saving free booking to Supabase:', error);
         });
-      
-      // Also save to global bookings for slot availability checking
-      db.ref('globalBookings').push({
-        date: bookingDetails.date,
-        time: bookingDetails.time,
-        userId: user.uid,
-        status: 'confirmed',
-        bookingId: meetingId,
-        createdAt: firebase.database.ServerValue.TIMESTAMP
-      }).catch((error) => {
-        console.error('Error saving to global bookings:', error);
-      });
     }
     
     // Send confirmation email using EmailJS
@@ -2864,41 +3028,25 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
     // Store booking in Firebase
     if (user && db) {
       const bookingData = {
-        ...bookingDetails,
-        meetingLink: wherebyLink,
-        userId: user.uid,
-        userName: user.displayName || 'User',
-        userEmail: user.email,
-        bookingId: meetingId,
-        createdAt: firebase.database.ServerValue.TIMESTAMP,
-        status: 'pending_payment', // Changed from 'confirmed' to indicate payment pending
-        packageType: selectedPackage,
-        invoiceNumber: `INV-${Date.now()}`,
-        paymentStatus: 'pending'
+        date: bookingDetails.date,
+        time: bookingDetails.time,
+        service: bookingDetails.package,
+        duration: 45, // 45-minute sessions
+        price: bookingDetails.price,
+        status: 'Reserved'
+        // Additional fields will be added after database schema is updated
       };
       
-      // Save to user's bookings in Firebase
-      db.ref(`users/${user.uid}/bookings`).push(bookingData)
+      // Save to user's bookings in Supabase
+      db.addBooking(user.id, bookingData)
         .then(() => {
-          console.log('Paid booking saved to Firebase successfully');
+          console.log('Paid booking saved to Supabase successfully');
           // Clear slots cache to ensure fresh data on next load
           setSlotsCache({});
         })
         .catch((error) => {
-          console.error('Error saving paid booking to Firebase:', error);
+          console.error('Error saving paid booking to Supabase:', error);
         });
-      
-      // Also save to global bookings for slot availability checking
-      db.ref('globalBookings').push({
-        date: bookingDetails.date,
-        time: bookingDetails.time,
-        userId: user.uid,
-        status: 'pending_payment',
-        bookingId: meetingId,
-        createdAt: firebase.database.ServerValue.TIMESTAMP
-      }).catch((error) => {
-        console.error('Error saving to global bookings:', error);
-      });
     }
     
     // Prepare email template parameters with invoice details
@@ -4146,10 +4294,10 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
               <div className="p-6 space-y-4">
                 <div className="text-center">
                   <div className="w-20 h-20 bg-gradient-to-r from-pink-500 to-purple-600 rounded-full flex items-center justify-center text-white text-2xl font-bold mx-auto mb-4">
-                    {user.displayName ? user.displayName.charAt(0).toUpperCase() : user.email.charAt(0).toUpperCase()}
+                    {user.user_metadata?.display_name ? user.user_metadata.display_name.charAt(0).toUpperCase() : user.email.charAt(0).toUpperCase()}
                   </div>
                   <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-200">
-                    {user.displayName || 'User'}
+                    {user.user_metadata?.display_name || 'User'}
                   </h3>
                   <p className="text-gray-600 dark:text-gray-400">{user.email}</p>
                 </div>
@@ -4161,8 +4309,8 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
                 </div>
                 
                 <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
-                  <p><strong>Account created:</strong> {user.metadata.creationTime ? new Date(user.metadata.creationTime).toLocaleDateString() : 'Unknown'}</p>
-                  <p><strong>Last sign in:</strong> {user.metadata.lastSignInTime ? new Date(user.metadata.lastSignInTime).toLocaleDateString() : 'Unknown'}</p>
+                  <p><strong>Account created:</strong> {user.created_at ? new Date(user.created_at).toLocaleDateString() : 'Unknown'}</p>
+                  <p><strong>Last sign in:</strong> {user.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleDateString() : 'Unknown'}</p>
                 </div>
                 
                 <button 
@@ -9291,5 +9439,4 @@ ${habits.map(habit => {
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </body>
 </html>
-
 
