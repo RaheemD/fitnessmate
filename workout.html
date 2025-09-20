@@ -9,10 +9,8 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/@lottiefiles/lottie-player@latest/dist/lottie-player.js"></script>
   
-  <!-- Firebase SDK -->
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+  <!-- Supabase SDK -->
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <script>
     tailwind.config = {
       darkMode: 'class'
@@ -375,28 +373,31 @@
   const playerVoiceGender = document.getElementById('player-voice-gender');
   const voiceGenderText = document.getElementById('voice-gender-text');
 
-  // Firebase Configuration
-  const firebaseConfig = {
-    apiKey: "AIzaSyDuDYbgrv4Y7kQOtmgs_UkiQOQrzhWNjrY",
-    authDomain: "fitnessmate-ba739.firebaseapp.com",
-    databaseURL: "https://fitnessmate-ba739-default-rtdb.europe-west1.firebasedatabase.app",
-    projectId: "fitnessmate-ba739",
-    storageBucket: "fitnessmate-ba739.firebasestorage.app",
-    messagingSenderId: "1023464958187",
-    appId: "1:1023464958187:web:256a30e06441d54d3236ae",
-    measurementId: "G-JLMLLTTY43"
+  // Supabase Configuration
+  const getSupabaseConfig = () => {
+    // Replace these with your actual Supabase project URL and anon key
+    return {
+      url: 'https://bhtabgrcxaahkuwrdwec.supabase.co',
+      anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJodGFiZ3JjeGFhaGt1d3Jkd2VjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgzNzc1MjMsImV4cCI6MjA3Mzk1MzUyM30._Cydy4B6QMF353OG8jnhK7juWgz2j4RirATIfCgAflQ'
+    };
   };
 
-  // Initialize Firebase
-  firebase.initializeApp(firebaseConfig);
-  const auth = firebase.auth();
-  const db = firebase.database();
-  let currentUser = null;
+  const supabaseConfig = getSupabaseConfig();
 
-  // Listen for auth state changes
-  auth.onAuthStateChanged((user) => {
-    currentUser = user;
-  });
+  // Initialize Supabase
+  let supabase, auth, currentUser = null;
+  try {
+    const { createClient } = window.supabase;
+    supabase = createClient(supabaseConfig.url, supabaseConfig.anonKey);
+    auth = supabase.auth;
+    
+    // Listen for auth state changes
+    auth.onAuthStateChange((event, session) => {
+      currentUser = session?.user || null;
+    });
+  } catch (error) {
+    console.log('Supabase not configured yet:', error.message);
+  }
 
   // App state
   let currentWorkoutIndex = 0;
@@ -1018,7 +1019,7 @@
      }
    }
 
-  function playerFinish(){
+  async function playerFinish(){
     clearInterval(timerInterval);
     clearInterval(workoutTimer);
     
@@ -1059,26 +1060,48 @@
       if (workoutHistory.length > 30) workoutHistory.shift();
       localStorage.setItem('workoutHistory', JSON.stringify(workoutHistory));
       
-      // Sync workout data to Firebase if user is logged in
-      if (currentUser) {
+      // Sync workout data to Supabase if user is logged in
+      if (currentUser && supabase) {
         try {
           // Save to user's workout history
-          const userWorkoutRef = db.ref(`users/${currentUser.uid}/workoutHistory`);
-          userWorkoutRef.push(workoutData);
-          // Ensure root updatedAt increases so other clients pick up changes
-          db.ref(`users/${currentUser.uid}`).update({ updatedAt: Date.now() });
+          const { error: workoutError } = await supabase
+            .from('workout_history')
+            .insert([{ user_id: currentUser.id, ...workoutData }]);
+          
+          if (workoutError) throw workoutError;
+          
+          // Update user's updated_at timestamp
+          const { error: updateError } = await supabase
+            .from('users')
+            .update({ updated_at: new Date().toISOString() })
+            .eq('id', currentUser.id);
+          
+          if (updateError) throw updateError;
           
           // Update user's daily intake
-          const userDailyRef = db.ref(`users/${currentUser.uid}/dailyIntake`);
-          userDailyRef.once('value', (snapshot) => {
-            const dailyData = snapshot.val() || {calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0};
-            const currentActivity = dailyData.activity || 0;
-            userDailyRef.update({
-              activity: currentActivity + workoutData.duration
-            });
-          });
+          const { data: userData, error: getUserError } = await supabase
+            .from('users')
+            .select('daily_intake')
+            .eq('id', currentUser.id)
+            .single();
+          if (getUserError) throw getUserError;
+          
+          const dailyData = userData?.daily_intake || {calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0};
+          const currentActivity = dailyData.activity || 0;
+          
+          const { error: updateDailyError } = await supabase
+            .from('users')
+            .update({ 
+              daily_intake: {
+                ...dailyData,
+                activity: currentActivity + workoutData.duration
+              }
+            })
+            .eq('id', currentUser.id);
+          
+          if (updateDailyError) throw updateDailyError;
         } catch (error) {
-          console.error('Error syncing workout data to Firebase:', error);
+          console.error('Error syncing workout data to Supabase:', error);
         }
       }
     }
@@ -1150,7 +1173,7 @@
       playerNext();
     }
   });
-  playerClose.addEventListener('click', ()=> {
+  playerClose.addEventListener('click', async ()=> {
     clearInterval(timerInterval);
     clearInterval(workoutTimer);
     
@@ -1186,24 +1209,47 @@
         if (workoutHistory.length > 30) workoutHistory.shift();
         localStorage.setItem('workoutHistory', JSON.stringify(workoutHistory));
         
-        // Sync to Firebase if user is logged in
-        if (currentUser) {
+        // Sync to Supabase if user is logged in
+        if (currentUser && supabase) {
           try {
-            const userWorkoutRef = db.ref(`users/${currentUser.uid}/workoutHistory`);
-            userWorkoutRef.push(workoutData);
-            // Ensure root updatedAt increases so other clients pick up changes
-            db.ref(`users/${currentUser.uid}`).update({ updatedAt: Date.now() });
+            const { error: workoutError } = await supabase
+              .from('workout_history')
+              .insert([{ user_id: currentUser.id, ...workoutData }]);
             
-            const userDailyRef = db.ref(`users/${currentUser.uid}/dailyIntake`);
-            userDailyRef.once('value', (snapshot) => {
-              const dailyData = snapshot.val() || {calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0};
-              const currentActivity = dailyData.activity || 0;
-              userDailyRef.update({
-                activity: currentActivity + workoutData.duration
-              });
-            });
+            if (workoutError) throw workoutError;
+            
+            // Update user's updated_at timestamp
+            const { error: updateError } = await supabase
+              .from('users')
+              .update({ updated_at: new Date().toISOString() })
+              .eq('id', currentUser.id);
+            
+            if (updateError) throw updateError;
+            
+            const { data: userData, error: getUserError } = await supabase
+              .from('users')
+              .select('daily_intake')
+              .eq('id', currentUser.id)
+              .single();
+            
+            if (getUserError) throw getUserError;
+            
+            const dailyData = userData?.daily_intake || {calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0};
+            const currentActivity = dailyData.activity || 0;
+            
+            const { error: updateDailyError } = await supabase
+              .from('users')
+              .update({ 
+                daily_intake: {
+                  ...dailyData,
+                  activity: currentActivity + workoutData.duration
+                }
+              })
+              .eq('id', currentUser.id);
+            
+            if (updateDailyError) throw updateDailyError;
           } catch (error) {
-            console.error('Error syncing partial workout data to Firebase:', error);
+            console.error('Error syncing partial workout data to Supabase:', error);
           }
         }
       }
