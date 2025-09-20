@@ -501,7 +501,10 @@
         }
         
         try {
+          console.log('🔍 Starting sync process for user:', effectiveUser.id);
           const userData = await db.getUser(effectiveUser.id);
+          console.log('📊 Remote user data received:', userData ? 'YES' : 'NO');
+          
           if (userData) {
             const localLastSync = localStorage.getItem('lastSyncTimestamp');
             const remoteLastSync = userData.updated_at;
@@ -509,11 +512,28 @@
             console.log('🔄 Intelligent sync - comparing timestamps...');
             console.log('Local last sync:', localLastSync);
             console.log('Remote last sync:', remoteLastSync);
+            console.log('📊 Remote data summary:', {
+              hasGoals: !!userData.goals,
+              hasDailyIntake: !!userData.daily_intake,
+              hasRecentMeals: !!userData.recent_meals,
+              hasDailyHistory: !!userData.daily_history,
+              hasProfilePicture: !!userData.profile_picture,
+              updatedAt: userData.updated_at
+            });
             
             // Enhanced sync logic: prioritize remote data for new devices
             const isNewDevice = !localLastSync;
             const hasLocalData = hasMeaningfulLocalData();
             const remoteIsNewer = remoteLastSync && localLastSync && remoteLastSync > parseInt(localLastSync);
+            
+            console.log('🔍 Local data analysis:', {
+              isNewDevice,
+              hasLocalData,
+              remoteIsNewer,
+              localGoals: JSON.parse(localStorage.getItem('goals') || '{}'),
+              localDailyIntake: JSON.parse(localStorage.getItem('dailyIntake') || '{}'),
+              localRecentMeals: JSON.parse(localStorage.getItem('recentMeals') || '[]')
+            });
             
             // Always sync from remote if:
             // 1. This is a new device (no local sync timestamp), OR
@@ -1528,19 +1548,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
             console.log('✅ Daily history synced:', historyData);
           }
           
-          // Sync additional data
-          const savedProfilePicture = localStorage.getItem('profilePicture');
-          if (savedProfilePicture) {
-            setProfilePicture(savedProfilePicture);
-            console.log('✅ Profile picture synced');
-          }
-          
-          const savedNotifications = localStorage.getItem('notificationsEnabled');
-          if (savedNotifications) {
-            setNotificationsEnabled(JSON.parse(savedNotifications));
-            console.log('✅ Notifications setting synced');
-          }
-          
+          // Sync additional data (only sync data that has state setters in this component)
           const savedDarkMode = localStorage.getItem('fitmate-dark-mode');
           if (savedDarkMode) {
             setIsDarkMode(savedDarkMode === 'true');
@@ -2241,12 +2249,47 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
           const syncedProfilePicture = localStorage.getItem('profilePicture');
           if (syncedProfilePicture && syncedProfilePicture !== profilePicture) {
             setProfilePicture(syncedProfilePicture);
+            console.log('✅ Profile picture synced in Profile component');
           }
         };
 
         window.addEventListener('userDataSynced', handleUserDataSync);
         return () => window.removeEventListener('userDataSynced', handleUserDataSync);
       }, [profilePicture]);
+
+      // Listen for remote data sync and update notifications setting
+      useEffect(() => {
+        const handleUserDataSync = () => {
+          const syncedNotifications = localStorage.getItem('notificationsEnabled');
+          if (syncedNotifications) {
+            const notificationsData = JSON.parse(syncedNotifications);
+            if (notificationsData !== notificationsEnabled) {
+              setNotificationsEnabled(notificationsData);
+              console.log('✅ Notifications setting synced in Profile component');
+            }
+          }
+        };
+
+        window.addEventListener('userDataSynced', handleUserDataSync);
+        return () => window.removeEventListener('userDataSynced', handleUserDataSync);
+      }, [notificationsEnabled]);
+
+      // Listen for remote data sync and update background music setting
+      useEffect(() => {
+        const handleUserDataSync = () => {
+          const syncedBackgroundMusic = localStorage.getItem('backgroundMusicEnabled');
+          if (syncedBackgroundMusic) {
+            const backgroundMusicData = JSON.parse(syncedBackgroundMusic);
+            if (backgroundMusicData !== backgroundMusicEnabled) {
+              setBackgroundMusicEnabled(backgroundMusicData);
+              console.log('✅ Background music setting synced in Profile component');
+            }
+          }
+        };
+
+        window.addEventListener('userDataSynced', handleUserDataSync);
+        return () => window.removeEventListener('userDataSynced', handleUserDataSync);
+      }, [backgroundMusicEnabled]);
 
       // Load profile picture from localStorage when user logs in
       useEffect(() => {
