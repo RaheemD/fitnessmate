@@ -530,36 +530,86 @@
             
             if (shouldSyncFromRemote) {
               console.log('📥 Syncing newer data from remote to local');
+              console.log('📊 Remote data received:', {
+                hasGoals: !!userData.goals,
+                hasDailyIntake: !!userData.daily_intake,
+                hasRecentMeals: !!userData.recent_meals,
+                hasDailyHistory: !!userData.daily_history,
+                hasProfilePicture: !!userData.profile_picture,
+                hasNotifications: userData.notifications_enabled !== undefined,
+                hasDarkMode: userData.dark_mode !== undefined
+              });
               
               // Sync all user data to localStorage
-              if (userData.goals) localStorage.setItem('goals', JSON.stringify(userData.goals));
-              if (userData.profile_picture) localStorage.setItem('profilePicture', userData.profile_picture);
+              if (userData.goals) {
+                localStorage.setItem('goals', JSON.stringify(userData.goals));
+                console.log('✅ Goals synced to localStorage');
+              }
+              if (userData.profile_picture) {
+                localStorage.setItem('profilePicture', userData.profile_picture);
+                console.log('✅ Profile picture synced to localStorage');
+              }
               if (userData.notifications_enabled !== undefined) {
                 localStorage.setItem('notificationsEnabled', JSON.stringify(userData.notifications_enabled));
+                console.log('✅ Notifications setting synced to localStorage');
               }
               
               // Sync additional user data
-              if (userData.daily_intake) localStorage.setItem('dailyIntake', JSON.stringify(userData.daily_intake));
-              if (userData.recent_meals) localStorage.setItem('recentMeals', JSON.stringify(userData.recent_meals));
-              if (userData.daily_history) localStorage.setItem('dailyHistory', JSON.stringify(userData.daily_history));
-              if (userData.coach_messages) localStorage.setItem('coachMessages', JSON.stringify(userData.coach_messages));
-              if (userData.habit_ai_advice) localStorage.setItem('habitAIAdvice', userData.habit_ai_advice);
-              if (userData.habits) localStorage.setItem('habits', JSON.stringify(userData.habits));
-              if (userData.dark_mode !== undefined) localStorage.setItem('fitmate-dark-mode', userData.dark_mode.toString());
+              if (userData.daily_intake) {
+                localStorage.setItem('dailyIntake', JSON.stringify(userData.daily_intake));
+                console.log('✅ Daily intake synced to localStorage');
+              }
+              if (userData.recent_meals) {
+                localStorage.setItem('recentMeals', JSON.stringify(userData.recent_meals));
+                console.log('✅ Recent meals synced to localStorage');
+              }
+              if (userData.daily_history) {
+                localStorage.setItem('dailyHistory', JSON.stringify(userData.daily_history));
+                console.log('✅ Daily history synced to localStorage');
+              }
+              if (userData.coach_messages) {
+                localStorage.setItem('coachMessages', JSON.stringify(userData.coach_messages));
+                console.log('✅ Coach messages synced to localStorage');
+              }
+              if (userData.habit_ai_advice) {
+                localStorage.setItem('habitAIAdvice', userData.habit_ai_advice);
+                console.log('✅ Habit AI advice synced to localStorage');
+              }
+              if (userData.habits) {
+                localStorage.setItem('habits', JSON.stringify(userData.habits));
+                console.log('✅ Habits synced to localStorage');
+              }
+              if (userData.dark_mode !== undefined) {
+                localStorage.setItem('fitmate-dark-mode', userData.dark_mode.toString());
+                console.log('✅ Dark mode setting synced to localStorage');
+              }
               
               // Sync AI-generated content
-              if (userData.meal_plan) localStorage.setItem('mealPlan', JSON.stringify(userData.meal_plan));
-              if (userData.workout_plan) localStorage.setItem('workoutPlan', JSON.stringify(userData.workout_plan));
-            // workout_history is handled by separate table, not synced here
-              if (userData.scan_result) localStorage.setItem('scanResult', JSON.stringify(userData.scan_result));
-              if (userData.form_analysis) localStorage.setItem('formAnalysis', JSON.stringify(userData.form_analysis));
+              if (userData.meal_plan) {
+                localStorage.setItem('mealPlan', JSON.stringify(userData.meal_plan));
+                console.log('✅ Meal plan synced to localStorage');
+              }
+              if (userData.workout_plan) {
+                localStorage.setItem('workoutPlan', JSON.stringify(userData.workout_plan));
+                console.log('✅ Workout plan synced to localStorage');
+              }
+              // workout_history is handled by separate table, not synced here
+              if (userData.scan_result) {
+                localStorage.setItem('scanResult', JSON.stringify(userData.scan_result));
+                console.log('✅ Scan result synced to localStorage');
+              }
+              if (userData.form_analysis) {
+                localStorage.setItem('formAnalysis', JSON.stringify(userData.form_analysis));
+                console.log('✅ Form analysis synced to localStorage');
+              }
               
               // Update local sync timestamp
               localStorage.setItem('lastSyncTimestamp', remoteLastSync.toString());
               
-              console.log('✅ Remote data synced to local storage');
+              console.log('✅ All remote data synced to local storage');
               
               // Trigger a custom event to notify App component to refresh state
+              console.log('📡 Dispatching userDataSynced event...');
               window.dispatchEvent(new CustomEvent('userDataSynced'));
             } else {
               console.log('📤 Local data is newer and has meaningful content, syncing to remote');
@@ -1447,20 +1497,57 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       // Listen for userDataSynced event to refresh React state
       useEffect(() => {
         const handleUserDataSynced = () => {
+          console.log('🔄 Refreshing React state after sync...');
+          
           // Refresh all React states from localStorage after sync
           const savedGoals = localStorage.getItem('goals');
-          if (savedGoals) setGoals(JSON.parse(savedGoals));
+          if (savedGoals) {
+            const goalsData = JSON.parse(savedGoals);
+            setGoals(goalsData);
+            console.log('✅ Goals synced:', goalsData);
+          }
           
           const savedIntake = localStorage.getItem('dailyIntake');
-          if (savedIntake) setDailyIntake(JSON.parse(savedIntake));
+          if (savedIntake) {
+            const intakeData = JSON.parse(savedIntake);
+            setDailyIntake(intakeData);
+            console.log('✅ Daily intake synced:', intakeData);
+          }
           
           const savedMeals = localStorage.getItem('recentMeals');
-          if (savedMeals) setRecentMeals(JSON.parse(savedMeals));
+          if (savedMeals) {
+            const mealsData = JSON.parse(savedMeals);
+            setRecentMeals(mealsData);
+            console.log('✅ Recent meals synced:', mealsData);
+          }
           
           const savedHistory = localStorage.getItem('dailyHistory');
-          if (savedHistory) setDailyHistory(JSON.parse(savedHistory));
+          if (savedHistory) {
+            const historyData = JSON.parse(savedHistory);
+            setDailyHistory(historyData);
+            console.log('✅ Daily history synced:', historyData);
+          }
           
-          console.log('✅ React state refreshed after sync');
+          // Sync additional data
+          const savedProfilePicture = localStorage.getItem('profilePicture');
+          if (savedProfilePicture) {
+            setProfilePicture(savedProfilePicture);
+            console.log('✅ Profile picture synced');
+          }
+          
+          const savedNotifications = localStorage.getItem('notificationsEnabled');
+          if (savedNotifications) {
+            setNotificationsEnabled(JSON.parse(savedNotifications));
+            console.log('✅ Notifications setting synced');
+          }
+          
+          const savedDarkMode = localStorage.getItem('fitmate-dark-mode');
+          if (savedDarkMode) {
+            setIsDarkMode(savedDarkMode === 'true');
+            console.log('✅ Dark mode setting synced');
+          }
+          
+          console.log('✅ All React state refreshed after sync');
         };
         
         window.addEventListener('userDataSynced', handleUserDataSynced);
