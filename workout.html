@@ -882,7 +882,9 @@
 
   function playerPauseToggle(){
     const workout = WORKOUTS[currentWorkoutIndex];
-    const ex = workout.exercises[currentExerciseIndex];
+    const ex = workout ? workout.exercises[currentExerciseIndex] : null;
+    if (!ex) return; // Exit if exercise is not found
+
     const isRepBased = ex.reps && ex.reps > 0;
     
     if (isResting) {
@@ -927,6 +929,13 @@
 
   function playerNext(){
     const workout = WORKOUTS[currentWorkoutIndex];
+    
+    // Finish workout if all exercises are done
+    if (currentExerciseIndex >= workout.exercises.length) {
+      playerFinish();
+      return;
+    }
+
     const currentEx = workout.exercises[currentExerciseIndex];
     
     // Prevent duplicate calls for the same exercise/set combination
@@ -1035,7 +1044,7 @@
     
     // Calculate workout metrics for health score integration
     const workoutData = {
-      duration: Math.round(workoutTotalTime / 60), // Convert to minutes
+      duration: Math.max(1, Math.round(workoutTotalTime / 60)), // Duration in minutes (min 1)
       exercisesCompleted: completedExercises.length,
       totalExercises: sessionExercises.length,
       completionRate: Math.min(100, (completedExercises.length / sessionExercises.length) * 100),
@@ -1050,7 +1059,7 @@
     if (workoutData.duration > 0) {
       // Log activity minutes to daily intake (same as index.html)
       const dailyIntake = JSON.parse(localStorage.getItem('dailyIntake') || '{"calories": 0, "protein": 0, "carbs": 0, "fat": 0, "activity": 0, "water": 0}');
-      dailyIntake.activity = (dailyIntake.activity || 0) + workoutData.duration;
+      dailyIntake.activity = (dailyIntake.activity || 0) + workoutData.duration; // activity in minutes
       localStorage.setItem('dailyIntake', JSON.stringify(dailyIntake));
       
       // Store workout history for detailed tracking
@@ -1130,7 +1139,8 @@
     
     // Auto-return to workout detail after 3 seconds
     setTimeout(() => {
-      openDetail(currentWorkoutIndex);
+      localStorage.setItem('completedWorkoutIndex', currentWorkoutIndex.toString());
+      window.location.href = 'index.html?view=detail';
     }, 3000);
   }
 
@@ -1212,11 +1222,22 @@
         // Sync to Supabase if user is logged in
         if (currentUser && supabase) {
           try {
-            const { error: workoutError } = await supabase
+            const { incomplete, ...dataToInsert } = workoutData;
+            const { data, error: workoutError } = await supabase
               .from('workout_history')
-              .insert([{ user_id: currentUser.id, ...workoutData }]);
+              .insert([{ user_id: currentUser.id, ...dataToInsert }])
+              .select();
             
             if (workoutError) throw workoutError;
+
+            if (incomplete && data) {
+              const workoutId = data[0].id;
+              const { error: updateError } = await supabase
+                .from('workout_history')
+                .update({ incomplete: true })
+                .eq('id', workoutId);
+              if (updateError) throw updateError;
+            }
             
             // Update user's updated_at timestamp
             const { error: updateError } = await supabase
