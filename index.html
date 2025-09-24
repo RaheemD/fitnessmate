@@ -610,11 +610,49 @@
                 console.log('✅ Meal plan synced to localStorage');
               }
               if (userData.workout_plan) {
-                localStorage.setItem('workoutPlan', JSON.stringify(userData.workout_plan));
-                console.log('✅ Workout plan synced to localStorage');
-              }
-              // workout_history is handled by separate table, not synced here
-              if (userData.scan_result) {
+          localStorage.setItem('workoutPlan', JSON.stringify(userData.workout_plan));
+          console.log('✅ Workout plan synced to localStorage');
+        }
+        
+        // Special handling for workout_history to merge local and remote
+        try {
+          const { data: remoteHistory, error: historyError } = await supabase
+            .from('workout_history')
+            .select('*')
+            .eq('user_id', effectiveUser.id)
+            .order('timestamp', { ascending: false });
+
+          if (historyError) throw historyError;
+
+          const localHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+
+          // Merge remote and local history
+          const historyMap = new Map();
+          // Add local items first to give them priority
+          localHistory.forEach(h => h.timestamp && historyMap.set(h.timestamp, h));
+          // Add remote items if they don't exist in the map
+          (remoteHistory || []).forEach(h => {
+            if (h.timestamp && !historyMap.has(h.timestamp)) {
+              historyMap.set(h.timestamp, h);
+            }
+          });
+
+          const mergedHistory = Array.from(historyMap.values())
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+          // Limit to the last 30 workouts
+          if (mergedHistory.length > 30) {
+            mergedHistory.splice(30);
+          }
+
+          setWorkoutHistory(mergedHistory);
+          localStorage.setItem('workoutHistory', JSON.stringify(mergedHistory));
+          console.log(`✅ Workout history synced: ${mergedHistory.length} items.`);
+        } catch (error) {
+          console.error('Error syncing workout history:', error);
+        }
+
+        if (userData.scan_result) {
                 localStorage.setItem('scanResult', JSON.stringify(userData.scan_result));
                 console.log('✅ Scan result synced to localStorage');
               }
@@ -1448,6 +1486,26 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
     // --- Main App Component ---
     function App() {
       const [screen, setScreen] = useState(() => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const tab = urlParams.get('tab');
+        const view = urlParams.get('view');
+        
+        // Handle workout detail redirection
+        if (view === 'detail') {
+          const completedWorkoutIndex = localStorage.getItem('completedWorkoutIndex');
+          if (completedWorkoutIndex) {
+            localStorage.removeItem('completedWorkoutIndex');
+            // Redirect to workout.html detail view
+            window.location.href = `workout.html?workout=${completedWorkoutIndex}&view=detail`;
+            return 'dashboard'; // fallback
+          }
+        }
+        
+        if (tab) {
+          // Clear the URL parameter to prevent it from persisting on refresh
+          window.history.replaceState({}, document.title, window.location.pathname);
+          return tab;
+        }
         const savedScreen = localStorage.getItem('fitmate-current-screen');
         return savedScreen || 'dashboard';
       }); // 'dashboard', 'scan', 'profile', 'planner', 'workout', 'coach', 'progress'
@@ -1507,9 +1565,9 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         localStorage.setItem('fitmate-dark-mode', isDarkMode.toString());
         
         // Sync dark mode preference to Firebase
-        if (user) {
-          updateUserData({ darkMode: isDarkMode });
-        }
+        // if (user) {
+        //   updateUserData({ darkMode: isDarkMode });
+        // }
       }, [isDarkMode, user]);
 
       useEffect(() => {
@@ -1940,15 +1998,6 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
             onLogMeal={handleLogMeal}
           />;
           case 'profile': return <Profile isDarkMode={isDarkMode} toggleDarkMode={toggleDarkMode} goals={goals} setGoals={setGoals} setDailyIntake={setDailyIntake} setRecentMeals={setRecentMeals} setDailyHistory={setDailyHistory} setScreen={setScreen} />;
-          case 'planner': return <MealPlanner 
-            goals={goals} 
-            mealPlan={mealPlan}
-            setMealPlan={setMealPlan}
-            isLoading={mealPlanLoading}
-            setIsLoading={setMealPlanLoading}
-            error={mealPlanError}
-            setError={setMealPlanError}
-          />;
           case 'workout': return <WorkoutPlanner 
             workoutPlan={workoutPlan}
             setWorkoutPlan={setWorkoutPlan}
@@ -1974,6 +2023,8 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
             isLoadingAdvice={isLoadingAdvice}
             setIsLoadingAdvice={setIsLoadingAdvice}
           />;
+          case 'planner': return <MealPlanner goals={goals} mealPlan={mealPlan} setMealPlan={setMealPlan} isLoading={mealPlanLoading} setIsLoading={setMealPlanLoading} error={mealPlanError} setError={setMealPlanError} />;
+
           default: return <Dashboard dailyIntake={dailyIntake} goals={goals} recentMeals={recentMeals} onLogActivity={handleLogActivity} onLogWater={handleLogWater} />;
         }
       };
@@ -3638,7 +3689,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
             />
             
             <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200">
-              {user ? (user.displayName || 'User') : 'John Doe'}
+              {user ? (user.user_metadata?.display_name || 'User') : 'John Doe'}
             </h2>
             <p className="text-gray-500 dark:text-gray-400">
               {user ? user.email : 'john.doe@example.com'}
@@ -8287,6 +8338,14 @@ User's question: "${userMessage.text}"`;
         return savedHabits ? JSON.parse(savedHabits) : [];
       });
       const [newHabit, setNewHabit] = useState('');
+      const [workoutHistory, setWorkoutHistory] = useState(() => {
+        try {
+          const saved = localStorage.getItem('workoutHistory');
+          return saved ? JSON.parse(saved) : [];
+        } catch (e) {
+          return [];
+        }
+      });
 
       // Helper function to get local date string
       const getLocalDateString = (date) => {
@@ -8304,6 +8363,24 @@ User's question: "${userMessage.text}"`;
           updateUserData({ habits });
         }
       }, [habits, user, updateUserData]);
+
+      useEffect(() => {
+        const handleStorageChange = (e) => {
+          if (e.key === 'workoutHistory') {
+            try {
+              const updatedHistory = JSON.parse(e.newValue || '[]');
+              if (Array.isArray(updatedHistory)) {
+                setWorkoutHistory(updatedHistory);
+              }
+            } catch (error) {
+              console.warn('Error parsing workoutHistory from storage event:', error);
+            }
+          }
+        };
+
+        window.addEventListener('storage', handleStorageChange);
+        return () => window.removeEventListener('storage', handleStorageChange);
+      }, []);
 
       const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
       const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
@@ -8556,18 +8633,6 @@ User's question: "${userMessage.text}"`;
               Workout Analytics
             </h3>
             {(() => {
-              let workoutHistory;
-              try {
-                workoutHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
-                if (!Array.isArray(workoutHistory)) {
-                  workoutHistory = [];
-                  localStorage.setItem('workoutHistory', '[]');
-                }
-              } catch (error) {
-                console.warn('Error parsing workoutHistory in analytics, resetting to empty array:', error);
-                workoutHistory = [];
-                localStorage.setItem('workoutHistory', '[]');
-              }
               const last7Days = Array.from({length: 7}, (_, i) => {
                 const date = new Date();
                 date.setDate(date.getDate() - i);
@@ -8715,18 +8780,6 @@ User's question: "${userMessage.text}"`;
               Achievement Badges
             </h3>
             {(() => {
-              let workoutHistory;
-              try {
-                workoutHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
-                if (!Array.isArray(workoutHistory)) {
-                  workoutHistory = [];
-                  localStorage.setItem('workoutHistory', '[]');
-                }
-              } catch (error) {
-                console.warn('Error parsing workoutHistory in badges, resetting to empty array:', error);
-                workoutHistory = [];
-                localStorage.setItem('workoutHistory', '[]');
-              }
               const totalWorkouts = workoutHistory.length;
               const workoutStreak = (() => {
                 let streak = 0;
@@ -9487,11 +9540,11 @@ ${habits.map(habit => {
         <button onClick={() => setScreen('dashboard')} className={`flex flex-col items-center justify-center font-semibold transition-colors ${screen === 'dashboard' ? 'text-pink-500' : 'text-gray-400'}`}>
           <span className="text-2xl mb-1">🏠</span>
         </button>
-        <button onClick={() => setScreen('planner')} className={`flex flex-col items-center justify-center font-semibold transition-colors ${screen === 'planner' ? 'text-pink-500' : 'text-gray-400'}`}>
-          <span className="text-2xl mb-1">📋</span>
-        </button>
         <button onClick={() => setScreen('progress')} className={`flex flex-col items-center justify-center font-semibold transition-colors ${screen === 'progress' ? 'text-pink-500' : 'text-gray-400'}`}>
           <span className="text-2xl mb-1">📊</span>
+        </button>
+        <button onClick={() => setScreen('planner')} className={`flex flex-col items-center justify-center font-semibold transition-colors ${screen === 'planner' ? 'text-pink-500' : 'text-gray-400'}`}>
+          <span className="text-2xl mb-1">🍽️</span>
         </button>
         <button onClick={() => setScreen('scan')} className="bg-blue-500 text-white w-14 h-14 rounded-full flex items-center justify-center text-lg font-bold shadow-lg">
           Cal
@@ -9521,4 +9574,3 @@ ${habits.map(habit => {
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </body>
 </html>
-
