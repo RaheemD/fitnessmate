@@ -1137,11 +1137,12 @@
     // Clear workout state since workout is completed
     clearWorkoutState();
     
-    // Auto-return to workout detail after 3 seconds
-    setTimeout(() => {
-      localStorage.setItem('completedWorkoutIndex', currentWorkoutIndex.toString());
-      window.location.href = 'index.html?view=detail';
-    }, 3000);
+    // Save completion
+    localStorage.setItem('completedWorkoutIndex', currentWorkoutIndex.toString());
+    
+    // Return to the detail view (exercises list) instead of redirecting to index.html
+    // This eliminates the white screen issue and allows users to start another workout
+    showView('view-detail');
   }
 
   // player controls
