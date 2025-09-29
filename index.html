@@ -13,6 +13,19 @@
     }
   </script>
   
+  <script>
+    // Prevent white flash on page load - apply background immediately
+    (function() {
+      const isDarkMode = localStorage.getItem('fitmate-dark-mode') === 'true';
+      if (isDarkMode) {
+        document.documentElement.classList.add('dark');
+        document.documentElement.style.backgroundColor = '#111827';
+      } else {
+        document.documentElement.style.backgroundColor = '#f9fafb';
+      }
+    })();
+  </script>
+  
   <!-- Supabase SDK -->
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   
@@ -616,40 +629,113 @@
         
         // Special handling for workout_history to merge local and remote
         try {
+          // First, get local history that hasn't been synced to Supabase
+          const localHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+          
+          // If we have local history, sync it to Supabase first
+          if (localHistory.length > 0) {
+            try {
+              // Get the most recent local workout timestamp
+              const mostRecentLocal = localHistory[0]?.timestamp;
+              
+              // Find workouts that don't exist in Supabase yet
+              const { data: recentRemoteWorkouts, error: fetchError } = await supabase
+                .from('workout_history')
+                .select('timestamp')
+                .eq('user_id', effectiveUser.id)
+                .gte('timestamp', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()) // Last 30 days
+                .order('timestamp', { ascending: false });
+                
+              if (fetchError) throw fetchError;
+              
+              const remoteTimestamps = new Set(recentRemoteWorkouts?.map(w => w.timestamp) || []);
+              const workoutsToSync = localHistory.filter(w => w.timestamp && !remoteTimestamps.has(w.timestamp));
+              
+              // Sync any missing workouts to Supabase
+              if (workoutsToSync.length > 0) {
+                const { error: syncError } = await supabase
+                  .from('workout_history')
+                  .upsert(
+                    workoutsToSync.map(workout => ({
+                      ...workout,
+                      user_id: effectiveUser.id,
+                      // Ensure all required fields have default values
+                      duration: workout.duration || 0,
+                      calories_burned: workout.calories_burned || 0,
+                      exercises_completed: workout.exercises_completed || 0,
+                      workout_title: workout.workout_title || 'Custom Workout',
+                      created_at: workout.timestamp || new Date().toISOString()
+                    })),
+                    { onConflict: 'user_id,timestamp' }
+                  );
+                  
+                if (syncError) throw syncError;
+                console.log(`✅ Synced ${workoutsToSync.length} local workouts to Supabase`);
+              }
+            } catch (syncError) {
+              console.error('Error syncing local workouts to Supabase:', syncError);
+            }
+          }
+          
+          // Now fetch complete history from Supabase
           const { data: remoteHistory, error: historyError } = await supabase
             .from('workout_history')
             .select('*')
             .eq('user_id', effectiveUser.id)
-            .order('timestamp', { ascending: false });
+            .order('timestamp', { ascending: false })
+            .limit(100); // Get more history for better sync
 
           if (historyError) throw historyError;
-
-          const localHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
-
-          // Merge remote and local history
+          
+          // If no remote history, keep local history
+          if (!remoteHistory || remoteHistory.length === 0) {
+            if (localHistory.length > 0) {
+              localStorage.setItem('workoutHistory', JSON.stringify(localHistory));
+              console.log('Using local workout history (no remote data)');
+            }
+            return;
+          }
+          
+          // If no local history, use remote
+          if (localHistory.length === 0) {
+            localStorage.setItem('workoutHistory', JSON.stringify(remoteHistory));
+            setWorkoutHistory(remoteHistory);
+            console.log('Using remote workout history (no local data)');
+            return;
+          }
+          
+          // Merge both histories, preferring remote data in case of conflicts
           const historyMap = new Map();
-          // Add local items first to give them priority
-          localHistory.forEach(h => h.timestamp && historyMap.set(h.timestamp, h));
-          // Add remote items if they don't exist in the map
-          (remoteHistory || []).forEach(h => {
-            if (h.timestamp && !historyMap.has(h.timestamp)) {
-              historyMap.set(h.timestamp, h);
+          
+          // Add remote workouts to map first (lower priority)
+          remoteHistory.forEach(workout => {
+            if (workout.timestamp) {
+              historyMap.set(workout.timestamp, workout);
+            }
+          });
+          
+          // Add local workouts (will only add if timestamp doesn't exist in remote)
+          localHistory.forEach(workout => {
+            if (workout.timestamp && !historyMap.has(workout.timestamp)) {
+              historyMap.set(workout.timestamp, workout);
             }
           });
 
-          const mergedHistory = Array.from(historyMap.values())
-            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+          // Convert map back to array and sort by timestamp
+          let mergedHistory = Array.from(historyMap.values())
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+            .slice(0, 100); // Keep most recent 100 workouts
 
-          // Limit to the last 30 workouts
-          if (mergedHistory.length > 30) {
-            mergedHistory.splice(30);
-          }
-
-          setWorkoutHistory(mergedHistory);
+          // Save merged history
           localStorage.setItem('workoutHistory', JSON.stringify(mergedHistory));
-          console.log(`✅ Workout history synced: ${mergedHistory.length} items.`);
+          setWorkoutHistory(mergedHistory);
+          console.log(`✅ Workout history synced: ${mergedHistory.length} workouts`);
+          
         } catch (error) {
           console.error('Error syncing workout history:', error);
+          // If sync fails, keep using local history
+          const localHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+          setWorkoutHistory(localHistory);
         }
 
         if (userData.scan_result) {
@@ -808,14 +894,33 @@
       };
 
       const signOut = async () => {
-        if (!auth) return;
+        if (!auth) return true; // If no auth, consider it a success
         
         try {
-          const { error } = await auth.signOut();
-          if (error) throw error;
+          // First try to sign out properly
+          try {
+            const { error } = await auth.signOut();
+            if (error) throw error;
+          } catch (signOutError) {
+            // If we get a session missing error, it might mean we're already signed out
+            if (signOutError.message?.includes('Auth session missing') || 
+                signOutError.message?.includes('Invalid Refresh Token')) {
+              console.log('Session already invalidated, proceeding with local cleanup');
+            } else {
+              throw signOutError; // Re-throw other errors
+            }
+          }
+          
+          // Clear any local tokens/storage
+          localStorage.removeItem('supabase.auth.token');
+          sessionStorage.removeItem('supabase.auth.token');
+          
+          return true;
         } catch (error) {
-          setAuthError(error.message);
-          throw error;
+          console.error('Error during sign out:', error);
+          const errorMessage = error.message || 'Failed to sign out';
+          setAuthError(errorMessage);
+          throw new Error(errorMessage);
         }
       };
 
@@ -1495,9 +1600,9 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
           const completedWorkoutIndex = localStorage.getItem('completedWorkoutIndex');
           if (completedWorkoutIndex) {
             localStorage.removeItem('completedWorkoutIndex');
-            // Redirect to workout.html detail view
-            window.location.href = `workout.html?workout=${completedWorkoutIndex}&view=detail`;
-            return 'dashboard'; // fallback
+            // Redirect to workout.html detail view immediately
+            window.location.replace(`workout.html?workout=${completedWorkoutIndex}&view=detail`);
+            return null; // Prevent rendering while redirecting
           }
         }
         
@@ -1992,6 +2097,16 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
 
       // Function to render the current screen based on state
       const renderScreen = () => {
+        // Handle redirect state - don't render anything while redirecting
+        if (screen === null) {
+          return <div className="flex items-center justify-center min-h-screen">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-pink-500 mx-auto"></div>
+              <p className="mt-2 text-gray-600 dark:text-gray-400">Redirecting...</p>
+            </div>
+          </div>;
+        }
+        
         switch (screen) {
           case 'dashboard': return <Dashboard dailyIntake={dailyIntake} goals={goals} recentMeals={recentMeals} onLogActivity={handleLogActivity} onLogWater={handleLogWater} />;
           case 'scan': return <Scan 
@@ -2034,7 +2149,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
           <main className="flex-grow">
             {renderScreen()}
           </main>
-          <BottomNavBar screen={screen} setScreen={setScreen} />
+          {screen !== null && <BottomNavBar screen={screen} setScreen={setScreen} />}
         </div>
       );
     }
@@ -2505,7 +2620,10 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
           await signOut();
           // Close modal - user state will be cleared by AuthProvider's auth listener
           setShowAccountModal(false);
-          // Clear any local storage data
+          // Clear any additional local storage data if needed
+          localStorage.removeItem('userPreferences');
+          localStorage.removeItem('recentMeals');
+          localStorage.removeItem('dailyIntake');
           localStorage.removeItem('fitmate_user');
           localStorage.removeItem('fitmate_user_data');
           alert('✅ Successfully signed out!');
@@ -4923,42 +5041,89 @@ Respond ONLY with a valid JSON object in this format:
               </p>
             </div>
 
-            <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-md text-center">
-              <div className="mb-6">
-                <div className="w-24 h-24 mx-auto mb-4 bg-gradient-to-br from-purple-400 to-pink-500 rounded-full flex items-center justify-center">
-                  <span className="text-4xl">📷</span>
+            {!imagePreview && (
+              <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-md text-center">
+                <div className="mb-6">
+                  <div className="w-24 h-24 mx-auto mb-4 bg-gradient-to-br from-purple-400 to-pink-500 rounded-full flex items-center justify-center">
+                    <span className="text-4xl">📷</span>
+                  </div>
+                  <h3 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-2">Scan Your Food</h3>
+                  <p className="text-gray-600 dark:text-gray-400 mb-6">Take a photo of your meal and get instant nutritional analysis with personalized health tips!</p>
                 </div>
-                <h3 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-2">Scan Your Food</h3>
-                <p className="text-gray-600 dark:text-gray-400 mb-6">Take a photo of your meal and get instant nutritional analysis with personalized health tips!</p>
-              </div>
-              
-              {imagePreview ? (
-                <div className="relative w-full h-64 rounded-2xl mb-6 overflow-hidden">
-                  <img src={imagePreview} alt="Meal preview" className="w-full h-full object-cover" />
-                  {isLoading && (
-                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-white">
-                      Analyzing...
-                    </div>
-                  )}
-                </div>
-              ) : (
+                
                 <button
                   onClick={() => fileInputRef.current.click()}
-                  className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold py-4 rounded-2xl shadow-lg hover:from-purple-600 hover:to-pink-600 transition-all transform hover:scale-105 mb-6"
+                  className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold py-4 rounded-2xl shadow-lg hover:from-purple-600 hover:to-pink-600 transition-all transform hover:scale-105"
                 >
                   📷 Scan Your Meal
                 </button>
-              )}
-              
-              <div className="mt-6 p-4 bg-purple-50 dark:bg-purple-900/20 rounded-xl">
-                <h4 className="font-semibold text-purple-800 dark:text-purple-200 mb-2">💡 Pro Tips:</h4>
-                <ul className="text-sm text-purple-700 dark:text-purple-300 space-y-1">
-                  <li>• Ensure good lighting for best results</li>
-                  <li>• Include labels and packaging when visible</li>
-                  <li>• Multiple ingredients in one photo work great!</li>
-                </ul>
+                
+                <div className="mt-6 p-4 bg-purple-50 dark:bg-purple-900/20 rounded-xl">
+                  <h4 className="font-semibold text-purple-800 dark:text-purple-200 mb-2">💡 Pro Tips:</h4>
+                  <ul className="text-sm text-purple-700 dark:text-purple-300 space-y-1">
+                    <li>• Ensure good lighting for best results</li>
+                    <li>• Include labels and packaging when visible</li>
+                    <li>• Multiple ingredients in one photo work great!</li>
+                  </ul>
+                </div>
               </div>
-            </div>
+            )}
+
+            {imagePreview && !scanResult && (
+              <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-md overflow-hidden">
+                <img src={imagePreview} alt="Meal preview" className="w-full h-64 object-cover" />
+                
+                {!isLoading && (
+                  <div className="p-6">
+                    <div className="mb-4 p-4 bg-purple-50 dark:bg-purple-900/20 rounded-xl">
+                      <h4 className="font-semibold text-purple-800 dark:text-purple-200 mb-2">💡 Pro Tips:</h4>
+                      <ul className="text-sm text-purple-700 dark:text-purple-300 space-y-1">
+                        <li>• Ensure good lighting for best results</li>
+                        <li>• Include labels and packaging when visible</li>
+                        <li>• Multiple ingredients in one photo work great!</li>
+                      </ul>
+                    </div>
+                    
+                    <p className="text-gray-600 dark:text-gray-400 mb-4 text-center">Image loaded. Ready to analyze.</p>
+                    <div className="flex gap-3 justify-center">
+                      <button 
+                        onClick={() => {
+                          const storedImage = localStorage.getItem('foodScanner_imagePreview');
+                          if (storedImage) {
+                            fetch(storedImage)
+                              .then(res => res.blob())
+                              .then(blob => {
+                                const file = new File([blob], 'image.jpg', { type: 'image/jpeg' });
+                                handleScan(file);
+                              })
+                              .catch(err => {
+                                console.error('Failed to analyze:', err);
+                                setError('Could not analyze the image. Please try scanning again.');
+                              });
+                          }
+                        }}
+                        className="bg-purple-500 hover:bg-purple-600 text-white px-6 py-3 rounded-xl font-semibold transition-colors"
+                      >
+                        Analyse
+                      </button>
+                      <button 
+                        onClick={resetScan}
+                        className="bg-gray-500 hover:bg-gray-600 text-white px-6 py-3 rounded-xl font-semibold transition-colors"
+                      >
+                        Scan New
+                      </button>
+                    </div>
+                  </div>
+                )}
+                
+                {isLoading && (
+                  <div className="p-6 text-center">
+                    <div className="animate-spin w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+                    <p className="text-gray-600 dark:text-gray-400">Analyzing your meal...</p>
+                  </div>
+                )}
+              </div>
+            )}
             
             <input
               type="file"
@@ -4973,8 +5138,18 @@ Respond ONLY with a valid JSON object in this format:
 
             {scanResult && (
               <div className="mt-6 bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-md animate-fade-in">
-                <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200 mb-2">{scanResult.name}</h2>
-                <p className="text-lg font-semibold text-gray-600 dark:text-gray-300 mb-4">{scanResult.total_calories} kcal</p>
+                <div className="flex justify-between items-center mb-4">
+                  <div>
+                    <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200">{scanResult.name}</h2>
+                    <p className="text-lg font-semibold text-gray-600 dark:text-gray-300">{scanResult.total_calories} kcal</p>
+                  </div>
+                  <button
+                    onClick={resetScan}
+                    className="text-purple-500 font-semibold text-sm hover:text-purple-600 transition-colors"
+                  >
+                    ← Scan New
+                  </button>
+                </div>
 
                 {scanResult.health_tip && (
                   <div className="mb-4 p-4 bg-yellow-100 text-yellow-800 rounded-lg flex items-start">
@@ -5042,39 +5217,6 @@ Respond ONLY with a valid JSON object in this format:
                 >
                   Log this Meal
                 </button>
-
-                {/* Action buttons for scanning new or re-analyzing */}
-                <div className="flex gap-3 mt-4">
-                  <button
-                    onClick={resetScan}
-                    className="flex-1 bg-gray-500 text-white font-bold py-2 rounded-xl hover:bg-gray-600 transition-colors"
-                  >
-                    📸 Scan New
-                  </button>
-                  <button
-                    onClick={() => {
-                      const storedImage = localStorage.getItem('foodScanner_imagePreview');
-                      if (storedImage) {
-                        // Convert base64 back to file-like object for re-analysis
-                        fetch(storedImage)
-                          .then(res => res.blob())
-                          .then(blob => {
-                            const file = new File([blob], 'image.jpg', { type: 'image/jpeg' });
-                            handleScan(file);
-                          })
-                          .catch(err => {
-                            console.error('Failed to re-analyze:', err);
-                            setError('Could not re-analyze the image. Please try scanning again.');
-                          });
-                      } else {
-                        setError('No image available for re-analysis. Please scan a new image.');
-                      }
-                    }}
-                    className="flex-1 bg-blue-500 text-white font-bold py-2 rounded-xl hover:bg-blue-600 transition-colors"
-                  >
-                    🔄 Analyze
-                  </button>
-                </div>
               </div>
             )}
           </div>
@@ -7540,7 +7682,7 @@ Respond ONLY with a valid JSON object in this format:
         }
       };
 
-      const endWorkoutSession = () => {
+      const endWorkoutSession = async () => {
         clearInterval(workoutTimer);
         
         // Calculate workout metrics for health score integration
@@ -7557,7 +7699,16 @@ Respond ONLY with a valid JSON object in this format:
         if (workoutData.duration > 0) {
           handleLogActivity({ minutes: workoutData.duration });
           
-          // Store workout history for detailed tracking
+          // Add timestamp to workout data
+          const workoutWithTimestamp = {
+            ...workoutData,
+            timestamp: new Date().toISOString(),
+            workout_title: workoutData.workoutTitle || 'Custom Workout',
+            calories_burned: workoutData.caloriesBurned || 0,
+            completion_rate: Math.round((workoutData.exercisesCompleted / workoutData.totalExercises) * 100) || 0
+          };
+          
+          // Store workout history in local storage
           let workoutHistory;
           try {
             workoutHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
@@ -7568,17 +7719,38 @@ Respond ONLY with a valid JSON object in this format:
             console.warn('Error parsing workoutHistory in workout completion, resetting to empty array:', error);
             workoutHistory = [];
           }
-          workoutHistory.push(workoutData);
-          // Keep only last 30 workouts
-          if (workoutHistory.length > 30) workoutHistory.shift();
-          localStorage.setItem('workoutHistory', JSON.stringify(workoutHistory));
           
-          // Sync workout data to Firebase if user is logged in
-          if (user) {
-            const userRef = db.ref(`users/${user.uid}/workoutHistory`);
-            userRef.push(workoutData);
-            // Bump root timestamp so other clients pick up latest workout history
-            db.ref(`users/${user.uid}`).update({ updatedAt: Date.now() });
+          // Add new workout to the beginning of the array (most recent first)
+          workoutHistory.unshift(workoutWithTimestamp);
+          
+          // Keep only last 100 workouts
+          if (workoutHistory.length > 100) {
+            workoutHistory = workoutHistory.slice(0, 100);
+          }
+          
+          // Update local storage and state
+          localStorage.setItem('workoutHistory', JSON.stringify(workoutHistory));
+          if (setWorkoutHistory) {
+            setWorkoutHistory(workoutHistory);
+          }
+          
+          // Sync workout data to Supabase if user is logged in
+          if (user && supabase) {
+            try {
+              const { error } = await supabase
+                .from('workout_history')
+                .upsert([{
+                  ...workoutWithTimestamp,
+                  user_id: user.id,
+                  created_at: workoutWithTimestamp.timestamp
+                }], { onConflict: 'user_id,timestamp' });
+                
+              if (error) throw error;
+              console.log('✅ Workout synced to Supabase');
+            } catch (error) {
+              console.error('Error syncing workout to Supabase:', error);
+              // If sync fails, we'll try again on next sync
+            }
           }
         }
         
@@ -7800,7 +7972,7 @@ Respond ONLY with a valid JSON object in this exact format:
       };
 
       return (
-        <div className="p-4 sm:p-6 pb-24">
+        <div className="p-4 sm:p-6 pb-24 mb-20">
           <header className="mb-4 sm:mb-6 text-center px-2">
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-gray-200">Workout Hub</h1>
             <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400">Plan workouts or perfect your form</p>
