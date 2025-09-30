@@ -387,6 +387,7 @@
       const [user, setUser] = useState(null);
       const [loading, setLoading] = useState(true);
       const [authError, setAuthError] = useState(null);
+      const forceNextRemoteOnlyRef = useRef(false);
 
       useEffect(() => {
         if (!auth) {
@@ -400,6 +401,8 @@
           setLoading(false);
           if (session?.user) {
             // Sync user data when authenticated
+            // Treat initial session like a sign-in for one cycle: fetch remote only
+            forceNextRemoteOnlyRef.current = true;
             syncUserData(session.user);
           }
         });
@@ -412,6 +415,10 @@
           
           if (currentUser) {
             console.log('User signed in:', currentUser.id);
+            // Enforce remote-only fetch on explicit sign-in events
+            if (event === 'SIGNED_IN') {
+              forceNextRemoteOnlyRef.current = true;
+            }
             // Sync user data when authenticated
             syncUserData(currentUser);
           } else {
@@ -513,6 +520,12 @@
           return;
         }
         
+        // If set, enforce a one-time remote-only fetch (no local->remote writes)
+        const remoteOnly = forceNextRemoteOnlyRef?.current === true;
+        if (remoteOnly) {
+          console.log('🔒 Remote-only sync mode is active for this sign-in.');
+        }
+        
         try {
           console.log('🔍 Starting sync process for user:', effectiveUser.id);
           const userData = await db.getUser(effectiveUser.id);
@@ -552,7 +565,7 @@
             // 1. This is a new device (no local sync timestamp), OR
             // 2. Remote data is newer than local, OR
             // 3. Local data is empty/default (no meaningful content)
-            const shouldSyncFromRemote = isNewDevice || remoteIsNewer || !hasLocalData;
+            const shouldSyncFromRemote = remoteOnly || isNewDevice || remoteIsNewer || !hasLocalData;
             
             console.log('📊 Sync decision factors:', {
               isNewDevice,
@@ -627,7 +640,27 @@
           console.log('✅ Workout plan synced to localStorage');
         }
         
-        // Special handling for workout_history to merge local and remote
+        // Special handling for workout_history
+        if (remoteOnly) {
+        try {
+          // Remote-only: fetch remote history and set locally (no merge, no local upsert)
+          const { data: remoteHistory, error: historyError } = await supabase
+            .from('workout_history')
+            .select('*')
+            .eq('user_id', effectiveUser.id)
+            .order('timestamp', { ascending: false })
+            .limit(100);
+
+          if (historyError) throw historyError;
+
+          localStorage.setItem('workoutHistory', JSON.stringify(remoteHistory || []));
+          setWorkoutHistory(remoteHistory || []);
+          console.log('🔒 Remote-only: set workout history from remote without merging');
+
+        } catch (error) {
+          console.error('Remote-only workout history fetch failed:', error);
+        }
+        } else {
         try {
           // First, get local history that hasn't been synced to Supabase
           const localHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
@@ -737,6 +770,7 @@
           const localHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
           setWorkoutHistory(localHistory);
         }
+        }
 
         if (userData.scan_result) {
                 localStorage.setItem('scanResult', JSON.stringify(userData.scan_result));
@@ -756,19 +790,27 @@
               console.log('📡 Dispatching userDataSynced event...');
               window.dispatchEvent(new CustomEvent('userDataSynced'));
             } else {
-              console.log('📤 Local data is newer and has meaningful content, syncing to remote');
-              // Only push local data to remote if it has meaningful content
-              if (hasLocalData) {
-                await syncAllDataToSupabase();
-                console.log('✅ Local data synced to remote successfully');
+              if (remoteOnly) {
+                console.log('🔒 Remote-only mode active; skipping local-to-remote sync.');
               } else {
-                console.log('⚠️ Local data is empty/default, skipping sync to prevent data loss');
+                console.log('📤 Local data is newer and has meaningful content, syncing to remote');
+                // Only push local data to remote if it has meaningful content
+                if (hasLocalData) {
+                  await syncAllDataToSupabase();
+                  console.log('✅ Local data synced to remote successfully');
+                } else {
+                  console.log('⚠️ Local data is empty/default, skipping sync to prevent data loss');
+                }
               }
             }
           } else {
-            console.log('No user document found, creating new one');
-            // Create comprehensive initial user document
-            await createInitialUserDocument(effectiveUser);
+            if (remoteOnly) {
+              console.log('🔒 Remote-only mode: remote profile missing; not creating from local on sign-in.');
+            } else {
+              console.log('No user document found, creating new one');
+              // Create comprehensive initial user document
+              await createInitialUserDocument(effectiveUser);
+            }
           }
         } catch (error) {
           if (error.code === 'PERMISSION_DENIED') {
@@ -784,6 +826,11 @@
             }
           } else {
             console.error('Error syncing user data:', error);
+          }
+        } finally {
+          // Reset remote-only mode after one sync cycle
+          if (forceNextRemoteOnlyRef?.current) {
+            forceNextRemoteOnlyRef.current = false;
           }
         }
       };
@@ -820,16 +867,8 @@
                 // Ensure we have a valid session before creating user document
                 const { data: { session } } = await auth.getSession();
                 if (session?.user) {
-                  await db.upsertUser(data.user.id, {
-                    display_name: displayName,
-                    email,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    goals: JSON.parse(localStorage.getItem('goals') || '{}'),
-                    profile_picture: localStorage.getItem('profilePicture') || '',
-                    notifications_enabled: JSON.parse(localStorage.getItem('notificationsEnabled') || 'true')
-                  });
-                  console.log('✅ User document created in Supabase Database');
+                  await createInitialUserDocument(data.user);
+                  console.log('✅ Initial user document created from local storage (sign-up)');
                 } else {
                   console.log('⏳ User not fully authenticated yet, will retry later');
                 }
@@ -986,6 +1025,11 @@
         
         if (!supabase) {
           console.log('Supabase Database not available, data saved locally only');
+          return;
+        }
+        // Prevent writes during remote-only sign-in fetch
+        if (forceNextRemoteOnlyRef?.current) {
+          console.log('🔒 Remote-only mode active: skipping updateUserData to avoid overwriting remote during sign-in');
           return;
         }
         
@@ -1314,6 +1358,11 @@
 
       const syncAllDataToSupabase = async () => {
         if (!user || !supabase) return;
+        // Prevent bulk push during remote-only sign-in fetch
+        if (forceNextRemoteOnlyRef?.current) {
+          console.log('🔒 Remote-only mode active: skipping syncAllDataToSupabase during sign-in');
+          return;
+        }
         
         try {
           const currentTimestamp = new Date().toISOString();
@@ -8895,7 +8944,7 @@ User's question: "${userMessage.text}"`;
                     <div className="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-2xl">
                       <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">📋 Recent Workouts</h4>
                       <div className="space-y-2 max-h-40 overflow-y-auto">
-                        {workoutHistory.slice(-5).reverse().map((workout, index) => (
+                        {[...workoutHistory].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).slice(0, 5).map((workout, index) => (
                           <div key={index} className="flex justify-between items-center p-3 bg-white dark:bg-gray-600 rounded-lg text-xs">
                             <div className="flex-1">
                               <div className="font-medium text-gray-800 dark:text-gray-200">{workout.workoutTitle}</div>
