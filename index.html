@@ -424,6 +424,12 @@
           } else {
             console.log('User signed out');
           }
+          // Surface password recovery flow even if URL lacks type=recovery
+          if (event === 'PASSWORD_RECOVERY') {
+            try {
+              window.dispatchEvent(new CustomEvent('supabase-password-recovery', { detail: { session } }));
+            } catch (_) { /* no-op */ }
+          }
         });
 
         return () => {
@@ -1777,47 +1783,53 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         }
       }, []);
 
+      // Open reset modal if Supabase notifies PASSWORD_RECOVERY (fallback to event)
+      useEffect(() => {
+        const handler = () => setShowResetModal(true);
+        window.addEventListener('supabase-password-recovery', handler);
+        return () => window.removeEventListener('supabase-password-recovery', handler);
+      }, []);
+
       // Handle Supabase auth links (email confirmation and password recovery)
       useEffect(() => {
         if (!auth) return;
         const url = new URL(window.location.href);
-        const code = url.searchParams.get('code');
-        const type = url.searchParams.get('type'); // 'recovery' when coming from reset email
+        // Support both query (?code=) and hash (#access_token=) styles
+        const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
+        const hashParams = new URLSearchParams(hash);
+        const searchParams = url.searchParams;
+
+        const code = searchParams.get('code') || hashParams.get('code');
+        const type = searchParams.get('type') || hashParams.get('type'); // 'recovery' when coming from reset email
+        const accessToken = hashParams.get('access_token');
+        const refreshToken = hashParams.get('refresh_token');
 
         (async () => {
-          let sessionEstablished = false;
-          
           try {
-            // For all Supabase auth links, exchange the PKCE code for a session
+            // For all Supabase auth links, establish a session
             if (code) {
-              const { data, error } = await auth.exchangeCodeForSession({ code });
-              if (error) {
-                console.error('exchangeCodeForSession error:', error.message);
-              } else if (data?.session) {
-                sessionEstablished = true;
-                console.log('Session established successfully');
-              }
-              url.searchParams.delete('code');
+              const { error } = await auth.exchangeCodeForSession({ code });
+              if (error) console.error('exchangeCodeForSession error:', error.message);
+              searchParams.delete('code');
+            } else if (accessToken && refreshToken) {
+              // Hash flow: set session directly
+              const { error } = await auth.setSession({
+                access_token: accessToken,
+                refresh_token: refreshToken
+              });
+              if (error) console.error('setSession error:', error.message);
             }
-          } catch (error) {
-            console.error('Error during session exchange:', error);
-          }
-          
-          // Clean URL first
-          url.searchParams.delete('type');
-          const clean = url.origin + url.pathname + (url.searchParams.toString() ? `?${url.searchParams.toString()}` : '');
-          window.history.replaceState({}, document.title, clean);
-          
-          // If this was a password recovery link and session is established, open Reset modal
-          if (type === 'recovery') {
-            if (sessionEstablished || code) {
-              // Wait a bit for auth state to propagate
-              setTimeout(() => {
-                setShowResetModal(true);
-              }, 500);
-            } else {
-              console.error('Cannot open reset modal: no valid session');
-              alert('Session expired. Please request a new password reset link.');
+          } finally {
+            // If this was a password recovery link, open Reset modal
+            if (type === 'recovery') {
+              setShowResetModal(true);
+              searchParams.delete('type');
+            }
+            // Clean URL (remove hash and processed params)
+            const clean = url.origin + url.pathname + (searchParams.toString() ? `?${searchParams.toString()}` : '');
+            window.history.replaceState({}, document.title, clean);
+            if (window.location.hash) {
+              window.location.hash = '';
             }
           }
         })();
@@ -4728,87 +4740,47 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
 
     // Reset Password Modal Component
     const ResetPasswordModal = ({ onClose }) => {
-      const { user, auth } = useAuth();
       const [password, setPassword] = React.useState('');
       const [confirm, setConfirm] = React.useState('');
       const [error, setError] = React.useState('');
       const [loading, setLoading] = React.useState(false);
       const [done, setDone] = React.useState(false);
-      const [checkingSession, setCheckingSession] = React.useState(true);
 
-      // Check if we have a valid session when modal opens
+      // Proactively verify we have a valid recovery session
       React.useEffect(() => {
-        const checkSession = async () => {
+        (async () => {
           try {
-            if (!auth) {
-              setError('Authentication service not available.');
-              setCheckingSession(false);
-              return;
+            const { data: { session } } = await auth.getSession();
+            if (!session) {
+              setError('Auth session missing! Please open the password reset link from your email again.');
             }
-            
-            const { data: { session }, error } = await auth.getSession();
-            if (error || !session) {
-              setError('Auth session missing! Please request a new password reset link.');
-            }
-          } catch (err) {
-            setError('Failed to verify session. Please try again.');
-          } finally {
-            setCheckingSession(false);
+          } catch (_) {
+            // ignore
           }
-        };
-        
-        checkSession();
-      }, [auth]);
+        })();
+      }, []);
 
       const handleSubmit = async (e) => {
         e.preventDefault();
         setError('');
-        
-        // Validate password requirements
         if (password.length < 8) {
-          setError('Password must be at least 8 characters long.');
-          return;
-        }
-        if (!/[A-Z]/.test(password)) {
-          setError('Password must contain at least one uppercase letter.');
-          return;
-        }
-        if (!/[a-z]/.test(password)) {
-          setError('Password must contain at least one lowercase letter.');
-          return;
-        }
-        if (!/[0-9]/.test(password)) {
-          setError('Password must contain at least one number.');
-          return;
-        }
-        if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
-          setError('Password must contain at least one special character.');
+          setError('Use at least 8 characters.');
           return;
         }
         if (password !== confirm) {
           setError('Passwords do not match.');
           return;
         }
-        
         setLoading(true);
         try {
-          if (!auth) {
-            throw new Error('Authentication service not available.');
-          }
-          
-          // Double-check session before updating
+          // Ensure we have a valid session from the recovery link
           const { data: { session } } = await auth.getSession();
-          if (!session) {
-            throw new Error('No active session. Please request a new password reset link.');
-          }
-          
+          if (!session) throw new Error('Auth session missing! Please open the password reset link from your email again.');
           const { error } = await auth.updateUser({ password });
           if (error) throw error;
-          
           setDone(true);
           setTimeout(onClose, 1500);
         } catch (err) {
-          console.error('Password update error:', err);
           setError(err?.message || 'Failed to update password.');
         } finally {
           setLoading(false);
@@ -4823,26 +4795,10 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
               <button onClick={onClose} className="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 text-2xl font-bold">×</button>
             </div>
 
-            {checkingSession ? (
-              <div className="text-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-pink-500 mx-auto mb-4"></div>
-                <p className="text-gray-700 dark:text-gray-300">Verifying session...</p>
-              </div>
-            ) : done ? (
+            {done ? (
               <div className="text-center">
                 <div className="text-4xl mb-2">✅</div>
                 <p className="text-gray-700 dark:text-gray-300">Password updated. You're signed in.</p>
-              </div>
-            ) : error && error.includes('Auth session missing') ? (
-              <div className="text-center py-4">
-                <div className="text-4xl mb-2">⚠️</div>
-                <p className="text-gray-700 dark:text-gray-300 mb-4">{error}</p>
-                <button
-                  onClick={onClose}
-                  className="bg-gray-500 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-xl"
-                >
-                  Close
-                </button>
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-4">
@@ -4853,34 +4809,9 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
                     className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter your new password"
+                    placeholder="At least 8 characters"
                     required
                   />
-                  <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
-                    <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">Password requirements:</p>
-                    <div className="space-y-1 text-xs">
-                      <div className={`flex items-center ${password.length >= 8 ? 'text-green-600 dark:text-green-400' : 'text-gray-500 dark:text-gray-400'}`}>
-                        <span className="mr-2">{password.length >= 8 ? '✓' : '✗'}</span>
-                        At least 8 characters
-                      </div>
-                      <div className={`flex items-center ${/[A-Z]/.test(password) ? 'text-green-600 dark:text-green-400' : 'text-gray-500 dark:text-gray-400'}`}>
-                        <span className="mr-2">{/[A-Z]/.test(password) ? '✓' : '✗'}</span>
-                        One uppercase letter
-                      </div>
-                      <div className={`flex items-center ${/[a-z]/.test(password) ? 'text-green-600 dark:text-green-400' : 'text-gray-500 dark:text-gray-400'}`}>
-                        <span className="mr-2">{/[a-z]/.test(password) ? '✓' : '✗'}</span>
-                        One lowercase letter
-                      </div>
-                      <div className={`flex items-center ${/[0-9]/.test(password) ? 'text-green-600 dark:text-green-400' : 'text-gray-500 dark:text-gray-400'}`}>
-                        <span className="mr-2">{/[0-9]/.test(password) ? '✓' : '✗'}</span>
-                        One number
-                      </div>
-                      <div className={`flex items-center ${/[!@#$%^&*(),.?":{}|<>]/.test(password) ? 'text-green-600 dark:text-green-400' : 'text-gray-500 dark:text-gray-400'}`}>
-                        <span className="mr-2">{/[!@#$%^&*(),.?":{}|<>]/.test(password) ? '✓' : '✗'}</span>
-                        One special character
-                      </div>
-                    </div>
-                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Confirm password</label>
@@ -4892,14 +4823,14 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
                     required
                   />
                 </div>
-                {error && !error.includes('Auth session missing') && (
+                {error && (
                   <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-700 dark:text-red-300">
                     {error}
                   </div>
                 )}
                 <button
                   type="submit"
-                  disabled={loading || error}
+                  disabled={loading}
                   className="w-full bg-pink-500 hover:bg-pink-600 disabled:bg-gray-400 text-white font-semibold py-3 rounded-xl"
                 >
                   {loading ? 'Updating...' : 'Update Password'}
