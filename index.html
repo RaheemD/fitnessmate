@@ -606,18 +606,41 @@
                 console.log('✅ Notifications setting synced to localStorage');
               }
               
-              // Sync additional user data
+              // Sync additional user data (guard to avoid overwriting fresh local rollover)
               if (userData.daily_intake) {
-                localStorage.setItem('dailyIntake', JSON.stringify(userData.daily_intake));
-                console.log('✅ Daily intake synced to localStorage');
+                try {
+                  const todayISO = toLocalISODate(new Date());
+                  const localIntakeDate = localStorage.getItem('dailyIntakeDate');
+                  const lastSaved = localStorage.getItem('lastSavedDate');
+                  const rolledToToday = localIntakeDate === todayISO && lastSaved === todayISO;
+                  const localIntake = (() => { try { return JSON.parse(localStorage.getItem('dailyIntake')||'{}'); } catch { return {}; } })();
+                  const localIsZero = ['calories','protein','carbs','fat','activity','water'].every(k => Number(localIntake[k]||0) === 0);
+                  const remoteHasNonZero = ['calories','protein','carbs','fat','activity','water'].some(k => Number(userData.daily_intake?.[k]||0) > 0);
+                  if (rolledToToday && localIsZero && remoteHasNonZero) {
+                    console.log('⏭️ Skipping remote daily_intake to prevent post-rollover flicker');
+                  } else {
+                    localStorage.setItem('dailyIntake', JSON.stringify(userData.daily_intake));
+                    console.log('✅ Daily intake synced to localStorage');
+                  }
+                } catch (_) {
+                  localStorage.setItem('dailyIntake', JSON.stringify(userData.daily_intake));
+                  console.log('✅ Daily intake synced to localStorage');
+                }
               }
               if (userData.recent_meals) {
                 localStorage.setItem('recentMeals', JSON.stringify(userData.recent_meals));
                 console.log('✅ Recent meals synced to localStorage');
               }
               if (userData.daily_history) {
-                localStorage.setItem('dailyHistory', JSON.stringify(userData.daily_history));
-                console.log('✅ Daily history synced to localStorage');
+                try {
+                  const localDH = JSON.parse(localStorage.getItem('dailyHistory') || '{}') || {};
+                  const merged = { ...localDH, ...userData.daily_history };
+                  localStorage.setItem('dailyHistory', JSON.stringify(merged));
+                  console.log('✅ Daily history merged to localStorage');
+                } catch (_) {
+                  localStorage.setItem('dailyHistory', JSON.stringify(userData.daily_history));
+                  console.log('✅ Daily history synced to localStorage');
+                }
               }
               if (userData.coach_messages) {
                 localStorage.setItem('coachMessages', JSON.stringify(userData.coach_messages));
@@ -1383,9 +1406,34 @@
               if (remoteData.profile_picture) localStorage.setItem('profilePicture', remoteData.profile_picture);
               if (remoteData.notifications_enabled !== undefined) localStorage.setItem('notificationsEnabled', JSON.stringify(remoteData.notifications_enabled));
               // Skip syncing dark_mode from remote - it's a local UI preference
-              if (remoteData.daily_intake) localStorage.setItem('dailyIntake', JSON.stringify(remoteData.daily_intake));
+              if (remoteData.daily_intake) {
+                try {
+                  const todayISO = toLocalISODate(new Date());
+                  const localIntakeDate = localStorage.getItem('dailyIntakeDate');
+                  const lastSaved = localStorage.getItem('lastSavedDate');
+                  const rolledToToday = localIntakeDate === todayISO && lastSaved === todayISO;
+                  const localIntake = (() => { try { return JSON.parse(localStorage.getItem('dailyIntake')||'{}'); } catch { return {}; } })();
+                  const localIsZero = ['calories','protein','carbs','fat','activity','water'].every(k => Number(localIntake[k]||0) === 0);
+                  const remoteHasNonZero = ['calories','protein','carbs','fat','activity','water'].some(k => Number(remoteData.daily_intake?.[k]||0) > 0);
+                  if (rolledToToday && localIsZero && remoteHasNonZero) {
+                    console.log('⏭️ Skipping remote daily_intake (initial fetch) to prevent post-rollover flicker');
+                  } else {
+                    localStorage.setItem('dailyIntake', JSON.stringify(remoteData.daily_intake));
+                  }
+                } catch (_) {
+                  localStorage.setItem('dailyIntake', JSON.stringify(remoteData.daily_intake));
+                }
+              }
               if (remoteData.recent_meals) localStorage.setItem('recentMeals', JSON.stringify(remoteData.recent_meals));
-              if (remoteData.daily_history) localStorage.setItem('dailyHistory', JSON.stringify(remoteData.daily_history));
+              if (remoteData.daily_history) {
+                try {
+                  const localDH = JSON.parse(localStorage.getItem('dailyHistory') || '{}') || {};
+                  const merged = { ...localDH, ...remoteData.daily_history };
+                  localStorage.setItem('dailyHistory', JSON.stringify(merged));
+                } catch (_) {
+                  localStorage.setItem('dailyHistory', JSON.stringify(remoteData.daily_history));
+                }
+              }
               if (remoteData.coach_messages) localStorage.setItem('coachMessages', JSON.stringify(remoteData.coach_messages));
               if (remoteData.habit_ai_advice) localStorage.setItem('habitAIAdvice', remoteData.habit_ai_advice);
               if (remoteData.habits) localStorage.setItem('habits', JSON.stringify(remoteData.habits));
@@ -1783,6 +1831,59 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         }
       }, []);
 
+      // Timezone-aware rollover guard: checks every 60s if day changed in selected timezone
+      useEffect(() => {
+        const interval = setInterval(() => {
+          try {
+            const todayISO = toLocalISODate(new Date());
+            const lastSaved = localStorage.getItem('lastSavedDate');
+            const intakeDate = localStorage.getItem('dailyIntakeDate');
+
+            // Determine earliest start date among lastSaved and intakeDate
+            let startISO = null;
+            if (lastSaved && lastSaved !== todayISO) startISO = lastSaved;
+            if (intakeDate && intakeDate !== todayISO) startISO = startISO ? (startISO < intakeDate ? startISO : intakeDate) : intakeDate;
+
+            if (startISO) {
+              const zero = { calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0 };
+              const savedGoals = JSON.parse(localStorage.getItem('goals') || 'null') || defaultGoals;
+              const oldIntake = JSON.parse(localStorage.getItem('dailyIntake') || JSON.stringify(zero));
+              const oldMeals = JSON.parse(localStorage.getItem('recentMeals') || '[]');
+
+              // Archive all missing days inclusively from startISO to yesterday
+              const toDate = (iso) => { const [y,m,d] = (iso||'').split('-').map(Number); return new Date(y||0,(m||1)-1,d||1); };
+              const updates = {};
+              let cursor = toDate(startISO);
+              while (true) {
+                const key = toLocalISODate(cursor);
+                if (key === todayISO) break;
+                const isFirst = key === intakeDate;
+                const intake = isFirst ? oldIntake : zero;
+                const meals = isFirst ? oldMeals : [];
+                const { score, components } = computeHealthScoreForDate(intake, savedGoals, key);
+                updates[key] = { intake, meals, score, components };
+                cursor.setDate(cursor.getDate() + 1);
+              }
+
+              if (Object.keys(updates).length > 0) {
+                setDailyHistory(prev => ({
+                  ...prev,
+                  ...Object.fromEntries(Object.entries(updates).filter(([k]) => !prev[k]))
+                }));
+              }
+
+              // Start fresh day
+              setDailyIntake(zero);
+              setRecentMeals([]);
+              localStorage.setItem('lastSavedDate', todayISO);
+              localStorage.setItem('dailyIntakeDate', todayISO);
+              try { if (user) syncDailyIntake(zero); } catch (_) {}
+            }
+          } catch (_) { /* no-op */ }
+        }, 60000);
+        return () => clearInterval(interval);
+      }, []);
+
       // Open reset modal if Supabase notifies PASSWORD_RECOVERY (fallback to event)
       useEffect(() => {
         const handler = () => setShowResetModal(true);
@@ -1856,8 +1957,22 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
           const savedIntake = localStorage.getItem('dailyIntake');
           if (savedIntake) {
             const intakeData = JSON.parse(savedIntake);
-            setDailyIntake(intakeData);
-            console.log('✅ Daily intake synced:', intakeData);
+            // Guard: if rollover not finalized, do not apply potentially stale intake
+            try {
+              const todayISO = toLocalISODate(new Date());
+              const localIntakeDate = localStorage.getItem('dailyIntakeDate');
+              const lastSaved = localStorage.getItem('lastSavedDate');
+              const rolledComplete = localIntakeDate === todayISO && lastSaved === todayISO;
+              if (!rolledComplete) {
+                console.log('⏭️ Skipping setDailyIntake from userDataSynced until rollover completes');
+              } else {
+                setDailyIntake(intakeData);
+                console.log('✅ Daily intake synced:', intakeData);
+              }
+            } catch (_) {
+              setDailyIntake(intakeData);
+              console.log('✅ Daily intake synced:', intakeData);
+            }
           }
           
           const savedMeals = localStorage.getItem('recentMeals');
@@ -1869,7 +1984,26 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
           
           const savedHistory = localStorage.getItem('dailyHistory');
           if (savedHistory) {
-            const historyData = JSON.parse(savedHistory);
+            let historyData = JSON.parse(savedHistory);
+            // Ensure yesterday placeholder (0) exists if missing
+            try {
+              const todayISO = toLocalISODate(new Date());
+              const y = new Date(); y.setDate(y.getDate() - 1);
+              const yISO = toLocalISODate(y);
+              if (!historyData[yISO] && yISO !== todayISO) {
+                historyData = {
+                  ...historyData,
+                  [yISO]: {
+                    intake: { calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0 },
+                    meals: [],
+                    score: 0,
+                    components: { nutrition: 0, activity: 0, workout: 0, hydration: 0 }
+                  }
+                };
+                localStorage.setItem('dailyHistory', JSON.stringify(historyData));
+                console.log('🛠️ Added zero placeholder for yesterday in userDataSynced:', yISO);
+              }
+            } catch (_) {}
             setDailyHistory(historyData);
             console.log('✅ Daily history synced:', historyData);
           }
@@ -1904,8 +2038,31 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       });
 
       const [dailyIntake, setDailyIntake] = useState(() => {
-        const savedIntake = localStorage.getItem('dailyIntake');
-        return savedIntake ? JSON.parse(savedIntake) : { calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0 };
+        try {
+          const zero = { calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0 };
+          const today = toLocalISODate(new Date());
+          const lastSaved = localStorage.getItem('lastSavedDate');
+          const intakeDate = localStorage.getItem('dailyIntakeDate');
+          const savedIntake = localStorage.getItem('dailyIntake');
+
+          // First launch on this device
+          if (!lastSaved) {
+            localStorage.setItem('lastSavedDate', today);
+            localStorage.setItem('dailyIntakeDate', today);
+            return savedIntake ? JSON.parse(savedIntake) : zero;
+          }
+
+          // If day changed in selected timezone, show zero immediately to avoid flicker,
+          // but DO NOT mutate dailyIntake here (archiving effect needs the old values).
+          if ((lastSaved && lastSaved !== today) || (intakeDate && intakeDate !== today)) {
+            try { localStorage.setItem('dailyIntakeDate', today); } catch (_) {}
+            return zero;
+          }
+
+          return savedIntake ? JSON.parse(savedIntake) : zero;
+        } catch (_) {
+          return { calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0 };
+        }
       });
 
       const [recentMeals, setRecentMeals] = useState(() => {
@@ -1920,31 +2077,83 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
 
       // --- Data Archiving Logic (on mount) ---
       useEffect(() => {
-        const lastSavedDate = localStorage.getItem('lastSavedDate');
         const today = toLocalISODate(new Date());
+        const lastSavedDate = localStorage.getItem('lastSavedDate');
+        const intakeDate = localStorage.getItem('dailyIntakeDate');
 
-        if (lastSavedDate && lastSavedDate !== today) {
-          const oldIntake = JSON.parse(localStorage.getItem('dailyIntake') || '{"calories":0,"protein":0,"carbs":0,"fat":0,"activity":0,"water":0}');
-          const oldMeals = JSON.parse(localStorage.getItem('recentMeals') || '[]');
+        // First run: initialize and exit
+        if (!lastSavedDate) {
+          localStorage.setItem('lastSavedDate', today);
+          localStorage.setItem('dailyIntakeDate', today);
+          return;
+        }
+
+        // Determine earliest date we may need to archive from
+        let startISO = null;
+        if (lastSavedDate && lastSavedDate !== today) startISO = lastSavedDate;
+        if (intakeDate && intakeDate !== today) startISO = startISO ? (startISO < intakeDate ? startISO : intakeDate) : intakeDate;
+
+        if (startISO) {
+          // Archive every missing day between startISO (inclusive) and yesterday (inclusive)
+          const toDate = (iso) => {
+            const [y, m, d] = iso.split('-').map(Number);
+            return new Date(y, m - 1, d);
+          };
+          const zeroIntake = { calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0 };
           const savedGoals = JSON.parse(localStorage.getItem('goals') || 'null') || defaultGoals;
-          const { score, components } = computeHealthScoreForDate(oldIntake, savedGoals, lastSavedDate);
+          const oldIntake = JSON.parse(localStorage.getItem('dailyIntake') || JSON.stringify(zeroIntake));
+          const oldMeals = JSON.parse(localStorage.getItem('recentMeals') || '[]');
 
-          setDailyHistory(prevHistory => ({
-            ...prevHistory,
-            [lastSavedDate]: {
-              intake: oldIntake,
-              meals: oldMeals,
-              score,
-              components,
-            }
-          }));
+          const updates = {};
+          let cursor = toDate(startISO);
+          while (true) {
+            const key = toLocalISODate(cursor);
+            if (key === today) break; // stop before today
+
+            // First missed day equal to intakeDate uses oldIntake/oldMeals; others use zeros
+            const isFirst = key === intakeDate;
+            const intakeForDay = isFirst ? oldIntake : zeroIntake;
+            const mealsForDay = isFirst ? oldMeals : [];
+            const { score, components } = computeHealthScoreForDate(intakeForDay, savedGoals, key);
+            updates[key] = { intake: intakeForDay, meals: mealsForDay, score, components };
+
+            cursor.setDate(cursor.getDate() + 1);
+          }
+
+          if (Object.keys(updates).length > 0) {
+            setDailyHistory(prev => ({
+              ...prev,
+              // do not overwrite days that may already exist
+              ...Object.fromEntries(Object.entries(updates).filter(([k]) => !prev[k]))
+            }));
+          }
 
           // Reset for the new day
-          setDailyIntake({ calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0 });
+          setDailyIntake(zeroIntake);
           setRecentMeals([]);
+          localStorage.setItem('dailyIntakeDate', today);
+          // Proactively sync zero to remote to avoid backfill flicker from old remote value
+          try { if (user) syncDailyIntake(zeroIntake); } catch (_) {}
+        } else {
+          // Fallback: ensure yesterday exists with a zero placeholder if missing
+          try {
+            const zeroIntake = { calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0 };
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yISO = toLocalISODate(yesterday);
+            const hasEntry = (() => { try { return !!(JSON.parse(localStorage.getItem('dailyHistory') || '{}') || {})[yISO]; } catch { return false; } })();
+            if (!hasEntry && yISO !== today) {
+              setDailyHistory(prev => ({ 
+                ...prev, 
+                [yISO]: { intake: zeroIntake, meals: [], score: 0, components: { nutrition: 0, activity: 0, workout: 0, hydration: 0 } } 
+              }));
+              console.log('🛠️ Added zero placeholder for yesterday', yISO);
+            }
+          } catch (_) { /* no-op */ }
         }
 
         localStorage.setItem('lastSavedDate', today);
+        localStorage.setItem('dailyIntakeDate', today);
       }, []);
 
       // Schedule end-of-day archiving at local midnight while app is open
@@ -2013,9 +2222,37 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
             if (userData.profile_picture) localStorage.setItem('profilePicture', userData.profile_picture);
             if (userData.notifications_enabled !== undefined) localStorage.setItem('notificationsEnabled', JSON.stringify(userData.notifications_enabled));
             // Skip syncing dark_mode from remote - it's a local UI preference
-            if (userData.daily_intake) localStorage.setItem('dailyIntake', JSON.stringify(userData.daily_intake));
+            if (userData.daily_intake) {
+              // Guard: if we've rolled over to today and local intake is zero,
+              // skip applying a non-zero remote value to prevent flicker.
+              try {
+                const todayISO = toLocalISODate(new Date());
+                const localIntakeDate = localStorage.getItem('dailyIntakeDate');
+                const lastSaved = localStorage.getItem('lastSavedDate');
+                const rolledToToday = localIntakeDate === todayISO && lastSaved === todayISO;
+                const localIntake = (() => { try { return JSON.parse(localStorage.getItem('dailyIntake')||'{}'); } catch { return {}; } })();
+                const localIsZero = ['calories','protein','carbs','fat','activity','water'].every(k => Number(localIntake[k]||0) === 0);
+                const remoteHasNonZero = ['calories','protein','carbs','fat','activity','water'].some(k => Number(userData.daily_intake?.[k]||0) > 0);
+                if (rolledToToday && localIsZero && remoteHasNonZero) {
+                  console.log('⏭️ Realtime: skipping remote daily_intake to avoid post-rollover flicker');
+                } else {
+                  localStorage.setItem('dailyIntake', JSON.stringify(userData.daily_intake));
+                }
+              } catch (_) {
+                localStorage.setItem('dailyIntake', JSON.stringify(userData.daily_intake));
+              }
+            }
             if (userData.recent_meals) localStorage.setItem('recentMeals', JSON.stringify(userData.recent_meals));
-            if (userData.daily_history) localStorage.setItem('dailyHistory', JSON.stringify(userData.daily_history));
+            if (userData.daily_history) {
+              // Merge remote history with local to preserve locally archived/missed days
+              try {
+                const localDH = JSON.parse(localStorage.getItem('dailyHistory') || '{}') || {};
+                const mergedDH = { ...localDH, ...userData.daily_history };
+                localStorage.setItem('dailyHistory', JSON.stringify(mergedDH));
+              } catch (_) {
+                localStorage.setItem('dailyHistory', JSON.stringify(userData.daily_history));
+              }
+            }
             if (userData.coach_messages) localStorage.setItem('coachMessages', JSON.stringify(userData.coach_messages));
             if (userData.habit_ai_advice) localStorage.setItem('habitAIAdvice', userData.habit_ai_advice);
             if (userData.habits) localStorage.setItem('habits', JSON.stringify(userData.habits));
@@ -2041,6 +2278,8 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       
       useEffect(() => { 
         localStorage.setItem('dailyIntake', JSON.stringify(dailyIntake));
+        // Track which day this intake belongs to (timezone-aware)
+        try { localStorage.setItem('dailyIntakeDate', toLocalISODate(new Date())); } catch (_) {}
         if (user && !isRemoteSyncRef.current) {
           // Avoid pushing default/zero intake on fresh sessions before initial remote sync
           if (!initialSyncCompletedRef.current && !hadDailyIntakeAtStartRef.current && isDefaultIntake(dailyIntake)) {
@@ -8873,13 +9112,8 @@ User's question: "${userMessage.text}"`;
         }
       });
 
-      // Helper function to get local date string
-      const getLocalDateString = (date) => {
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
-      };
+      // Helper: use shared timezone-aware formatter so calendar keys match archive keys
+      const getLocalDateString = (date) => toLocalISODate(date);
 
       // Save habits to localStorage and sync with Firebase whenever they change
       useEffect(() => {
@@ -8964,8 +9198,11 @@ User's question: "${userMessage.text}"`;
       const getMonthlyStats = () => {
         let monthData = Object.entries(dailyHistory)
           .filter(([date]) => {
-            const d = new Date(date);
-            return d.getMonth() === currentDate.getMonth() && d.getFullYear() === currentDate.getFullYear();
+            // Parse YYYY-MM-DD as local time to avoid UTC shift issues
+            const [y, m, d] = (date || '').split('-').map(Number);
+            if (!y || !m || !d) return false;
+            const local = new Date(y, m - 1, d);
+            return local.getMonth() === currentDate.getMonth() && local.getFullYear() === currentDate.getFullYear();
           })
           .map(([_, data]) => data);
 
