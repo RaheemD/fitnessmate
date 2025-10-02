@@ -1003,7 +1003,9 @@
         
         setAuthError(null);
         try {
-          const { error } = await auth.resetPasswordForEmail(email);
+          const { error } = await auth.resetPasswordForEmail(email, {
+            redirectTo: 'https://fitnessmate.netlify.app/?type=recovery'
+          });
           if (error) throw error;
           return true;
         } catch (error) {
@@ -1729,6 +1731,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         return savedAdvice || '';
       });
       const [isLoadingAdvice, setIsLoadingAdvice] = useState(false);
+      const [showResetModal, setShowResetModal] = useState(false);
 
       // Add these new AI states:
       const [scanResult, setScanResult] = useState(() => {
@@ -1772,6 +1775,33 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         if ('Notification' in window && Notification.permission === 'default') {
           Notification.requestPermission();
         }
+      }, []);
+
+      // Handle Supabase auth links (email confirmation and password recovery)
+      useEffect(() => {
+        if (!auth) return;
+        const url = new URL(window.location.href);
+        const code = url.searchParams.get('code');
+        const type = url.searchParams.get('type'); // 'recovery' when coming from reset email
+
+        (async () => {
+          try {
+            // For all Supabase auth links, exchange the PKCE code for a session
+            if (code) {
+              const { error } = await auth.exchangeCodeForSession({ code });
+              if (error) console.error('exchangeCodeForSession error:', error.message);
+              url.searchParams.delete('code');
+            }
+          } finally {
+            // If this was a password recovery link, open Reset modal
+            if (type === 'recovery') {
+              setShowResetModal(true);
+              url.searchParams.delete('type');
+            }
+            const clean = url.origin + url.pathname + (url.searchParams.toString() ? `?${url.searchParams.toString()}` : '');
+            window.history.replaceState({}, document.title, clean);
+          }
+        })();
       }, []);
 
       // Persist current screen state
@@ -2277,6 +2307,9 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
             {renderScreen()}
           </main>
           {screen !== null && <BottomNavBar screen={screen} setScreen={setScreen} />}
+          {showResetModal && (
+            <ResetPasswordModal onClose={() => setShowResetModal(false)} />
+          )}
         </div>
       );
     }
@@ -4673,6 +4706,93 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
     };
 
 
+
+    // Reset Password Modal Component
+    const ResetPasswordModal = ({ onClose }) => {
+      const [password, setPassword] = React.useState('');
+      const [confirm, setConfirm] = React.useState('');
+      const [error, setError] = React.useState('');
+      const [loading, setLoading] = React.useState(false);
+      const [done, setDone] = React.useState(false);
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setError('');
+        if (password.length < 8) {
+          setError('Use at least 8 characters.');
+          return;
+        }
+        if (password !== confirm) {
+          setError('Passwords do not match.');
+          return;
+        }
+        setLoading(true);
+        try {
+          const { error } = await auth.updateUser({ password });
+          if (error) throw error;
+          setDone(true);
+          setTimeout(onClose, 1500);
+        } catch (err) {
+          setError(err?.message || 'Failed to update password.');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold text-gray-800 dark:text-gray-200">Reset Password</h3>
+              <button onClick={onClose} className="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 text-2xl font-bold">×</button>
+            </div>
+
+            {done ? (
+              <div className="text-center">
+                <div className="text-4xl mb-2">✅</div>
+                <p className="text-gray-700 dark:text-gray-300">Password updated. You're signed in.</p>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">New password</label>
+                  <input
+                    type="password"
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="At least 8 characters"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Confirm password</label>
+                  <input
+                    type="password"
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200"
+                    value={confirm}
+                    onChange={(e) => setConfirm(e.target.value)}
+                    required
+                  />
+                </div>
+                {error && (
+                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-700 dark:text-red-300">
+                    {error}
+                  </div>
+                )}
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-pink-500 hover:bg-pink-600 disabled:bg-gray-400 text-white font-semibold py-3 rounded-xl"
+                >
+                  {loading ? 'Updating...' : 'Update Password'}
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      );
+    };
 
     // Account Modal Component
     const AccountModal = ({ user, onClose, onSignOut }) => {
