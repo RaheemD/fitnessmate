@@ -103,6 +103,45 @@
       from { opacity: 0; transform: translateY(10px); }
       to { opacity: 1; transform: translateY(0); }
     }
+
+    /* Merch teaser text with subtle glow and shadow */
+    .merch-teaser {
+      font-weight: 600;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.18), 0 0 10px rgba(236,72,153,0.25), 0 0 6px rgba(59,130,246,0.25);
+    }
+    .merch-teaser .twinkle-star {
+      display: inline-block;
+      margin: 0 6px;
+      animation: twinkle 1.2s ease-in-out infinite;
+    }
+    .merch-teaser .twinkle-star.delay { animation-delay: .6s; }
+    /* Starry overlay effect on the text itself */
+    .merch-teaser.starry { position: relative; }
+    .merch-teaser.starry::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      mix-blend-mode: screen;
+      background:
+        radial-gradient(circle at 12% 35%, rgba(255,255,255,0.9) 0, rgba(255,255,255,0.9) 1.5px, transparent 2.6px),
+        radial-gradient(circle at 28% 62%, rgba(255,255,255,0.8) 0, rgba(255,255,255,0.8) 1.2px, transparent 2.2px),
+        radial-gradient(circle at 56% 28%, rgba(255,255,255,0.85) 0, rgba(255,255,255,0.85) 1.2px, transparent 2.2px),
+        radial-gradient(circle at 74% 66%, rgba(255,255,255,0.8) 0, rgba(255,255,255,0.8) 1.2px, transparent 2.2px),
+        radial-gradient(circle at 88% 42%, rgba(255,255,255,0.85) 0, rgba(255,255,255,0.85) 1.2px, transparent 2.2px);
+      animation: sparkle 2.8s ease-in-out infinite;
+    }
+    /* Hard blink on/off for the whole line */
+    .merch-teaser.blink { animation: blinker 1.6s steps(2, start) infinite; }
+    @keyframes blinker { 0% { opacity: 1; } 50% { opacity: 0; } 100% { opacity: 1; } }
+    @keyframes sparkle {
+      0%, 100% { opacity: .45; filter: brightness(1); }
+      50% { opacity: 1; filter: brightness(1.25); }
+    }
+    @keyframes twinkle {
+      0%, 100% { opacity: 0.35; transform: scale(0.9); filter: drop-shadow(0 0 0 rgba(255,255,255,0)); }
+      50% { opacity: 1; transform: scale(1.1); filter: drop-shadow(0 0 6px rgba(255,215,0,0.9)); }
+    }
   </style>
 </head>
 <body class="bg-gray-50 dark:bg-gray-900">
@@ -148,6 +187,220 @@
           } else {
             console.warn('setLocalStorageWithSync stub store failed:', error);
           }
+        }
+      };
+
+      // Enhanced multi-frame analysis for better accuracy on uploads
+      const enhancedAnalyzeForm = async (videoBlob) => {
+        setIsLoading(true);
+        setError(null);
+        try {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d', { willReadFrequently: true });
+          const video = document.createElement('video');
+          video.src = URL.createObjectURL(videoBlob);
+          video.muted = true;
+          video.playsInline = true;
+
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Video processing timeout')), 30000));
+
+          const loadMeta = new Promise((resolve, reject) => {
+            video.onloadedmetadata = () => resolve(true);
+            video.onerror = () => reject(new Error('Failed to load video metadata'));
+            try { video.load(); } catch (_) {}
+          });
+
+          await Promise.race([loadMeta, timeoutPromise]);
+          if (!video.videoWidth || !video.videoHeight) throw new Error('Invalid video dimensions');
+
+          const duration = Math.max(0.5, isFinite(video.duration) ? video.duration : 3);
+          const times = Array.from({ length: 4 }, (_, i) => Math.min(duration - 0.1, Math.max(0.1, ((i + 1) / 5) * duration)));
+
+          const seekTo = (t) => new Promise((resolve, reject) => {
+            const onSeeked = () => { video.removeEventListener('seeked', onSeeked); resolve(true); };
+            const onError = () => { video.removeEventListener('error', onError); reject(new Error('Failed to seek video')); };
+            video.addEventListener('seeked', onSeeked, { once: true });
+            video.addEventListener('error', onError, { once: true });
+            try { video.currentTime = t; } catch (_) { reject(new Error('Seek failed')); }
+          });
+
+          const computeMetrics = (imageData, w, h) => {
+            const data = imageData.data;
+            const step = Math.max(1, Math.floor(Math.min(w, h) / 160));
+            let sumL = 0, count = 0;
+            const gray = new Float32Array(w * h);
+            for (let y = 0; y < h; y += step) {
+              for (let x = 0; x < w; x += step) {
+                const idx = (y * w + x) * 4;
+                const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+                const l = 0.299 * r + 0.587 * g + 0.114 * b;
+                gray[y * w + x] = l;
+                sumL += l; count++;
+              }
+            }
+            const meanL = sumL / Math.max(1, count) / 255; // 0..1
+            let sharpSum = 0, sCount = 0;
+            for (let y = step; y < h - step; y += step) {
+              for (let x = step; x < w - step; x += step) {
+                const rx = gray[y * w + (x + step)] - gray[y * w + (x - step)];
+                const ry = gray[(y + step) * w + x] - gray[(y - step) * w + x];
+                const mag = Math.abs(rx) + Math.abs(ry);
+                sharpSum += mag; sCount++;
+              }
+            }
+            const sharpness = (sharpSum / Math.max(1, sCount)) / 255; // normalized
+            return { brightness: meanL, sharpness };
+          };
+
+          const captureFrame = () => {
+            const maxSide = 640;
+            const scale = Math.min(1, maxSide / Math.max(video.videoWidth, video.videoHeight));
+            const w = Math.max(1, Math.floor(video.videoWidth * scale));
+            const h = Math.max(1, Math.floor(video.videoHeight * scale));
+            canvas.width = w; canvas.height = h;
+            ctx.drawImage(video, 0, 0, w, h);
+            const imgData = ctx.getImageData(0, 0, w, h);
+            const { brightness, sharpness } = computeMetrics(imgData, w, h);
+            const base64 = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+            return { base64, brightness, sharpness, w, h };
+          };
+
+          const frames = [];
+          for (const t of times) {
+            try {
+              await Promise.race([seekTo(t), timeoutPromise]);
+              frames.push({ t, ...captureFrame() });
+            } catch (e) { console.warn('Frame capture failed at', t, e); }
+          }
+
+          if (frames.length === 0) {
+            await Promise.race([seekTo(Math.min(duration / 2, duration - 0.1)), timeoutPromise]);
+            frames.push({ t: duration / 2, ...captureFrame() });
+          }
+
+          const scored = frames.map(f => ({
+            ...f,
+            quality: f.sharpness * 0.8 + (1 - Math.abs(f.brightness - 0.55)) * 0.2
+          }))
+          .sort((a, b) => b.quality - a.quality)
+          .slice(0, Math.min(3, frames.length));
+
+          const selectedExerciseData = exercises.find(ex => ex.id === selectedExercise);
+          if (!selectedExerciseData) throw new Error('No exercise selected');
+
+          const prompt = `You will analyze multiple frames from a video of a ${selectedExerciseData.name} exercise.
+
+Use the sequence to judge posture, joint angles, and safety across the movement. Do not penalize for limited visible motion per frame; consider consistency across frames. If visibility is partial or lighting is poor, avoid overly low scores—provide constructive feedback instead.
+
+Focus on:
+1. Body alignment and posture
+2. Joint positioning and angles
+3. Common mistakes to avoid
+4. Specific improvements for better form
+5. Safety considerations
+6. Reference relevant FitMate features (e.g., Workout Planner videos for ${selectedExerciseData.name})
+
+Respond ONLY with a valid JSON object in this exact format:
+{
+  "exercise_detected": "${selectedExerciseData.name}",
+  "overall_score": 1-10,
+  "form_analysis": {
+    "posture": "...",
+    "technique": "...",
+    "safety": "..."
+  },
+  "feedback": {
+    "positive_points": ["..."],
+    "improvements": ["..."],
+    "tips": ["..."]
+  },
+  "next_steps": "..."
+}`;
+
+          const contentImages = scored.map(s => ({ type: 'image_url', image_url: `data:image/jpeg;base64,${s.base64}` }));
+
+          const response = await fetch(getDirectGeminiConfig().url, {
+            method: 'POST',
+            headers: getDirectGeminiConfig().headers,
+            body: JSON.stringify({
+              model: OPENROUTER_QWEN_VL_MODEL,
+              messages: [{
+                role: 'user',
+                content: [
+                  { type: 'text', text: prompt },
+                  ...contentImages
+                ]
+              }]
+            })
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error('API Error Response:', errorText);
+            throw new Error(`API Error: ${response.status} ${response.statusText}`);
+          }
+
+          const result = await response.json();
+          const textResponse = (result.choices?.[0]?.message?.content || '');
+          if (!textResponse) throw new Error('Invalid API response format');
+
+          let jsonString = textResponse.replace(/```json|```/g, '').trim();
+          if (jsonString.includes('```')) {
+            const jsonMatchMd = jsonString.match(/```(?:json)?\s*({[\s\S]*?})\s*```/);
+            if (jsonMatchMd) jsonString = jsonMatchMd[1];
+          }
+          const jsonMatch = jsonString.match(/{[\s\S]*}/);
+          if (jsonMatch) jsonString = jsonMatch[0];
+
+          const data = JSON.parse(jsonString);
+
+          if (!data.overall_score && data.overall_score !== 0) data.overall_score = 3;
+          if (!data.form_analysis) {
+            data.form_analysis = {
+              posture: data.posture || 'Unable to analyze posture from this video.',
+              technique: data.technique || 'Unable to assess technique from this video.',
+              safety: data.safety || 'Please ensure proper form and safety when exercising.'
+            };
+          }
+          if (!data.feedback) {
+            data.feedback = {
+              positive_points: data.positive_points || [],
+              improvements: data.improvements || ['Please upload a clearer video showing the full exercise movement'],
+              tips: data.tips || ['Ensure good lighting and clear view of your full body', 'Upload from a side or slightly angled perspective']
+            };
+          }
+          if (data.exercise_detected && data.exercise_detected.toLowerCase().includes('no ') && data.exercise_detected.toLowerCase().includes('detected')) {
+            const sel = exercises.find(ex => ex.id === selectedExercise);
+            data.exercise_detected = sel ? sel.name : 'Exercise';
+            data.overall_score = 2;
+            data.feedback.improvements = [
+              'The selected exercise was not clearly visible in the video',
+              'Please ensure your full body is visible in the frame',
+              'Use a side angle for clearer joint visibility',
+              'Ensure adequate lighting and a clear background'
+            ];
+            data.feedback.tips = [
+              'Place camera 6-8 feet away to capture full body',
+              'Avoid backlighting; face the light source',
+              'Perform the movement slowly with full range of motion',
+              'Keep the camera stable at chest height'
+            ];
+            data.next_steps = 'Please upload another video with better positioning and lighting for accurate form analysis.';
+          }
+          if (!data.next_steps) data.next_steps = 'Continue practicing with proper form and consider uploading from different angles for comprehensive analysis.';
+
+          setFormAnalysis(data);
+        } catch (err) {
+          console.error('Enhanced form analysis failed, falling back to single-frame:', err);
+          try {
+            await analyzeForm(videoBlob);
+            return;
+          } catch (fallbackErr) {
+            console.error('Fallback analyzeForm also failed:', fallbackErr);
+            setError('Could not analyze form. Please upload a clearer video.');
+          }
+        } finally {
+          setIsLoading(false);
         }
       };
     }
@@ -1697,6 +1950,9 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       };
     };
     
+    // Feature flag: hide manual cloud sync UI (auto-sync is active)
+    const SHOW_MANUAL_CLOUD_SYNC = false;
+    
     // PDF Generation Utility
     const generatePDF = (title, content, filename) => {
       const { jsPDF } = window.jspdf;
@@ -2941,13 +3197,18 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       return (
         <div className="p-6 pb-24">
           <header className="mb-6 bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-md">
-            <div className="flex items-center">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center flex-shrink-0">
               <svg className="w-10 h-10 mr-3 text-pink-500" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM16.6 13.2L14.4 15.4C13.6 16.2 12.4 16.2 11.6 15.4L7.4 11.2C6.6 10.4 6.6 9.2 7.4 8.4L9.6 6.2C10.4 5.4 11.6 5.4 12.4 6.2L16.6 10.4C17.4 11.2 17.4 12.4 16.6 13.2Z" fill="currentColor"/>
               </svg>
               <div>
                 <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-200">FitnessMate</h1>
                 <p className="text-gray-500 dark:text-gray-400">AI That Fuels Your Health Journey</p>
+              </div>
+              </div>
+              <div className="merch-teaser starry blink text-gray-900 dark:text-white text-xs sm:text-sm md:text-base text-center sm:text-right w-full sm:w-auto sm:max-w-[60%] md:max-w-[50%] whitespace-normal md:whitespace-nowrap leading-tight mt-1 sm:mt-0 mx-auto sm:mx-0 self-center sm:self-auto">
+                Train hard. Look sharp. Merch drops soon
               </div>
             </div>
             {quote && <p className="text-gray-600 dark:text-gray-300 italic mt-2 text-center bg-gray-100 dark:bg-gray-700 p-2 rounded-lg">"{quote}"</p>}
@@ -3718,18 +3979,20 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
     setIsLoadingSlots(true);
     
     try {
-      // Generate time slots from 6 AM to 9 PM (45-minute sessions)
+      // Generate rolling 45-minute slots from 6:00 to before 21:00
       const slots = [];
       const startHour = 6;
-      const endHour = 21;
-      
-      for (let hour = startHour; hour < endHour; hour++) {
-        const hourFormatted = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-        const period = hour >= 12 ? 'PM' : 'AM';
-        
-        // 45-minute slots with timezone-friendly labels for US/Canada clients
-        slots.push(`${hourFormatted}:00 ${period} EST/EDT`);
-        slots.push(`${hourFormatted}:45 ${period} EST/EDT`);
+      const endHour = 21; // end boundary (exclusive)
+      let minutes = startHour * 60;
+      const endMinutes = endHour * 60;
+      while (minutes < endMinutes) {
+        const hour24 = Math.floor(minutes / 60);
+        const mins = minutes % 60;
+        const period = hour24 >= 12 ? 'PM' : 'AM';
+        const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+        const minsStr = String(mins).padStart(2, '0');
+        slots.push(`${hour12}:${minsStr} ${period} EST/EDT`);
+        minutes += 45;
       }
       
       // Fetch booked slots for this date
@@ -4626,8 +4889,8 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
               )}
               
               
-              {/* Test Sync Button - Only show when user is signed in */}
-              {user && (
+              {/* Manual Cloud Sync (hidden by default; auto-sync is active) */}
+              {user && SHOW_MANUAL_CLOUD_SYNC && (
                 <div className="space-y-2">
                   <div className="space-y-2">
                     <button 
@@ -7435,6 +7698,40 @@ Respond ONLY with a valid JSON object in this exact format:
       const videoRef = useRef(null);
       const fileInputRef = useRef(null);
       const recordingTimerRef = useRef(null);
+      // Access auth helpers to sync latest analysis to remote immediately
+      const { user, syncAIContent } = useAuth();
+
+      // Keep formAnalysis in sync with localStorage/remote updates across navigation/refresh
+      useEffect(() => {
+        const hydrate = () => {
+          try {
+            const saved = localStorage.getItem('formAnalysis');
+            if (saved) {
+              const parsed = JSON.parse(saved);
+              // Avoid unnecessary rerenders if identical
+              const prev = formAnalysis ? JSON.stringify(formAnalysis) : null;
+              const next = parsed ? JSON.stringify(parsed) : null;
+              if (prev !== next) setFormAnalysis(parsed);
+            } else if (formAnalysis) {
+              // If storage cleared, mirror it in state
+              setFormAnalysis(null);
+            }
+          } catch (_) {}
+        };
+        const handleStorage = (e) => {
+          if (!e || e.key === 'formAnalysis') hydrate();
+        };
+        window.addEventListener('userDataSynced', hydrate);
+        window.addEventListener('remoteDataApplied', hydrate);
+        window.addEventListener('storage', handleStorage);
+        // Hydrate immediately on mount
+        hydrate();
+        return () => {
+          window.removeEventListener('userDataSynced', hydrate);
+          window.removeEventListener('remoteDataApplied', hydrate);
+          window.removeEventListener('storage', handleStorage);
+        };
+      }, []);
 
       const exercises = [
       // Strength Training - Upper Body
@@ -7594,6 +7891,190 @@ Respond ONLY with a valid JSON object in this exact format:
         }
       };
 
+      // Enhanced multi-frame analysis defined within component scope
+      const enhancedAnalyzeForm = async (videoBlob) => {
+        setIsLoading(true);
+        setError(null);
+        try {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d', { willReadFrequently: true });
+          const video = document.createElement('video');
+          video.src = URL.createObjectURL(videoBlob);
+          video.muted = true;
+          video.playsInline = true;
+
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Video processing timeout')), 30000));
+
+          const loadMeta = new Promise((resolve, reject) => {
+            video.onloadedmetadata = () => resolve(true);
+            video.onerror = () => reject(new Error('Failed to load video metadata'));
+            try { video.load(); } catch (_) {}
+          });
+
+          await Promise.race([loadMeta, timeoutPromise]);
+          if (!video.videoWidth || !video.videoHeight) throw new Error('Invalid video dimensions');
+
+          const duration = Math.max(0.5, isFinite(video.duration) ? video.duration : 3);
+          const times = Array.from({ length: 4 }, (_, i) => Math.min(duration - 0.1, Math.max(0.1, ((i + 1) / 5) * duration)));
+
+          const seekTo = (t) => new Promise((resolve, reject) => {
+            const onSeeked = () => { video.removeEventListener('seeked', onSeeked); resolve(true); };
+            const onError = () => { video.removeEventListener('error', onError); reject(new Error('Failed to seek video')); };
+            video.addEventListener('seeked', onSeeked, { once: true });
+            video.addEventListener('error', onError, { once: true });
+            try { video.currentTime = t; } catch (_) { reject(new Error('Seek failed')); }
+          });
+
+          const computeMetrics = (imageData, w, h) => {
+            const data = imageData.data;
+            const step = Math.max(1, Math.floor(Math.min(w, h) / 160));
+            let sumL = 0, count = 0;
+            const gray = new Float32Array(w * h);
+            for (let y = 0; y < h; y += step) {
+              for (let x = 0; x < w; x += step) {
+                const idx = (y * w + x) * 4;
+                const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+                const l = 0.299 * r + 0.587 * g + 0.114 * b;
+                gray[y * w + x] = l;
+                sumL += l; count++;
+              }
+            }
+            const meanL = sumL / Math.max(1, count) / 255;
+            let sharpSum = 0, sCount = 0;
+            for (let y = step; y < h - step; y += step) {
+              for (let x = step; x < w - step; x += step) {
+                const rx = gray[y * w + (x + step)] - gray[y * w + (x - step)];
+                const ry = gray[(y + step) * w + x] - gray[(y - step) * w + x];
+                const mag = Math.abs(rx) + Math.abs(ry);
+                sharpSum += mag; sCount++;
+              }
+            }
+            const sharpness = (sharpSum / Math.max(1, sCount)) / 255;
+            return { brightness: meanL, sharpness };
+          };
+
+          const captureFrame = () => {
+            const maxSide = 640;
+            const scale = Math.min(1, maxSide / Math.max(video.videoWidth, video.videoHeight));
+            const w = Math.max(1, Math.floor(video.videoWidth * scale));
+            const h = Math.max(1, Math.floor(video.videoHeight * scale));
+            canvas.width = w; canvas.height = h;
+            ctx.drawImage(video, 0, 0, w, h);
+            const imgData = ctx.getImageData(0, 0, w, h);
+            const { brightness, sharpness } = computeMetrics(imgData, w, h);
+            const base64 = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+            return { base64, brightness, sharpness, w, h };
+          };
+
+          const frames = [];
+          for (const t of times) {
+            try {
+              await Promise.race([seekTo(t), timeoutPromise]);
+              frames.push({ t, ...captureFrame() });
+            } catch (e) { console.warn('Frame capture failed at', t, e); }
+          }
+          if (frames.length === 0) {
+            await Promise.race([seekTo(Math.min(duration / 2, duration - 0.1)), timeoutPromise]);
+            frames.push({ t: duration / 2, ...captureFrame() });
+          }
+
+          const scored = frames.map(f => ({
+            ...f,
+            quality: f.sharpness * 0.8 + (1 - Math.abs(f.brightness - 0.55)) * 0.2
+          }))
+          .sort((a, b) => b.quality - a.quality)
+          .slice(0, Math.min(3, frames.length));
+
+          const selectedExerciseData = exercises.find(ex => ex.id === selectedExercise);
+          if (!selectedExerciseData) throw new Error('No exercise selected');
+
+          const prompt = `You will analyze multiple frames from a video of a ${selectedExerciseData.name} exercise.\n\nUse the sequence to judge posture, joint angles, and safety across the movement. Do not penalize for limited visible motion per frame; consider consistency across frames. If visibility is partial or lighting is poor, avoid overly low scores—provide constructive feedback instead.\n\nFocus on:\n1. Body alignment and posture\n2. Joint positioning and angles\n3. Common mistakes to avoid\n4. Specific improvements for better form\n5. Safety considerations\n6. Reference relevant FitMate features (e.g., Workout Planner videos for ${selectedExerciseData.name})\n\nRespond ONLY with a valid JSON object in this exact format:\n{\n  "exercise_detected": "${selectedExerciseData.name}",\n  "overall_score": 1-10,\n  "form_analysis": {\n    "posture": "...",\n    "technique": "...",\n    "safety": "..."\n  },\n  "feedback": {\n    "positive_points": ["..."],\n    "improvements": ["..."],\n    "tips": ["..."]\n  },\n  "next_steps": "..."\n}`;
+
+          const contentImages = scored.map(s => ({ type: 'image_url', image_url: `data:image/jpeg;base64,${s.base64}` }));
+
+          const response = await fetch(getDirectGeminiConfig().url, {
+            method: 'POST',
+            headers: getDirectGeminiConfig().headers,
+            body: JSON.stringify({
+              model: OPENROUTER_QWEN_VL_MODEL,
+              messages: [{
+                role: 'user',
+                content: [
+                  { type: 'text', text: prompt },
+                  ...contentImages
+                ]
+              }]
+            })
+          });
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error('API Error Response:', errorText);
+            throw new Error(`API Error: ${response.status} ${response.statusText}`);
+          }
+          const result = await response.json();
+          const textResponse = (result.choices?.[0]?.message?.content || '');
+          if (!textResponse) throw new Error('Invalid API response format');
+
+          let jsonString = textResponse.replace(/```json|```/g, '').trim();
+          if (jsonString.includes('```')) {
+            const jsonMatchMd = jsonString.match(/```(?:json)?\s*({[\s\S]*?})\s*```/);
+            if (jsonMatchMd) jsonString = jsonMatchMd[1];
+          }
+          const jsonMatch = jsonString.match(/{[\s\S]*}/);
+          if (jsonMatch) jsonString = jsonMatch[0];
+          const data = JSON.parse(jsonString);
+
+          if (!data.overall_score && data.overall_score !== 0) data.overall_score = 3;
+          if (!data.form_analysis) {
+            data.form_analysis = {
+              posture: data.posture || 'Unable to analyze posture from this video.',
+              technique: data.technique || 'Unable to assess technique from this video.',
+              safety: data.safety || 'Please ensure proper form and safety when exercising.'
+            };
+          }
+          if (!data.feedback) {
+            data.feedback = {
+              positive_points: data.positive_points || [],
+              improvements: data.improvements || ['Please upload a clearer video showing the full exercise movement'],
+              tips: data.tips || ['Ensure good lighting and clear view of your full body', 'Upload from a side or slightly angled perspective']
+            };
+          }
+          if (data.exercise_detected && data.exercise_detected.toLowerCase().includes('no ') && data.exercise_detected.toLowerCase().includes('detected')) {
+            const sel = exercises.find(ex => ex.id === selectedExercise);
+            data.exercise_detected = sel ? sel.name : 'Exercise';
+            data.overall_score = 2;
+            data.feedback.improvements = [
+              'The selected exercise was not clearly visible in the video',
+              'Please ensure your full body is visible in the frame',
+              'Use a side angle for clearer joint visibility',
+              'Ensure adequate lighting and a clear background'
+            ];
+            data.feedback.tips = [
+              'Place camera 6-8 feet away to capture full body',
+              'Avoid backlighting; face the light source',
+              'Perform the movement slowly with full range of motion',
+              'Keep the camera stable at chest height'
+            ];
+            data.next_steps = 'Please upload another video with better positioning and lighting for accurate form analysis.';
+          }
+          if (!data.next_steps) data.next_steps = 'Continue practicing with proper form and consider uploading from different angles for comprehensive analysis.';
+          setFormAnalysis(data);
+          try { localStorage.setItem('formAnalysis', JSON.stringify(data)); } catch (_) {}
+          try { if (user && syncAIContent) await syncAIContent('formAnalysis', data); } catch (e) { console.warn('Sync formAnalysis failed:', e); }
+        } catch (err) {
+          console.error('Enhanced form analysis failed, falling back to single-frame:', err);
+          try {
+            await analyzeForm(videoBlob);
+            return;
+          } catch (fallbackErr) {
+            console.error('Fallback analyzeForm also failed:', fallbackErr);
+            setError('Could not analyze form. Please upload a clearer video.');
+          }
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
       const handleVideoUpload = (e) => {
         const file = e.target.files[0];
         if (file) {
@@ -7601,7 +8082,7 @@ Respond ONLY with a valid JSON object in this exact format:
           setVideoPreview(videoUrl);
           setFormAnalysis(null);
           setError(null);
-          analyzeForm(file);
+          enhancedAnalyzeForm(file);
         }
       };
 
@@ -7645,7 +8126,7 @@ Respond ONLY with a valid JSON object in this exact format:
                 
                 video.onseeked = async () => {
                   try {
-                    const ctx = canvas.getContext('2d');
+                    const ctx = canvas.getContext('2d', { willReadFrequently: true });
                     ctx.drawImage(video, 0, 0);
                     
                     // Validate canvas has content
@@ -7827,6 +8308,8 @@ Respond ONLY with a valid JSON object in this format:
                     
                     console.log('Analysis completed successfully:', data);
                     setFormAnalysis(data);
+                    try { localStorage.setItem('formAnalysis', JSON.stringify(data)); } catch (_) {}
+                    try { if (user && syncAIContent) await syncAIContent('formAnalysis', data); } catch (e) { console.warn('Sync formAnalysis failed:', e); }
                     resolve(data);
                     
                   } catch (seekError) {
@@ -7867,7 +8350,7 @@ Respond ONLY with a valid JSON object in this format:
           if (err.message.includes('timeout')) {
             errorMessage += 'Video processing timed out. Please try a shorter video.';
           } else if (err.message.includes('dimensions')) {
-            errorMessage += 'Invalid video format. Please record a new video.';
+            errorMessage += 'Invalid video format. Please upload a new video.';
           } else if (err.message.includes('API Error')) {
             errorMessage += 'Analysis service unavailable. Please try again later.';
           } else if (err.message.includes('JSON')) {
@@ -7923,50 +8406,12 @@ Respond ONLY with a valid JSON object in this format:
                   <div className="w-24 h-24 mx-auto mb-4 bg-gradient-to-br from-purple-400 to-pink-500 rounded-full flex items-center justify-center">
                     <span className="text-4xl">🎥</span>
                   </div>
-                  <h3 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-2">Record Your Form</h3>
-                  <p className="text-gray-600 dark:text-gray-400 mb-6">Record a short video of your exercise and get instant AI feedback on your form!</p>
+                  <h3 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-2">Upload Your Form</h3>
+                 <p className="text-gray-600 dark:text-gray-400 mb-6">Upload a short video of your exercise and get instant AI feedback on your form!</p>
                 </div>
                 
-                {/* Recording Controls */}
+                {/* Upload Controls (Recording temporarily disabled) */}
                 <div className="space-y-4">
-                  {/* Live Camera Preview */}
-                  {isRecording && (
-                    <div className="mb-4">
-                      <video
-                        ref={videoRef}
-                        autoPlay
-                        muted
-                        playsInline
-                        className="w-full h-64 object-cover rounded-2xl bg-gray-200 dark:bg-gray-700"
-                        style={{ transform: 'scaleX(-1)' }}
-                        onLoadedMetadata={() => console.log('Video metadata loaded')}
-                        onCanPlay={() => console.log('Video can play')}
-                        onError={(e) => console.error('Video error:', e)}
-                      />
-                      <p className="text-center text-sm text-gray-600 dark:text-gray-400 mt-2">
-                        Recording in progress... {recordingTime}s
-                      </p>
-                    </div>
-                  )}
-                  
-                  {!isRecording ? (
-                    <button
-                      onClick={startRecording}
-                      className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold py-4 rounded-2xl shadow-lg hover:from-purple-600 hover:to-pink-600 transition-all transform hover:scale-105"
-                    >
-                      🎥 Start Recording (10s)
-                    </button>
-                  ) : (
-                    <button
-                      onClick={stopRecording}
-                      className="w-full bg-red-500 text-white font-bold py-4 rounded-2xl shadow-lg hover:bg-red-600 transition-all"
-                    >
-                      ⏹️ Stop Recording
-                    </button>
-                  )}
-                  
-                  <div className="text-gray-500 dark:text-gray-400">or</div>
-                  
                   <input
                     type="file"
                     accept="video/*"
@@ -7974,7 +8419,6 @@ Respond ONLY with a valid JSON object in this format:
                     ref={fileInputRef}
                     className="hidden"
                   />
-                  
                   <button
                     onClick={() => fileInputRef.current?.click()}
                     className="w-full bg-gray-500 text-white font-bold py-3 rounded-2xl shadow-lg hover:bg-gray-600 transition-all"
@@ -7984,7 +8428,7 @@ Respond ONLY with a valid JSON object in this format:
                 </div>
                 
                 <div className="mt-6 p-4 bg-purple-50 dark:bg-purple-900/20 rounded-xl">
-                  <h4 className="font-semibold text-purple-800 dark:text-purple-200 mb-2">📋 Recording Tips:</h4>
+                  <h4 className="font-semibold text-purple-800 dark:text-purple-200 mb-2">📋 Uploading Tips:</h4>
                   <ul className="text-sm text-purple-700 dark:text-purple-300 space-y-1">
                     <li>• Position camera to show full body</li>
                     <li>• Perform 2-3 reps of the exercise</li>
@@ -10553,10 +10997,78 @@ ${habits.map(habit => {
 
     // Workout Plan Display Component
     const WorkoutPlanDisplay = ({ workoutPlan }) => {
-      // Function to generate YouTube search URL for an exercise
-      const getYouTubeSearchUrl = (exerciseName) => {
-        const searchQuery = `${exerciseName} exercise tutorial how to`;
-        return `https://www.youtube.com/results?search_query=${encodeURIComponent(searchQuery)}`;
+      // Channel allowlist (label + YouTube handle if known). If handle missing, we fall back to general search including label.
+      const CHANNELS = [
+        { label: 'All YouTube', value: 'all' },
+        { label: 'Athlean-X', value: 'athleanx', handle: '@ATHLEANX' },
+        { label: 'Jeff Nippard', value: 'jeffnippard', handle: '@JeffNippard' },
+        { label: 'Renaissance Periodization', value: 'rp', handle: '@RenaissancePeriodization' },
+        { label: 'Juggernaut Training Systems', value: 'juggernaut', handle: '@JuggernautTrainingSystems' },
+        { label: 'Barbell Medicine', value: 'barbellmedicine', handle: '@BarbellMedicine' },
+        { label: 'Alan Thrall', value: 'alanthrall', handle: '@AlanThrall' },
+        { label: 'Squat University', value: 'squatuniversity', handle: '@SquatUniversity' },
+        { label: 'Calisthenic Movement', value: 'calimove', handle: '@calimove' },
+        { label: 'FitnessFAQs', value: 'fitnessfaqs', handle: '@FitnessFAQs' },
+        { label: 'ThenX', value: 'thenx', handle: '@OFFICIALTHENX' },
+        { label: 'StrongFirst', value: 'strongfirst', handle: '@strongfirst' },
+        { label: 'Kettlebell Kings', value: 'kettlebellkings', handle: '@KettlebellKings' },
+        { label: 'Onnit Academy', value: 'onnit', handle: '@OnnitAcademy' },
+        { label: 'Catalyst Athletics', value: 'catalyst', handle: '@catalystathletics' },
+        { label: 'California Strength', value: 'calstrength', handle: '@CaliforniaStrength' },
+        { label: 'E3Rehab', value: 'e3rehab', handle: '@E3Rehab' },
+        { label: 'PhysioTutors', value: 'physiotutors', handle: '@PhysioTutors' },
+        { label: 'Girls Gone Strong', value: 'ggs', handle: '@GirlsGoneStrong' },
+      ];
+
+      const [selectedChannel, setSelectedChannel] = useState('all');
+      const [shortOnly, setShortOnly] = useState(false);
+
+      // Helpers to generate YouTube search URLs with channel/duration preferences
+      const normalizeExerciseName = (exerciseName) => {
+        let name = String(exerciseName || '');
+        // Capture equipment before stripping parens
+        const equipment = (name.match(/\((.*?)\)/)?.[1] || '').toLowerCase();
+        // Strip parentheses content
+        name = name.replace(/\(.*?\)/g, '').trim();
+        // Drop prefixes like "Exercise 1:", "Warm-up:", "Cooldown:"
+        if (name.includes(':')) {
+          const parts = name.split(':');
+          name = parts[parts.length - 1].trim();
+        }
+        name = name.replace(/^Exercise\s*\d+\s*-?\s*/i, '').trim();
+        name = name.replace(/^Warm-?up\s*-?\s*/i, '').trim();
+        name = name.replace(/^Cooldown\s*-?\s*/i, '').trim();
+        return { baseName: name, equipment };
+      };
+
+      const getYouTubeGlobalSearchUrl = (exerciseName) => {
+        const { baseName, equipment } = normalizeExerciseName(exerciseName);
+        const level = (workoutPlan?.plan_name || '').toLowerCase();
+        const levelHint = /beginner/.test(level) ? 'beginner' : /intermediate/.test(level) ? 'intermediate' : /advanced|expert/.test(level) ? 'advanced' : '';
+
+        const extras = ['proper form', 'tutorial'];
+        if (shortOnly) extras.push('short tutorial', 'quick');
+        if (equipment) extras.push(equipment);
+        if (levelHint) extras.push(levelHint);
+
+        // Keep negatives minimal to avoid zero-results; do not exclude shorts globally by default
+        const negatives = ['-compilation', '-montage', '-meme'];
+
+        const query = `${baseName} ${extras.join(' ')} ${negatives.join(' ')}`.replace(/\s+/g, ' ').trim();
+        return `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}&hl=en`;
+      };
+
+      const getYouTubeChannelSearchUrl = (exerciseName) => {
+        if (selectedChannel === 'all') return null;
+        const ch = CHANNELS.find(c => c.value === selectedChannel);
+        const { baseName, equipment } = normalizeExerciseName(exerciseName);
+        // Use a minimal, broad query for channel search; avoid time hints
+        const terms = [baseName, 'tutorial', 'form'];
+        if (equipment) terms.push(equipment);
+        const query = terms.join(' ').replace(/\s+/g, ' ').trim();
+        if (ch?.handle) return `https://www.youtube.com/${encodeURIComponent(ch.handle)}/search?query=${encodeURIComponent(query)}&hl=en`;
+        const biased = `${query} \"${ch?.label || ''}\"`;
+        return `https://www.youtube.com/results?search_query=${encodeURIComponent(biased)}&hl=en`;
       };
 
       return (
@@ -10591,26 +11103,60 @@ ${habits.map(habit => {
                 <p className="text-gray-600 dark:text-gray-400 text-sm sm:text-base leading-relaxed">{exercise.instructions}</p>
               </div>
               
-              {/* YouTube Video Search Link - Mobile Optimized */}
+              {/* YouTube Video Search Link with Channel Filter */}
               <div className="mt-4 p-3 sm:p-4 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
                   <div className="flex items-center">
                     <svg className="w-5 h-5 sm:w-6 sm:h-6 text-red-600 dark:text-red-400 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
                       <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
                     </svg>
                     <span className="font-semibold text-red-700 dark:text-red-300 text-sm sm:text-base">Watch Tutorial</span>
                   </div>
-                  <a 
-                    href={getYouTubeSearchUrl(exercise.name)} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 text-sm sm:text-base w-full sm:w-auto"
-                  >
-                    <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                    </svg>
-                    Search Videos
-                  </a>
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
+                    <select
+                      value={selectedChannel}
+                      onChange={(e) => setSelectedChannel(e.target.value)}
+                      className="bg-white dark:bg-gray-800 border border-red-200 dark:border-red-700 rounded-md px-2 py-2 text-sm text-gray-800 dark:text-gray-200"
+                      aria-label="Preferred channel"
+                    >
+                      {CHANNELS.map(ch => (
+                        <option key={ch.value} value={ch.value}>{ch.label}</option>
+                      ))}
+                    </select>
+                    <label className="inline-flex items-center gap-2 text-xs sm:text-sm text-gray-700 dark:text-gray-300">
+                      <input
+                        type="checkbox"
+                        checked={shortOnly}
+                        onChange={(e) => setShortOnly(e.target.checked)}
+                        className="w-4 h-4 accent-red-600"
+                      />
+                      Prefer shorter
+                    </label>
+                    {selectedChannel !== 'all' && (
+                      <a 
+                        href={getYouTubeChannelSearchUrl(exercise.name)} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 text-sm sm:text-base w-full sm:w-auto"
+                      >
+                        <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                        Search This Channel
+                      </a>
+                    )}
+                    <a 
+                      href={getYouTubeGlobalSearchUrl(exercise.name)} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 text-sm sm:text-base w-full sm:w-auto"
+                    >
+                      <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                      Search All
+                    </a>
+                  </div>
                 </div>
               </div>
             </div>
