@@ -503,7 +503,8 @@
         const workoutPlan = JSON.parse(localStorage.getItem('workoutPlan') || 'null');
         
         // Check if any of these have meaningful content
-        const hasGoals = Object.keys(goals).length > 0;
+        const isDefaultGoals = (() => { try { return JSON.stringify(goals) === JSON.stringify(defaultGoals); } catch { return false; } })();
+        const hasGoals = Object.keys(goals).length > 0 && !isDefaultGoals;
         const hasIntake = dailyIntake.calories > 0 || dailyIntake.protein > 0 || dailyIntake.carbs > 0 || dailyIntake.fat > 0 || dailyIntake.activity > 0 || dailyIntake.water > 0;
         const hasMeals = recentMeals.length > 0;
         const hasHistory = Object.keys(dailyHistory).length > 0;
@@ -540,6 +541,8 @@
           if (userData) {
             const localLastSync = localStorage.getItem('lastSyncTimestamp');
             const remoteLastSync = userData.updated_at;
+            const localLastSyncTs = localLastSync ? parseInt(localLastSync) : 0;
+            const remoteLastSyncTs = remoteLastSync ? new Date(remoteLastSync).getTime() : 0;
             
             console.log('🔄 Intelligent sync - comparing timestamps...');
             console.log('Local last sync:', localLastSync);
@@ -556,7 +559,7 @@
             // Enhanced sync logic: prioritize remote data for new devices
             const isNewDevice = !localLastSync;
             const hasLocalData = hasMeaningfulLocalData();
-            const remoteIsNewer = remoteLastSync && localLastSync && remoteLastSync > parseInt(localLastSync);
+            const remoteIsNewer = remoteLastSyncTs > localLastSyncTs;
             
             console.log('🔍 Local data analysis:', {
               isNewDevice,
@@ -816,20 +819,21 @@
               
               console.log('✅ All remote data synced to local storage');
               
-              // Trigger a custom event to notify App component to refresh state
-              console.log('📡 Dispatching userDataSynced event...');
+              // Trigger UI refresh and mark remote applied
+              console.log('📡 Dispatching userDataSynced and remoteDataApplied events...');
               window.dispatchEvent(new CustomEvent('userDataSynced'));
+              window.dispatchEvent(new CustomEvent('remoteDataApplied'));
             } else {
               if (remoteOnly) {
                 console.log('🔒 Remote-only mode active; skipping local-to-remote sync.');
               } else {
-                console.log('📤 Local data is newer and has meaningful content, syncing to remote');
-                // Only push local data to remote if it has meaningful content
-                if (hasLocalData) {
+                // Only push if local is truly newer (timestamp comparison) and has meaningful content
+                if (hasLocalData && localLastSyncTs > remoteLastSyncTs) {
+                  console.log('📤 Local data is newer (timestamp), syncing to remote');
                   await syncAllDataToSupabase();
                   console.log('✅ Local data synced to remote successfully');
                 } else {
-                  console.log('⚠️ Local data is empty/default, skipping sync to prevent data loss');
+                  console.log('⚠️ Skipping local->remote push to avoid overwriting newer/authoritative remote data');
                 }
               }
             }
@@ -942,6 +946,11 @@
           if (error) throw error;
           
           console.log('✅ User signed in successfully');
+          // Enforce remote-only fetch for this sign-in so local data cannot overwrite remote
+          try { localStorage.removeItem('lastSyncTimestamp'); } catch (_) {}
+          try { forceNextRemoteOnlyRef.current = true; } catch (_) {}
+          // Trigger immediate remote fetch (onAuthStateChange will also call this, this is safe)
+          try { await syncUserData(data.user); } catch (_) {}
           return data.user;
         } catch (error) {
           let friendlyMessage = error.message;
@@ -1189,6 +1198,11 @@
       let autoSyncTimeout = null;
       const triggerAutoSync = () => {
         if (!user || !db) return;
+        // Do not auto-sync while in remote-only sign-in phase
+        if (forceNextRemoteOnlyRef?.current) {
+          console.log('⏸️ Auto-sync skipped (remote-only sign-in in progress)');
+          return;
+        }
         
         // Clear existing timeout
         if (autoSyncTimeout) {
@@ -1415,7 +1429,8 @@
                   const localIntake = (() => { try { return JSON.parse(localStorage.getItem('dailyIntake')||'{}'); } catch { return {}; } })();
                   const localIsZero = ['calories','protein','carbs','fat','activity','water'].every(k => Number(localIntake[k]||0) === 0);
                   const remoteHasNonZero = ['calories','protein','carbs','fat','activity','water'].some(k => Number(remoteData.daily_intake?.[k]||0) > 0);
-                  if (rolledToToday && localIsZero && remoteHasNonZero) {
+                  const isNewDevice = !localStorage.getItem('lastSyncTimestamp');
+                  if (!isNewDevice && rolledToToday && localIsZero && remoteHasNonZero) {
                     console.log('⏭️ Skipping remote daily_intake (initial fetch) to prevent post-rollover flicker');
                   } else {
                     localStorage.setItem('dailyIntake', JSON.stringify(remoteData.daily_intake));
@@ -1957,21 +1972,28 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
           const savedIntake = localStorage.getItem('dailyIntake');
           if (savedIntake) {
             const intakeData = JSON.parse(savedIntake);
-            // Guard: if rollover not finalized, do not apply potentially stale intake
-            try {
-              const todayISO = toLocalISODate(new Date());
-              const localIntakeDate = localStorage.getItem('dailyIntakeDate');
-              const lastSaved = localStorage.getItem('lastSavedDate');
-              const rolledComplete = localIntakeDate === todayISO && lastSaved === todayISO;
-              if (!rolledComplete) {
-                console.log('⏭️ Skipping setDailyIntake from userDataSynced until rollover completes');
-              } else {
+            // New device: always apply remote-fetched intake to state
+            const isNewDevice = !localStorage.getItem('lastSyncTimestamp');
+            if (isNewDevice) {
+              setDailyIntake(intakeData);
+              console.log('✅ Applied remote dailyIntake on new device:', intakeData);
+            } else {
+              // Guard only for rollover flicker on existing device
+              try {
+                const todayISO = toLocalISODate(new Date());
+                const localIntakeDate = localStorage.getItem('dailyIntakeDate');
+                const lastSaved = localStorage.getItem('lastSavedDate');
+                const rolledComplete = localIntakeDate === todayISO && lastSaved === todayISO;
+                if (!rolledComplete) {
+                  console.log('⏭️ Skipping setDailyIntake from userDataSynced until rollover completes');
+                } else {
+                  setDailyIntake(intakeData);
+                  console.log('✅ Daily intake synced:', intakeData);
+                }
+              } catch (_) {
                 setDailyIntake(intakeData);
                 console.log('✅ Daily intake synced:', intakeData);
               }
-            } catch (_) {
-              setDailyIntake(intakeData);
-              console.log('✅ Daily intake synced:', intakeData);
             }
           }
           
@@ -2195,8 +2217,11 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       // --- Enhanced Data Persistence with Supabase Sync ---
       const { user, updateUserData, syncDailyIntake, syncMealsData, syncDailyHistory, syncAIContent } = useAuth();
       const isRemoteSyncRef = useRef(false);
-      // Track initial state to avoid overwriting remote with defaults
+      // Track initial state to avoid overwriting remote with local defaults/stale data
       const hadDailyIntakeAtStartRef = useRef(!!localStorage.getItem('dailyIntake'));
+      const hadGoalsAtStartRef = useRef(!!localStorage.getItem('goals'));
+      const hadMealsAtStartRef = useRef((() => { try { return (JSON.parse(localStorage.getItem('recentMeals') || '[]') || []).length > 0; } catch { return false; } })());
+      const hadHistoryAtStartRef = useRef((() => { try { return Object.keys(JSON.parse(localStorage.getItem('dailyHistory') || '{}') || {}).length > 0; } catch { return false; } })());
       const initialSyncCompletedRef = useRef(false);
       const eodTimerRef = useRef(null);
       const isDefaultIntake = (di) => !di || (
@@ -2264,6 +2289,8 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
             // Prevent feedback loop: mark update as remote, then refresh UI
             isRemoteSyncRef.current = true;
             window.dispatchEvent(new CustomEvent('userDataSynced'));
+            // Also signal that remote data has been applied (for initial-sync gating)
+            window.dispatchEvent(new CustomEvent('remoteDataApplied'));
             setTimeout(() => { isRemoteSyncRef.current = false; }, 300);
           }
         }, { filter: `id=eq.${user.id}` });
@@ -2273,40 +2300,50 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       
       useEffect(() => { 
         localStorage.setItem('goals', JSON.stringify(goals));
-        if (user && !isRemoteSyncRef.current) updateUserData({ goals });
+        // Defer pushing goals until initial remote sync completes to avoid overwriting
+        if (user && !isRemoteSyncRef.current) {
+          if (!initialSyncCompletedRef.current) return;
+          updateUserData({ goals });
+        }
       }, [goals, user, updateUserData]);
       
       useEffect(() => { 
         localStorage.setItem('dailyIntake', JSON.stringify(dailyIntake));
         // Track which day this intake belongs to (timezone-aware)
         try { localStorage.setItem('dailyIntakeDate', toLocalISODate(new Date())); } catch (_) {}
+        // Defer pushing intake until initial remote sync completes
         if (user && !isRemoteSyncRef.current) {
-          // Avoid pushing default/zero intake on fresh sessions before initial remote sync
-          if (!initialSyncCompletedRef.current && !hadDailyIntakeAtStartRef.current && isDefaultIntake(dailyIntake)) {
-            console.log('⏸️ Skipping sync of default dailyIntake before initial remote sync');
-          } else {
-            syncDailyIntake(dailyIntake);
-          }
+          if (!initialSyncCompletedRef.current) return;
+          syncDailyIntake(dailyIntake);
         }
       }, [dailyIntake, user, syncDailyIntake]);
 
       // Mark when initial remote sync completes to allow subsequent updates
       useEffect(() => {
-        const onSynced = () => {
+        const onRemoteApplied = () => {
           initialSyncCompletedRef.current = true;
+          console.log('✅ Initial remote sync completed (flag set)');
         };
-        window.addEventListener('userDataSynced', onSynced);
-        return () => window.removeEventListener('userDataSynced', onSynced);
+        window.addEventListener('remoteDataApplied', onRemoteApplied);
+        return () => window.removeEventListener('remoteDataApplied', onRemoteApplied);
       }, []);
       
       useEffect(() => { 
         localStorage.setItem('recentMeals', JSON.stringify(recentMeals));
-        if (user && !isRemoteSyncRef.current) syncMealsData(recentMeals);
+        // Defer pushing meals until initial remote sync completes
+        if (user && !isRemoteSyncRef.current) {
+          if (!initialSyncCompletedRef.current) return;
+          syncMealsData(recentMeals);
+        }
       }, [recentMeals, user, syncMealsData]);
       
       useEffect(() => { 
         localStorage.setItem('dailyHistory', JSON.stringify(dailyHistory));
-        if (user && !isRemoteSyncRef.current) syncDailyHistory(dailyHistory);
+        // Defer pushing history until initial remote sync completes (prevents Device 2 overwriting Device 1)
+        if (user && !isRemoteSyncRef.current) {
+          if (!initialSyncCompletedRef.current) return;
+          syncDailyHistory(dailyHistory);
+        }
       }, [dailyHistory, user, syncDailyHistory]);
       
       useEffect(() => { 
@@ -2495,13 +2532,9 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         };
         setDailyIntake(updatedIntake);
         
-        // Sync to Firebase immediately
-        if (user) {
+        // Sync to server only after initial remote fetch completes; avoid overwriting on new devices
+        if (user && initialSyncCompletedRef.current && !isRemoteSyncRef.current) {
           syncDailyIntake(updatedIntake);
-          // Dispatch event to refresh UI from localStorage
-          setTimeout(() => {
-            window.dispatchEvent(new CustomEvent('userDataSynced'));
-          }, 100);
         }
       };
 
@@ -2512,13 +2545,9 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         };
         setDailyIntake(updatedIntake);
         
-        // Sync to Firebase immediately
-        if (user) {
+        // Sync to server only after initial remote fetch completes; avoid overwriting on new devices
+        if (user && initialSyncCompletedRef.current && !isRemoteSyncRef.current) {
           syncDailyIntake(updatedIntake);
-          // Dispatch event to refresh UI from localStorage
-          setTimeout(() => {
-            window.dispatchEvent(new CustomEvent('userDataSynced'));
-          }, 100);
         }
       };
 
@@ -10070,30 +10099,101 @@ ${habits.map(habit => {
 
     // --- Helper Components ---
 
-    // Activity Timer Component (for Dashboard)
+    // Activity Timer Component (for Dashboard) - persistent across navigation/reloads
     const ActivityTimer = ({ onLogActivity }) => {
+      const STORAGE_KEY = 'activityTimerState';
       const [timeLeft, setTimeLeft] = useState(0);
       const [isActive, setIsActive] = useState(false);
-      const [duration, setDuration] = useState(0);
+      const [duration, setDuration] = useState(0); // in minutes
+      const [startedAt, setStartedAt] = useState(null); // epoch ms
       const timerRef = useRef(null);
 
+      // Hydrate from storage on mount
+      useEffect(() => {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return;
+          const st = JSON.parse(raw);
+          if (!st || !st.isActive) return;
+
+          const todayISO = toLocalISODate(new Date());
+          if (st.intakeDate && st.intakeDate !== todayISO) {
+            // Timer belongs to a previous day; drop it
+            localStorage.removeItem(STORAGE_KEY);
+            return;
+          }
+
+          const now = Date.now();
+          const elapsed = Math.floor((now - Number(st.startedAt || now)) / 1000);
+          const remaining = Math.max(0, Number(st.durationSec || 0) - elapsed);
+
+          if (remaining > 0) {
+            setIsActive(true);
+            setDuration(Math.round((st.durationSec || 0) / 60));
+            setStartedAt(Number(st.startedAt));
+            setTimeLeft(remaining);
+          } else {
+            // Completed while away — ensure we log only once
+            if (!st.logged) {
+              const mins = Math.round((st.durationSec || 0) / 60);
+              onLogActivity({ minutes: mins });
+              localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...st, isActive: false, logged: true, completedAt: now }));
+              try {
+                if ('Notification' in window && Notification.permission === 'granted') {
+                  new Notification('Activity Complete!', { body: `Great job! You've logged ${mins} minutes.` });
+                }
+              } catch (_) {}
+            } else {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...st, isActive: false }));
+            }
+          }
+        } catch (_) {}
+      }, [onLogActivity]);
+
+      // Tick effect
       useEffect(() => {
         if (timeLeft > 0 && isActive) {
-          timerRef.current = setTimeout(() => setTimeLeft(timeLeft - 1), 1000);
+          timerRef.current = setTimeout(() => setTimeLeft((t) => t - 1), 1000);
         } else if (timeLeft === 0 && isActive) {
+          // Finish and log once
+          const mins = duration;
           setIsActive(false);
-          onLogActivity({ minutes: duration });
-          if ('Notification' in window && Notification.permission === "granted") {
-            new Notification("Activity Complete!", { body: `Great job! You've logged ${duration} minutes.` });
+          try {
+            const st = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+            if (!st || !st.logged) {
+              onLogActivity({ minutes: mins });
+              localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...(st || {}), isActive: false, logged: true, completedAt: Date.now() }));
+            } else {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...(st || {}), isActive: false }));
+            }
+          } catch (_) {
+            onLogActivity({ minutes: mins });
+          }
+          if ('Notification' in window && Notification.permission === 'granted') {
+            try { new Notification('Activity Complete!', { body: `Great job! You've logged ${mins} minutes.` }); } catch (_) {}
           }
         }
         return () => clearTimeout(timerRef.current);
-      }, [timeLeft, isActive, onLogActivity, duration]);
+      }, [timeLeft, isActive, duration, onLogActivity]);
 
       const startTimer = (minutes) => {
-        setTimeLeft(minutes * 60);
+        const durSec = minutes * 60;
+        const now = Date.now();
+        const todayISO = toLocalISODate(new Date());
+        setTimeLeft(durSec);
         setDuration(minutes);
         setIsActive(true);
+        setStartedAt(now);
+        // Persist start so it survives navigation/reload
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({
+            isActive: true,
+            startedAt: now,
+            durationSec: durSec,
+            intakeDate: todayISO,
+            logged: false
+          }));
+        } catch (_) {}
       };
 
       const formatTime = (seconds) => {
