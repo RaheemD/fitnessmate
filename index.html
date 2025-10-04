@@ -388,6 +388,8 @@
       const [loading, setLoading] = useState(true);
       const [authError, setAuthError] = useState(null);
       const forceNextRemoteOnlyRef = useRef(false);
+      // Track when remote data has been applied at least once on this device
+      const authInitialRemoteAppliedRef = useRef(false);
 
       useEffect(() => {
         if (!auth) {
@@ -403,9 +405,15 @@
             // Sync user data when authenticated
             // Treat initial session like a sign-in for one cycle: fetch remote only
             forceNextRemoteOnlyRef.current = true;
+            // Purge local profile so we only accept remote
+            try { clearLocalProfileForRemoteOnly(); } catch (_) {}
             syncUserData(session.user);
           }
         });
+
+        // Mark remote applied completion when event fires (initial or realtime)
+        const onRemoteApplied = () => { authInitialRemoteAppliedRef.current = true; };
+        window.addEventListener('remoteDataApplied', onRemoteApplied);
 
         // Listen for auth state changes
         const { data: { subscription } } = auth.onAuthStateChange((event, session) => {
@@ -418,6 +426,8 @@
             // Enforce remote-only fetch on explicit sign-in events
             if (event === 'SIGNED_IN') {
               forceNextRemoteOnlyRef.current = true;
+              // Purge local profile so we only accept remote
+              try { clearLocalProfileForRemoteOnly(); } catch (_) {}
             }
             // Sync user data when authenticated
             syncUserData(currentUser);
@@ -434,6 +444,7 @@
 
         return () => {
           subscription?.unsubscribe();
+          window.removeEventListener('remoteDataApplied', onRemoteApplied);
         };
       }, [auth]);
 
@@ -514,6 +525,19 @@
         const hasWorkoutPlan = workoutPlan !== null && workoutPlan !== 'null';
         
         return hasGoals || hasIntake || hasMeals || hasHistory || hasCoachMessages || hasHabits || hasMealPlan || hasWorkoutPlan;
+      };
+
+      // Purge local profile data so sign-in always starts from remote source of truth
+      const clearLocalProfileForRemoteOnly = () => {
+        const keys = [
+          'goals',
+          'dailyIntake',
+          'recentMeals',
+          'dailyHistory',
+          'dailyIntakeDate',
+          'lastSavedDate'
+        ];
+        keys.forEach(k => { try { localStorage.removeItem(k); } catch (_) {} });
       };
 
       const syncUserData = async (u, retryCount = 0) => {
@@ -609,40 +633,57 @@
                 console.log('✅ Notifications setting synced to localStorage');
               }
               
-              // Sync additional user data (guard to avoid overwriting fresh local rollover)
-              if (userData.daily_intake) {
-                try {
-                  const todayISO = toLocalISODate(new Date());
-                  const localIntakeDate = localStorage.getItem('dailyIntakeDate');
-                  const lastSaved = localStorage.getItem('lastSavedDate');
-                  const rolledToToday = localIntakeDate === todayISO && lastSaved === todayISO;
-                  const localIntake = (() => { try { return JSON.parse(localStorage.getItem('dailyIntake')||'{}'); } catch { return {}; } })();
-                  const localIsZero = ['calories','protein','carbs','fat','activity','water'].every(k => Number(localIntake[k]||0) === 0);
-                  const remoteHasNonZero = ['calories','protein','carbs','fat','activity','water'].some(k => Number(userData.daily_intake?.[k]||0) > 0);
-                  if (rolledToToday && localIsZero && remoteHasNonZero) {
-                    console.log('⏭️ Skipping remote daily_intake to prevent post-rollover flicker');
-                  } else {
+              // Sync additional user data - REMOTE-ONLY on sign-in (like workout_history)
+              if (remoteOnly) {
+                // Remote-only: overwrite local completely, no merge
+                if (userData.daily_intake) {
+                  localStorage.setItem('dailyIntake', JSON.stringify(userData.daily_intake));
+                  console.log('🔒 Remote-only: set daily_intake from remote');
+                }
+                if (userData.recent_meals) {
+                  localStorage.setItem('recentMeals', JSON.stringify(userData.recent_meals));
+                  console.log('🔒 Remote-only: set recent_meals from remote');
+                }
+                if (userData.daily_history) {
+                  localStorage.setItem('dailyHistory', JSON.stringify(userData.daily_history));
+                  console.log('🔒 Remote-only: set daily_history from remote');
+                }
+              } else {
+                // Normal sync: merge with guards
+                if (userData.daily_intake) {
+                  try {
+                    const todayISO = toLocalISODate(new Date());
+                    const localIntakeDate = localStorage.getItem('dailyIntakeDate');
+                    const lastSaved = localStorage.getItem('lastSavedDate');
+                    const rolledToToday = localIntakeDate === todayISO && lastSaved === todayISO;
+                    const localIntake = (() => { try { return JSON.parse(localStorage.getItem('dailyIntake')||'{}'); } catch { return {}; } })();
+                    const localIsZero = ['calories','protein','carbs','fat','activity','water'].every(k => Number(localIntake[k]||0) === 0);
+                    const remoteHasNonZero = ['calories','protein','carbs','fat','activity','water'].some(k => Number(userData.daily_intake?.[k]||0) > 0);
+                    if (rolledToToday && localIsZero && remoteHasNonZero) {
+                      console.log('⏭️ Skipping remote daily_intake to prevent post-rollover flicker');
+                    } else {
+                      localStorage.setItem('dailyIntake', JSON.stringify(userData.daily_intake));
+                      console.log('✅ Daily intake synced to localStorage');
+                    }
+                  } catch (_) {
                     localStorage.setItem('dailyIntake', JSON.stringify(userData.daily_intake));
                     console.log('✅ Daily intake synced to localStorage');
                   }
-                } catch (_) {
-                  localStorage.setItem('dailyIntake', JSON.stringify(userData.daily_intake));
-                  console.log('✅ Daily intake synced to localStorage');
                 }
-              }
-              if (userData.recent_meals) {
-                localStorage.setItem('recentMeals', JSON.stringify(userData.recent_meals));
-                console.log('✅ Recent meals synced to localStorage');
-              }
-              if (userData.daily_history) {
-                try {
-                  const localDH = JSON.parse(localStorage.getItem('dailyHistory') || '{}') || {};
-                  const merged = { ...localDH, ...userData.daily_history };
-                  localStorage.setItem('dailyHistory', JSON.stringify(merged));
-                  console.log('✅ Daily history merged to localStorage');
-                } catch (_) {
-                  localStorage.setItem('dailyHistory', JSON.stringify(userData.daily_history));
-                  console.log('✅ Daily history synced to localStorage');
+                if (userData.recent_meals) {
+                  localStorage.setItem('recentMeals', JSON.stringify(userData.recent_meals));
+                  console.log('✅ Recent meals synced to localStorage');
+                }
+                if (userData.daily_history) {
+                  try {
+                    const localDH = JSON.parse(localStorage.getItem('dailyHistory') || '{}') || {};
+                    const merged = { ...localDH, ...userData.daily_history };
+                    localStorage.setItem('dailyHistory', JSON.stringify(merged));
+                    console.log('✅ Daily history merged to localStorage');
+                  } catch (_) {
+                    localStorage.setItem('dailyHistory', JSON.stringify(userData.daily_history));
+                    console.log('✅ Daily history synced to localStorage');
+                  }
                 }
               }
               if (userData.coach_messages) {
@@ -819,10 +860,19 @@
               
               console.log('✅ All remote data synced to local storage');
               
-              // Trigger UI refresh and mark remote applied
+              // Trigger UI refresh and mark remote applied (with retries for late listeners)
               console.log('📡 Dispatching userDataSynced and remoteDataApplied events...');
+              try { localStorage.setItem('pendingUserDataSynced', '1'); } catch (_) {}
               window.dispatchEvent(new CustomEvent('userDataSynced'));
               window.dispatchEvent(new CustomEvent('remoteDataApplied'));
+              // Re-dispatch after short delays to catch listeners that mount slightly later
+              setTimeout(() => {
+                try { window.dispatchEvent(new CustomEvent('userDataSynced')); } catch (_) {}
+              }, 300);
+              setTimeout(() => {
+                try { window.dispatchEvent(new CustomEvent('userDataSynced')); } catch (_) {}
+                try { localStorage.removeItem('pendingUserDataSynced'); } catch (_) {}
+              }, 800);
             } else {
               if (remoteOnly) {
                 console.log('🔒 Remote-only mode active; skipping local-to-remote sync.');
@@ -1105,6 +1155,11 @@
         // Prevent writes during remote-only sign-in fetch
         if (forceNextRemoteOnlyRef?.current) {
           console.log('🔒 Remote-only mode active: skipping updateUserData to avoid overwriting remote during sign-in');
+          return;
+        }
+        // Block any writes until initial remote has been applied to this device
+        if (!authInitialRemoteAppliedRef.current) {
+          console.log('⏸️ Skipping updateUserData until initial remote sync completes (AuthProvider)');
           return;
         }
         
@@ -1481,6 +1536,11 @@
         // Prevent bulk push during remote-only sign-in fetch
         if (forceNextRemoteOnlyRef?.current) {
           console.log('🔒 Remote-only mode active: skipping syncAllDataToSupabase during sign-in');
+          return;
+        }
+        // Also block until initial remote applied
+        if (!authInitialRemoteAppliedRef?.current) {
+          console.log('⏸️ Skipping syncAllDataToSupabase until initial remote sync completes');
           return;
         }
         
@@ -1892,7 +1952,14 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
               setRecentMeals([]);
               localStorage.setItem('lastSavedDate', todayISO);
               localStorage.setItem('dailyIntakeDate', todayISO);
-              try { if (user) syncDailyIntake(zero); } catch (_) {}
+              // Do not push zeros during initial remote-only sign-in window
+              try {
+                if (user && initialSyncCompletedRef.current && !isRemoteSyncRef.current) {
+                  syncDailyIntake(zero);
+                } else {
+                  console.log('⏸️ Skipping EOD zero sync until initial remote data is applied');
+                }
+              } catch (_) {}
             }
           } catch (_) { /* no-op */ }
         }, 60000);
@@ -1956,7 +2023,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         localStorage.setItem('fitmate-current-screen', screen);
       }, [screen]);
 
-      // Listen for userDataSynced event to refresh React state
+      // Listen for userDataSynced/remoteDataApplied events to refresh React state
       useEffect(() => {
         const handleUserDataSynced = () => {
           console.log('🔄 Refreshing React state after sync...');
@@ -2041,9 +2108,19 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         };
         
         window.addEventListener('userDataSynced', handleUserDataSynced);
+        window.addEventListener('remoteDataApplied', handleUserDataSynced);
+
+        // If remote finished applying before this listener mounted, hydrate now
+        try {
+          if (localStorage.getItem('pendingUserDataSynced') === '1') {
+            console.log('🔁 Pending userDataSynced detected on mount; hydrating state now');
+            handleUserDataSynced();
+          }
+        } catch (_) {}
         
         return () => {
           window.removeEventListener('userDataSynced', handleUserDataSynced);
+          window.removeEventListener('remoteDataApplied', handleUserDataSynced);
         };
       }, []);
 
@@ -2288,9 +2365,13 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
 
             // Prevent feedback loop: mark update as remote, then refresh UI
             isRemoteSyncRef.current = true;
+            try { localStorage.setItem('pendingUserDataSynced', '1'); } catch (_) {}
             window.dispatchEvent(new CustomEvent('userDataSynced'));
             // Also signal that remote data has been applied (for initial-sync gating)
             window.dispatchEvent(new CustomEvent('remoteDataApplied'));
+            // Re-dispatch after short delays to catch listeners that mount slightly later
+            setTimeout(() => { try { window.dispatchEvent(new CustomEvent('userDataSynced')); } catch (_) {} }, 300);
+            setTimeout(() => { try { window.dispatchEvent(new CustomEvent('userDataSynced')); } catch (_) {} try { localStorage.removeItem('pendingUserDataSynced'); } catch (_) {} }, 800);
             setTimeout(() => { isRemoteSyncRef.current = false; }, 300);
           }
         }, { filter: `id=eq.${user.id}` });
