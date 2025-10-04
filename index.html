@@ -860,19 +860,28 @@
               
               console.log('✅ All remote data synced to local storage');
               
+              // Directly notify UI to hydrate from fresh remote payload (no manual refresh)
+              try {
+                localStorage.setItem('pendingHydratePayload', JSON.stringify(userData));
+                if (window.fitmateHydrateFromRemote) window.fitmateHydrateFromRemote(userData);
+              } catch (_) {}
+
               // Trigger UI refresh and mark remote applied (with retries for late listeners)
               console.log('📡 Dispatching userDataSynced and remoteDataApplied events...');
               try { localStorage.setItem('pendingUserDataSynced', '1'); } catch (_) {}
-              window.dispatchEvent(new CustomEvent('userDataSynced'));
-              window.dispatchEvent(new CustomEvent('remoteDataApplied'));
+              window.dispatchEvent(new CustomEvent('userDataSynced', { detail: { userData } }));
+              window.dispatchEvent(new CustomEvent('remoteDataApplied', { detail: { userData } }));
               // Re-dispatch after short delays to catch listeners that mount slightly later
               setTimeout(() => {
-                try { window.dispatchEvent(new CustomEvent('userDataSynced')); } catch (_) {}
+                try { window.dispatchEvent(new CustomEvent('userDataSynced', { detail: { userData } })); } catch (_) {}
               }, 300);
               setTimeout(() => {
-                try { window.dispatchEvent(new CustomEvent('userDataSynced')); } catch (_) {}
+                try { window.dispatchEvent(new CustomEvent('userDataSynced', { detail: { userData } })); } catch (_) {}
                 try { localStorage.removeItem('pendingUserDataSynced'); } catch (_) {}
               }, 800);
+              setTimeout(() => {
+                try { window.dispatchEvent(new CustomEvent('userDataSynced', { detail: { userData } })); } catch (_) {}
+              }, 1500);
             } else {
               if (remoteOnly) {
                 console.log('🔒 Remote-only mode active; skipping local-to-remote sync.');
@@ -2025,50 +2034,69 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
 
       // Listen for userDataSynced/remoteDataApplied events to refresh React state
       useEffect(() => {
-        const handleUserDataSynced = () => {
+        const handleUserDataSynced = (evt) => {
           console.log('🔄 Refreshing React state after sync...');
+          const payload = evt && evt.detail && evt.detail.userData ? evt.detail.userData : null;
           
-          // Refresh all React states from localStorage after sync
-          const savedGoals = localStorage.getItem('goals');
-          if (savedGoals) {
-            const goalsData = JSON.parse(savedGoals);
-            setGoals(goalsData);
-            console.log('✅ Goals synced:', goalsData);
+          // Prefer event payload (freshest). Fallback to localStorage.
+          if (payload && payload.goals) {
+            setGoals(payload.goals);
+            try { localStorage.setItem('goals', JSON.stringify(payload.goals)); } catch (_) {}
+            console.log('✅ Goals applied from event payload');
+          } else {
+            const savedGoals = localStorage.getItem('goals');
+            if (savedGoals) {
+              const goalsData = JSON.parse(savedGoals);
+              setGoals(goalsData);
+              console.log('✅ Goals synced:', goalsData);
+            }
           }
           
-          const savedIntake = localStorage.getItem('dailyIntake');
-          if (savedIntake) {
-            const intakeData = JSON.parse(savedIntake);
-            // New device: always apply remote-fetched intake to state
-            const isNewDevice = !localStorage.getItem('lastSyncTimestamp');
-            if (isNewDevice) {
-              setDailyIntake(intakeData);
-              console.log('✅ Applied remote dailyIntake on new device:', intakeData);
-            } else {
-              // Guard only for rollover flicker on existing device
-              try {
-                const todayISO = toLocalISODate(new Date());
-                const localIntakeDate = localStorage.getItem('dailyIntakeDate');
-                const lastSaved = localStorage.getItem('lastSavedDate');
-                const rolledComplete = localIntakeDate === todayISO && lastSaved === todayISO;
-                if (!rolledComplete) {
-                  console.log('⏭️ Skipping setDailyIntake from userDataSynced until rollover completes');
-                } else {
+          if (payload && payload.daily_intake) {
+            setDailyIntake(payload.daily_intake);
+            try { localStorage.setItem('dailyIntake', JSON.stringify(payload.daily_intake)); } catch (_) {}
+            console.log('✅ Daily intake applied from event payload');
+          } else {
+            const savedIntake = localStorage.getItem('dailyIntake');
+            if (savedIntake) {
+              const intakeData = JSON.parse(savedIntake);
+              // New device: always apply remote-fetched intake to state
+              const isNewDevice = !localStorage.getItem('lastSyncTimestamp');
+              if (isNewDevice) {
+                setDailyIntake(intakeData);
+                console.log('✅ Applied remote dailyIntake on new device:', intakeData);
+              } else {
+                // Guard only for rollover flicker on existing device
+                try {
+                  const todayISO = toLocalISODate(new Date());
+                  const localIntakeDate = localStorage.getItem('dailyIntakeDate');
+                  const lastSaved = localStorage.getItem('lastSavedDate');
+                  const rolledComplete = localIntakeDate === todayISO && lastSaved === todayISO;
+                  if (!rolledComplete) {
+                    console.log('⏭️ Skipping setDailyIntake from userDataSynced until rollover completes');
+                  } else {
+                    setDailyIntake(intakeData);
+                    console.log('✅ Daily intake synced:', intakeData);
+                  }
+                } catch (_) {
                   setDailyIntake(intakeData);
                   console.log('✅ Daily intake synced:', intakeData);
                 }
-              } catch (_) {
-                setDailyIntake(intakeData);
-                console.log('✅ Daily intake synced:', intakeData);
               }
             }
           }
           
-          const savedMeals = localStorage.getItem('recentMeals');
-          if (savedMeals) {
-            const mealsData = JSON.parse(savedMeals);
-            setRecentMeals(mealsData);
-            console.log('✅ Recent meals synced:', mealsData);
+          if (payload && payload.recent_meals) {
+            setRecentMeals(payload.recent_meals);
+            try { localStorage.setItem('recentMeals', JSON.stringify(payload.recent_meals)); } catch (_) {}
+            console.log('✅ Recent meals applied from event payload');
+          } else {
+            const savedMeals = localStorage.getItem('recentMeals');
+            if (savedMeals) {
+              const mealsData = JSON.parse(savedMeals);
+              setRecentMeals(mealsData);
+              console.log('✅ Recent meals synced:', mealsData);
+            }
           }
           
           const savedHistory = localStorage.getItem('dailyHistory');
@@ -2115,6 +2143,20 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
           if (localStorage.getItem('pendingUserDataSynced') === '1') {
             console.log('🔁 Pending userDataSynced detected on mount; hydrating state now');
             handleUserDataSynced();
+          }
+          const rawPending = localStorage.getItem('pendingHydratePayload');
+          if (rawPending) {
+            try {
+              const payload = JSON.parse(rawPending);
+              console.log('🧩 Found pendingHydratePayload; hydrating state now');
+              if (window.fitmateHydrateFromRemote) {
+                window.fitmateHydrateFromRemote(payload);
+              } else {
+                handleUserDataSynced({ detail: { userData: payload } });
+              }
+            } finally {
+              localStorage.removeItem('pendingHydratePayload');
+            }
           }
         } catch (_) {}
         
@@ -2174,6 +2216,34 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         return savedHistory ? JSON.parse(savedHistory) : {};
       });
 
+      // Global hydrator: allows AuthProvider to hydrate UI directly from remote payload
+      useEffect(() => {
+        window.fitmateHydrateFromRemote = (payload) => {
+          try {
+            if (!payload || typeof payload !== 'object') return;
+            if (payload.goals) {
+              setGoals(payload.goals);
+              try { localStorage.setItem('goals', JSON.stringify(payload.goals)); } catch (_) {}
+            }
+            if (payload.daily_intake) {
+              setDailyIntake(payload.daily_intake);
+              try { localStorage.setItem('dailyIntake', JSON.stringify(payload.daily_intake)); } catch (_) {}
+            }
+            if (payload.recent_meals) {
+              setRecentMeals(payload.recent_meals);
+              try { localStorage.setItem('recentMeals', JSON.stringify(payload.recent_meals)); } catch (_) {}
+            }
+            if (payload.daily_history) {
+              setDailyHistory(payload.daily_history);
+              try { localStorage.setItem('dailyHistory', JSON.stringify(payload.daily_history)); } catch (_) {}
+            }
+            try { window.dispatchEvent(new CustomEvent('userDataSynced', { detail: { userData: payload } })); } catch (_) {}
+          } catch (e) {
+            console.warn('fitmateHydrateFromRemote failed:', e);
+          }
+        };
+        return () => { try { delete window.fitmateHydrateFromRemote; } catch (_) {} };
+      }, []);
       // --- Data Archiving Logic (on mount) ---
       useEffect(() => {
         const today = toLocalISODate(new Date());
@@ -2364,14 +2434,20 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
             if (userData.form_analysis) localStorage.setItem('formAnalysis', JSON.stringify(userData.form_analysis));
 
             // Prevent feedback loop: mark update as remote, then refresh UI
+            // Also directly notify UI with latest payload
+            try {
+              localStorage.setItem('pendingHydratePayload', JSON.stringify(remoteData));
+              if (window.fitmateHydrateFromRemote) window.fitmateHydrateFromRemote(remoteData);
+            } catch (_) {}
             isRemoteSyncRef.current = true;
             try { localStorage.setItem('pendingUserDataSynced', '1'); } catch (_) {}
-            window.dispatchEvent(new CustomEvent('userDataSynced'));
+            window.dispatchEvent(new CustomEvent('userDataSynced', { detail: { userData: remoteData } }));
             // Also signal that remote data has been applied (for initial-sync gating)
-            window.dispatchEvent(new CustomEvent('remoteDataApplied'));
+            window.dispatchEvent(new CustomEvent('remoteDataApplied', { detail: { userData: remoteData } }));
             // Re-dispatch after short delays to catch listeners that mount slightly later
-            setTimeout(() => { try { window.dispatchEvent(new CustomEvent('userDataSynced')); } catch (_) {} }, 300);
-            setTimeout(() => { try { window.dispatchEvent(new CustomEvent('userDataSynced')); } catch (_) {} try { localStorage.removeItem('pendingUserDataSynced'); } catch (_) {} }, 800);
+            setTimeout(() => { try { window.dispatchEvent(new CustomEvent('userDataSynced', { detail: { userData: remoteData } })); } catch (_) {} }, 300);
+            setTimeout(() => { try { window.dispatchEvent(new CustomEvent('userDataSynced', { detail: { userData: remoteData } })); } catch (_) {} try { localStorage.removeItem('pendingUserDataSynced'); } catch (_) {} }, 800);
+            setTimeout(() => { try { window.dispatchEvent(new CustomEvent('userDataSynced', { detail: { userData: remoteData } })); } catch (_) {} }, 1500);
             setTimeout(() => { isRemoteSyncRef.current = false; }, 300);
           }
         }, { filter: `id=eq.${user.id}` });
