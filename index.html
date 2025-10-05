@@ -201,6 +201,67 @@
     };
     if (window.meSpeak) { window._initMeSpeak(); }
 
+    // --- Voice feature flags (easy undo) ---
+    // Toggle behavior without code removal. You can flip these via DevTools or set in localStorage then refresh.
+    // Example: localStorage.setItem('fitmate_audio_flags', JSON.stringify({ useNativeFirst:false, enableOfflineTTS:false, enableBeeps:false }))
+    try {
+      const persisted = JSON.parse(localStorage.getItem('fitmate_audio_flags') || 'null');
+      window.FITMATE_AUDIO_FLAGS = persisted || {
+        useNativeFirst: true,     // Try Capacitor native TTS first if available
+        enableOfflineTTS: true,   // Allow meSpeak offline TTS fallback
+        enableBeeps: false        // Disable beeps by default
+      };
+    } catch (_) {
+      window.FITMATE_AUDIO_FLAGS = { useNativeFirst:true, enableOfflineTTS:true, enableBeeps:false };
+    }
+    window.setAudioFlags = function(next){
+      try {
+        const current = window.FITMATE_AUDIO_FLAGS || {};
+        const merged = { ...current, ...(next||{}) };
+        localStorage.setItem('fitmate_audio_flags', JSON.stringify(merged));
+        window.FITMATE_AUDIO_FLAGS = merged;
+        console.log('Audio flags updated:', merged);
+      } catch(e){ console.warn('Failed to set audio flags', e); }
+    }
+
+    // --- Capacitor Native TTS Bridge (optional) ---
+    const nativeTTS = {
+      getPlugin() {
+        try {
+          const cap = window.Capacitor;
+          if (!cap || !cap.Plugins) return null;
+          return cap.Plugins.TextToSpeech || cap.Plugins.CapacitorTextToSpeech || window.TextToSpeech || null;
+        } catch (_) { return null; }
+      },
+      isAvailable() {
+        return !!(window.FITMATE_AUDIO_FLAGS?.useNativeFirst && this.getPlugin());
+      },
+      speak(text, opts = {}) {
+        const TTS = this.getPlugin();
+        if (!TTS) return Promise.reject('No native TTS');
+        const options = {
+          text: String(text || ''),
+          rate: opts.rate ?? 1.0,
+          pitch: opts.pitch ?? 1.0,
+          volume: opts.volume ?? 1.0,
+          language: opts.language ?? 'en-US',
+          category: opts.category ?? 'ambient',
+          queue: false
+        };
+        try {
+          const p = TTS.speak ? TTS.speak(options) : (TTS.speakText ? TTS.speakText(options) : Promise.reject('No speak method'));
+          return Promise.resolve(p);
+        } catch (e) { return Promise.reject(e); }
+      },
+      stop() {
+        try {
+          const TTS = this.getPlugin();
+          if (TTS && typeof TTS.stop === 'function') return TTS.stop();
+        } catch (_) {}
+        return Promise.resolve();
+      }
+    };
+
     // Global safe stub to avoid ReferenceError before the real helper is defined
     if (typeof window !== 'undefined' && typeof window.setLocalStorageWithSync === 'undefined') {
       window.setLocalStorageWithSync = function (key, value) {
@@ -2029,8 +2090,36 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       currentText: null,
       fallbackActive: false,
       meSpeakId: null,
+      usingNative: false,
       
       speak: function(text, buttonId) {
+        // Prefer native TTS if available (Capacitor)
+        if (nativeTTS.isAvailable()) {
+          // Toggle stop if same button
+          if (this.isPlaying && this.activeButton === buttonId) {
+            this.stop();
+            return 'stop';
+          }
+          if (this.isPlaying) this.stop();
+          this.currentText = text;
+          this.isPlaying = true;
+          this.activeButton = buttonId;
+          this.usingNative = true;
+          try { unlockAudio(); } catch(_) {}
+          nativeTTS.speak(text, { rate: 1.0, pitch: 1.0, volume: 1.0 })
+            .then(() => {
+              this.isPlaying = false;
+              this.activeButton = null;
+              this.currentText = null;
+              this.usingNative = false;
+            })
+            .catch((e) => {
+              console.warn('Native TTS failed, falling back:', e);
+              this.usingNative = false;
+              this.fallbackSpeak(text, buttonId);
+            });
+          return 'play';
+        }
         if ('speechSynthesis' in window) {
           // If this button is currently playing, stop it
           if (this.isPlaying && this.activeButton === buttonId) {
@@ -2099,17 +2188,19 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       stop: function() {
         try { window.speechSynthesis.cancel(); } catch (_) {}
         try { if (window.meSpeak && this.meSpeakId) { window.meSpeak.stop(this.meSpeakId); } } catch (_) {}
+        try { if (this.usingNative) { nativeTTS.stop(); } } catch (_) {}
         this.isPlaying = false;
         this.currentUtterance = null;
         this.activeButton = null;
         this.currentText = null;
         this.fallbackActive = false;
         this.meSpeakId = null;
+        this.usingNative = false;
       },
       
       isActuallyPlaying: function() {
         const speaking = (typeof window !== 'undefined' && window.speechSynthesis) ? window.speechSynthesis.speaking : false;
-        return this.isPlaying && (speaking || this.fallbackActive);
+        return this.isPlaying && (speaking || this.fallbackActive || this.usingNative);
       },
       
       // Fallback: try meSpeak (offline TTS), otherwise beep patterns using WebAudio
@@ -2124,7 +2215,8 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
             if (typeof window._initMeSpeak === 'function') {
               try { await window._initMeSpeak(); } catch (_) {}
             }
-            if (window.meSpeak && window._meSpeakReady && typeof window.meSpeak.speak === 'function') {
+            const allowOffline = !!(window.FITMATE_AUDIO_FLAGS && window.FITMATE_AUDIO_FLAGS.enableOfflineTTS);
+            if (allowOffline && window.meSpeak && window._meSpeakReady && typeof window.meSpeak.speak === 'function') {
               try {
                 unlockAudio();
                 const id = window.meSpeak.speak(String(text || ''), { speed: 160, pitch: 60, volume: 1 }, (success) => {
@@ -2139,10 +2231,13 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
           } catch (e) { console.warn('meSpeak init/speak error:', e); }
           // Beep fallback (only for short cues). Avoid beeps for long instructions.
           try {
-            const t = String(text || '');
-            const isShortCue = t.length <= 40 || /(\bbegin\b|\bstart\b|\brest\b|\bcomplete\b|\bfinished\b|\bworkout\b|^\d+$)/i.test(t);
-            if (isShortCue) {
-              await playTextBeepSequence(text);
+            const allowBeeps = !!(window.FITMATE_AUDIO_FLAGS && window.FITMATE_AUDIO_FLAGS.enableBeeps);
+            if (allowBeeps) {
+              const t = String(text || '');
+              const isShortCue = t.length <= 40 || /(\bbegin\b|\bstart\b|\brest\b|\bcomplete\b|\bfinished\b|\bworkout\b|^\d+$)/i.test(t);
+              if (isShortCue) {
+                await playTextBeepSequence(text);
+              }
             }
           } catch (e) {
             console.warn('Fallback beep failed:', e);
@@ -3457,6 +3552,24 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         subject: '',
         message: ''
       });
+      // Voice & Audio flags (UI mirror of global flags)
+      const [audioFlags, setAudioFlags] = useState(() => {
+        try { return window.FITMATE_AUDIO_FLAGS || { useNativeFirst:true, enableOfflineTTS:true, enableBeeps:false }; }
+        catch(_) { return { useNativeFirst:true, enableOfflineTTS:true, enableBeeps:false }; }
+      });
+      const updateAudioFlags = (next) => {
+        const merged = { ...audioFlags, ...(next||{}) };
+        setAudioFlags(merged);
+        if (typeof window.setAudioFlags === 'function') window.setAudioFlags(merged);
+      };
+      const toggleNative = () => updateAudioFlags({ useNativeFirst: !audioFlags.useNativeFirst });
+      const toggleOffline = () => updateAudioFlags({ enableOfflineTTS: !audioFlags.enableOfflineTTS });
+      const toggleBeeps = () => updateAudioFlags({ enableBeeps: !audioFlags.enableBeeps });
+      const resetAudioFlagsToBrowserOnly = () => {
+        const reset = { useNativeFirst:false, enableOfflineTTS:false, enableBeeps:false };
+        setAudioFlags(reset);
+        if (typeof window.setAudioFlags === 'function') window.setAudioFlags(reset);
+      };
       const [isSubmittingSupport, setIsSubmittingSupport] = useState(false);
       const [supportSubmissionStatus, setSupportSubmissionStatus] = useState(null);
       const [showBookingModal, setShowBookingModal] = useState(false);
@@ -5155,6 +5268,60 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
                     📱 On mobile: Tap anywhere to start music
                   </p>
                 )}
+              </div>
+
+              {/* Voice & Audio (Native/Offline/Beep) */}
+              <div className="p-3 space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-700 dark:text-gray-300">Use Native TTS (Capacitor)</span>
+                  <button
+                    onClick={toggleNative}
+                    className={`relative w-14 h-7 rounded-full p-1 transition-colors duration-200 focus:outline-none ${
+                      audioFlags.useNativeFirst ? 'bg-green-500' : 'bg-gray-300'
+                    }`}
+                    title={audioFlags.useNativeFirst ? 'Native TTS ON' : 'Native TTS OFF'}
+                  >
+                    <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-200 ${
+                      audioFlags.useNativeFirst ? 'translate-x-7' : 'translate-x-0'
+                    }`}></div>
+                  </button>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-700 dark:text-gray-300">Offline TTS (meSpeak)</span>
+                  <button
+                    onClick={toggleOffline}
+                    className={`relative w-14 h-7 rounded-full p-1 transition-colors duration-200 focus:outline-none ${
+                      audioFlags.enableOfflineTTS ? 'bg-green-500' : 'bg-gray-300'
+                    }`}
+                    title={audioFlags.enableOfflineTTS ? 'Offline TTS ON' : 'Offline TTS OFF'}
+                  >
+                    <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-200 ${
+                      audioFlags.enableOfflineTTS ? 'translate-x-7' : 'translate-x-0'
+                    }`}></div>
+                  </button>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-700 dark:text-gray-300">Short Beeps (cues only)</span>
+                  <button
+                    onClick={toggleBeeps}
+                    className={`relative w-14 h-7 rounded-full p-1 transition-colors duration-200 focus:outline-none ${
+                      audioFlags.enableBeeps ? 'bg-green-500' : 'bg-gray-300'
+                    }`}
+                    title={audioFlags.enableBeeps ? 'Beeps ON' : 'Beeps OFF'}
+                  >
+                    <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-200 ${
+                      audioFlags.enableBeeps ? 'translate-x-7' : 'translate-x-0'
+                    }`}></div>
+                  </button>
+                </div>
+                <div className="pt-1">
+                  <button
+                    onClick={resetAudioFlagsToBrowserOnly}
+                    className="w-full text-left p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 transition-colors"
+                  >
+                    Reset voice to browser-only (undo)
+                  </button>
+                </div>
               </div>
               
               <button 
