@@ -1,53 +1,69 @@
-/* Basic service worker for Fitmate PWA */
-const CACHE_NAME = 'fitmate-cache-v2';
+/* Enhanced service worker for FitnessMate PWA */
+const CACHE_NAME = 'fitnessmate-cache-v3';
 const CORE_ASSETS = [
-  '/',
+  '/', 
   '/index.html',
   '/workout.html',
   '/manifest.webmanifest',
-  '/Gym.mp3'
+  '/Gym.mp3',
+
+  // ✅ include your actual asset paths below (adjust filenames if needed)
+  '/styles.css',
+  '/script.js',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png'
 ];
 
+// Install: cache core assets
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(CORE_ASSETS)).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME)
+      .then((cache) => cache.addAll(CORE_ASSETS))
+      .then(() => self.skipWaiting())
   );
 });
 
+// Activate: clean old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.map((k) => (k !== CACHE_NAME ? caches.delete(k) : null)))).then(() => self.clients.claim())
+    caches.keys().then((keys) =>
+      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+    ).then(() => self.clients.claim())
   );
 });
 
-// Network-first for HTML, cache-first for others
+// Fetch: cache-first for static files, network-first for HTML
 self.addEventListener('fetch', (event) => {
-  const { request } = event;
-  const isHTML = request.headers.get('accept')?.includes('text/html');
+  const req = event.request;
+  const isHTML = req.headers.get('accept')?.includes('text/html');
 
   if (isHTML) {
+    // Network-first for HTML pages
     event.respondWith(
-      fetch(request)
-        .then((resp) => {
-          const respClone = resp.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, respClone)).catch(() => {});
-          return resp;
+      fetch(req)
+        .then((res) => {
+          const clone = res.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
+          return res;
         })
-        .catch(() => caches.match(request))
+        .catch(() => caches.match(req))
     );
-    return;
+  } else {
+    // Cache-first for CSS, JS, images, audio, etc.
+    event.respondWith(
+      caches.match(req).then((cached) => {
+        if (cached) return cached;
+        return fetch(req)
+          .then((res) => {
+            const clone = res.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
+            return res;
+          })
+          .catch(() => {
+            // fallback to homepage if offline and asset missing
+            if (req.destination === 'document') return caches.match('/');
+          });
+      })
+    );
   }
-
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      return fetch(request)
-        .then((resp) => {
-          const respClone = resp.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, respClone)).catch(() => {});
-          return resp;
-        })
-        .catch(() => caches.match('/index.html'));
-    })
-  );
 });
