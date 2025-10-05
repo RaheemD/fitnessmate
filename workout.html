@@ -3,7 +3,18 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Workouts — Single File App</title>
+  <title>Workouts — FitnessMate</title>
+
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="/manifest.json">
+  
+  <!-- PWA Meta Tags -->
+  <meta name="theme-color" content="#ec4899">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="FitnessMate">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="application-name" content="FitnessMate">
 
   <!-- Tailwind CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -84,7 +95,22 @@
   </audio>
 
   <!-- APP CONTAINER -->
-  <div id="app" class="max-w-3xl mx-auto px-4 pt-6 pb-28">
+    <div id="app" class="max-w-3xl mx-auto px-4 pt-6 pb-28">
+
+      <!-- Audio Enable Prompt (shown when needed) -->
+      <div id="audio-enable-prompt" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl">
+          <div class="text-4xl mb-4">🎵</div>
+          <h3 class="text-xl font-bold text-gray-900 dark:text-white mb-2">Enable Sound</h3>
+          <p class="text-gray-600 dark:text-gray-300 mb-6">Tap the button below to enable background music and workout sounds for the best experience.</p>
+          <button id="enable-audio-btn" class="w-full bg-pink-500 hover:bg-pink-600 text-white font-semibold py-3 px-6 rounded-xl transition-colors">
+            🎵 Enable Sound
+          </button>
+          <button id="skip-audio-btn" class="w-full mt-3 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 font-medium py-2 transition-colors">
+            Continue without sound
+          </button>
+        </div>
+      </div>
 
     <!-- VIEW: Workouts List (default) -->
     <section id="view-list" class="active-view">
@@ -520,33 +546,290 @@
     return 'list';
   }
 
-  // Background music initialization
-  function initializeBackgroundMusic() {
-    const backgroundMusicEnabled = localStorage.getItem('backgroundMusicEnabled');
-    const audio = document.getElementById('background-music');
+  // Enhanced Audio Management System for PWA/App Wrapper Compatibility
+  class AudioManager {
+    constructor() {
+      this.audioContext = null;
+      this.backgroundAudio = null;
+      this.isInitialized = false;
+      this.userInteracted = false;
+      this.retryAttempts = 0;
+      this.maxRetries = 3;
+      this.audioEnabled = false;
+      
+      // Detect if running in app wrapper (Appilix, Cordova, etc.)
+      this.isAppWrapper = this.detectAppWrapper();
+      
+      this.init();
+    }
     
-    if (audio && backgroundMusicEnabled === 'true') {
-      audio.volume = 0.3;
-      audio.play().catch(e => {
-        console.log('Audio autoplay prevented:', e);
-        // For mobile browsers, add user interaction listeners
-        if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
-          const startMusicOnInteraction = () => {
-            audio.play().catch(e => console.log('Audio play still failed:', e));
-            document.removeEventListener('click', startMusicOnInteraction);
-            document.removeEventListener('touchstart', startMusicOnInteraction);
-            document.removeEventListener('keydown', startMusicOnInteraction);
-          };
-          document.addEventListener('click', startMusicOnInteraction, { once: true });
-          document.addEventListener('touchstart', startMusicOnInteraction, { once: true });
-          document.addEventListener('keydown', startMusicOnInteraction, { once: true });
+    detectAppWrapper() {
+      // Check for common app wrapper indicators
+      return !!(
+        window.cordova || 
+        window.PhoneGap || 
+        window.phonegap ||
+        navigator.userAgent.includes('wv') || // WebView indicator
+        window.chrome?.webstore === undefined && window.chrome?.runtime === undefined ||
+        window.navigator.standalone === true || // iOS PWA
+        window.matchMedia('(display-mode: standalone)').matches // PWA display mode
+      );
+    }
+    
+    async init() {
+      console.log('🎵 AudioManager initializing...', { isAppWrapper: this.isAppWrapper });
+      
+      this.backgroundAudio = document.getElementById('background-music');
+      if (!this.backgroundAudio) return;
+      
+      // Set up audio element properties for better compatibility
+      this.backgroundAudio.preload = 'auto';
+      this.backgroundAudio.volume = 0.3;
+      
+      // Create Web Audio Context for better control
+      try {
+        this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        console.log('🎵 AudioContext created:', this.audioContext.state);
+      } catch (e) {
+        console.warn('🎵 AudioContext not supported:', e);
+      }
+      
+      // Set up multiple event listeners for user interaction
+      this.setupUserInteractionListeners();
+      
+      // Try immediate playback (works in some PWA environments)
+      this.attemptInitialPlayback();
+      
+      // Set up periodic retry mechanism for app wrappers
+      if (this.isAppWrapper) {
+        this.setupRetryMechanism();
+      }
+      
+      this.isInitialized = true;
+    }
+    
+    setupUserInteractionListeners() {
+      const events = ['click', 'touchstart', 'touchend', 'keydown', 'pointerdown'];
+      const handler = () => {
+        if (!this.userInteracted) {
+          this.userInteracted = true;
+          console.log('🎵 User interaction detected, enabling audio...');
+          this.enableAudio();
+          
+          // Remove listeners after first interaction
+          events.forEach(event => {
+            document.removeEventListener(event, handler, { capture: true });
+          });
         }
+      };
+      
+      // Use capture phase to catch events early
+      events.forEach(event => {
+        document.addEventListener(event, handler, { capture: true, passive: true });
       });
+    }
+    
+    async attemptInitialPlayback() {
+      const backgroundMusicEnabled = localStorage.getItem('backgroundMusicEnabled');
+      if (backgroundMusicEnabled !== 'true') return;
+      
+      try {
+        // Resume audio context if suspended
+        if (this.audioContext && this.audioContext.state === 'suspended') {
+          await this.audioContext.resume();
+        }
+        
+        await this.backgroundAudio.play();
+        this.audioEnabled = true;
+        console.log('🎵 Audio autoplay successful!');
+        
+        // Show success indicator
+        this.showAudioStatus('🎵 Background music enabled', 'success');
+        
+      } catch (error) {
+         console.log('🎵 Autoplay prevented, waiting for user interaction:', error.message);
+         
+         // Show user-friendly prompt instead of just status message
+         if (this.isAppWrapper) {
+           // For app wrappers, show the prompt immediately
+           setTimeout(() => this.showAudioPrompt(), 1000);
+         } else {
+           // For regular browsers, show status message
+           this.showAudioStatus('🎵 Tap anywhere to enable sound', 'info');
+         }
+       }
+    }
+    
+    setupRetryMechanism() {
+      // For app wrappers, try enabling audio after a delay
+      const retryIntervals = [1000, 3000, 5000]; // 1s, 3s, 5s
+      
+      retryIntervals.forEach((delay, index) => {
+        setTimeout(() => {
+          if (!this.audioEnabled && this.retryAttempts < this.maxRetries) {
+            this.retryAttempts++;
+            console.log(`🎵 Retry attempt ${this.retryAttempts} for app wrapper...`);
+            this.attemptInitialPlayback();
+          }
+        }, delay);
+      });
+    }
+    
+    async enableAudio() {
+      if (this.audioEnabled) return;
+      
+      const backgroundMusicEnabled = localStorage.getItem('backgroundMusicEnabled');
+      if (backgroundMusicEnabled !== 'true') return;
+      
+      try {
+        // Resume audio context
+        if (this.audioContext && this.audioContext.state !== 'running') {
+          await this.audioContext.resume();
+          console.log('🎵 AudioContext resumed:', this.audioContext.state);
+        }
+        
+        // Start background music
+        if (this.backgroundAudio.paused) {
+          await this.backgroundAudio.play();
+          this.audioEnabled = true;
+          console.log('🎵 Background music started after user interaction');
+          this.showAudioStatus('🎵 Background music enabled!', 'success');
+        }
+        
+      } catch (error) {
+        console.error('🎵 Failed to enable audio:', error);
+        this.showAudioStatus('🎵 Audio unavailable in this environment', 'error');
+      }
+    }
+    
+    showAudioStatus(message, type = 'info') {
+       // Create or update status indicator
+       let statusEl = document.getElementById('audio-status');
+       if (!statusEl) {
+         statusEl = document.createElement('div');
+         statusEl.id = 'audio-status';
+         statusEl.style.cssText = `
+           position: fixed;
+           top: 20px;
+           right: 20px;
+           padding: 8px 16px;
+           border-radius: 8px;
+           font-size: 14px;
+           font-weight: 500;
+           z-index: 1000;
+           transition: all 0.3s ease;
+           max-width: 250px;
+         `;
+         document.body.appendChild(statusEl);
+       }
+       
+       // Set colors based on type
+       const colors = {
+         success: { bg: '#10b981', text: '#ffffff' },
+         info: { bg: '#3b82f6', text: '#ffffff' },
+         error: { bg: '#ef4444', text: '#ffffff' }
+       };
+       
+       const color = colors[type] || colors.info;
+       statusEl.style.backgroundColor = color.bg;
+       statusEl.style.color = color.text;
+       statusEl.textContent = message;
+       statusEl.style.opacity = '1';
+       
+       // Auto-hide after 3 seconds
+       setTimeout(() => {
+         if (statusEl) {
+           statusEl.style.opacity = '0';
+           setTimeout(() => statusEl?.remove(), 300);
+         }
+       }, 3000);
+     }
+     
+     showAudioPrompt() {
+       const prompt = document.getElementById('audio-enable-prompt');
+       if (prompt && !this.userInteracted) {
+         prompt.classList.remove('hidden');
+         
+         // Set up prompt button handlers
+         const enableBtn = document.getElementById('enable-audio-btn');
+         const skipBtn = document.getElementById('skip-audio-btn');
+         
+         enableBtn?.addEventListener('click', async () => {
+           this.userInteracted = true;
+           await this.enableAudio();
+           prompt.classList.add('hidden');
+         });
+         
+         skipBtn?.addEventListener('click', () => {
+           prompt.classList.add('hidden');
+           this.showAudioStatus('🔇 Sound disabled - you can enable it later', 'info');
+         });
+       }
+     }
+    
+    // Public methods for controlling audio
+    async play() {
+      if (!this.audioEnabled && this.userInteracted) {
+        await this.enableAudio();
+      }
+      
+      if (this.audioEnabled && this.backgroundAudio.paused) {
+        try {
+          await this.backgroundAudio.play();
+        } catch (e) {
+          console.warn('🎵 Play failed:', e);
+        }
+      }
+    }
+    
+    pause() {
+      if (this.backgroundAudio && !this.backgroundAudio.paused) {
+        this.backgroundAudio.pause();
+      }
+    }
+    
+    setVolume(volume) {
+      if (this.backgroundAudio) {
+        this.backgroundAudio.volume = Math.max(0, Math.min(1, volume));
+      }
+    }
+  }
+  
+  // Initialize the enhanced audio manager
+  let audioManager;
+  
+  // Background music initialization (legacy function for compatibility)
+  function initializeBackgroundMusic() {
+    if (!audioManager) {
+      audioManager = new AudioManager();
     }
   }
 
-  // Initialize background music when page loads
-  setTimeout(initializeBackgroundMusic, 500);
+  // Initialize background music when page loads with enhanced compatibility
+  setTimeout(() => {
+    initializeBackgroundMusic();
+    
+    // Additional initialization for app wrappers
+    if (audioManager?.isAppWrapper) {
+      console.log('🎵 App wrapper detected, setting up enhanced audio handling...');
+      
+      // Listen for app resume events (common in app wrappers)
+      document.addEventListener('resume', () => {
+        console.log('🎵 App resumed, attempting to restart audio...');
+        if (audioManager) {
+          audioManager.attemptInitialPlayback();
+        }
+      });
+      
+      // Listen for visibility changes
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && audioManager && !audioManager.audioEnabled) {
+          console.log('🎵 App became visible, attempting audio restart...');
+          setTimeout(() => audioManager.attemptInitialPlayback(), 500);
+        }
+      });
+    }
+  }, 500);
 
   // Render workouts list
   function renderWorkouts(){
@@ -670,6 +953,15 @@
   // Start workout from detail -> go to player
   detailStart.addEventListener('click', ()=> {
     openPlayer(currentWorkoutIndex);
+    
+    // Ensure audio is enabled when starting workout
+    if (audioManager && !audioManager.audioEnabled && !audioManager.userInteracted) {
+      const backgroundMusicEnabled = localStorage.getItem('backgroundMusicEnabled');
+      if (backgroundMusicEnabled === 'true') {
+        // Show audio prompt when starting workout if not already enabled
+        setTimeout(() => audioManager.showAudioPrompt(), 500);
+      }
+    }
   });
 
   // Handle Info button clicks
