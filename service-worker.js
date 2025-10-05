@@ -1,46 +1,44 @@
-/* Smart auto-caching service worker for FitnessMate PWA */
-const CACHE_NAME = 'fitnessmate-auto-v4';
+/* Minimal stable service worker for FitnessMate (inline CSS/JS version) */
+const CACHE_NAME = 'fitnessmate-stable-v1';
+const FILES_TO_CACHE = [
+  '/',
+  '/index.html',
+  '/workout.html',
+  '/offline.html',
+  '/Gym.mp3',
+  '/manifest.webmanifest',
+  '/naim.png'
+];
 
 self.addEventListener('install', (event) => {
-  // Activate immediately after install
-  self.skipWaiting();
+  event.waitUntil(
+    caches.open(CACHE_NAME)
+      .then((cache) => cache.addAll(FILES_TO_CACHE))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (event) => {
-  // Remove old caches
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
     ).then(() => self.clients.claim())
   );
 });
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;
-  const url = new URL(req.url);
-
-  // Skip non-GET requests (like form posts)
+  // Only handle GET requests
   if (req.method !== 'GET') return;
 
+  // Always try network first, fallback to cache
   event.respondWith(
-    caches.open(CACHE_NAME).then(async (cache) => {
-      try {
-        // Try network first
-        const fresh = await fetch(req);
-        // Cache a copy of successful responses (CSS/JS/images)
-        if (fresh.ok && (fresh.type === 'basic' || fresh.type === 'cors')) {
-          cache.put(req, fresh.clone());
-        }
-        return fresh;
-      } catch (err) {
-        // Fallback: use cache if offline
-        const cached = await cache.match(req);
-        if (cached) return cached;
-
-        // Last resort: serve cached homepage
-        if (req.mode === 'navigate') return cache.match('/');
-        throw err;
-      }
-    })
+    fetch(req)
+      .then((res) => {
+        const clone = res.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
+        return res;
+      })
+      .catch(() => caches.match(req).then((cached) => cached || caches.match('/offline.html')))
   );
 });
