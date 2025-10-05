@@ -1995,6 +1995,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       currentUtterance: null,
       activeButton: null,
       currentText: null,
+      fallbackActive: false,
       
       speak: function(text, buttonId) {
         if ('speechSynthesis' in window) {
@@ -2008,12 +2009,14 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
           if (this.isPlaying) {
             this.stop();
           }
-          
+
           // Start new speech
           this.currentText = text;
           const utterance = new SpeechSynthesisUtterance(text);
+          const self = this;
+          let started = false;
           utterance.rate = 0.9;
-          
+
           // Mobile-optimized voice selection
           const voices = window.speechSynthesis.getVoices();
           const preferredVoice = voices.find(voice => 
@@ -2022,10 +2025,11 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
           if (preferredVoice) {
             utterance.voice = preferredVoice;
           }
-          
+
           utterance.onstart = () => {
             this.isPlaying = true;
             this.activeButton = buttonId;
+            started = true;
           };
           
           utterance.onend = () => {
@@ -2041,27 +2045,104 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
           };
           
           this.currentUtterance = utterance;
-          window.speechSynthesis.speak(utterance);
+          try { window.speechSynthesis.speak(utterance); }
+          catch (e) { console.warn('speechSynthesis.speak failed, using fallback', e); return this.fallbackSpeak(text, buttonId); }
+          // If WebView exposes API but doesn't actually speak, fallback after a short timeout
+          setTimeout(() => {
+            if (!started && self.currentUtterance === utterance) {
+              try { window.speechSynthesis.cancel(); } catch(_) {}
+              self.fallbackSpeak(text, buttonId);
+            }
+          }, 1200);
           this.isPlaying = true;
           this.activeButton = buttonId;
           return 'play';
         } else {
-          alert('Text-to-speech not supported in this browser');
-          return 'error';
+          console.warn('Text-to-speech not supported; using audio fallback');
+          return this.fallbackSpeak(text, buttonId);
         }
       },
       
       stop: function() {
-        window.speechSynthesis.cancel();
+        try { window.speechSynthesis.cancel(); } catch (_) {}
         this.isPlaying = false;
         this.currentUtterance = null;
         this.activeButton = null;
         this.currentText = null;
+        this.fallbackActive = false;
       },
       
       isActuallyPlaying: function() {
-        return this.isPlaying && window.speechSynthesis.speaking;
+        const speaking = (typeof window !== 'undefined' && window.speechSynthesis) ? window.speechSynthesis.speaking : false;
+        return this.isPlaying && (speaking || this.fallbackActive);
+      },
+      
+      // Fallback: beep patterns using WebAudio when TTS is unavailable
+      fallbackSpeak: function(text, buttonId) {
+        this.activeButton = buttonId;
+        this.isPlaying = true;
+        this.fallbackActive = true;
+        playTextBeepSequence(text)
+          .catch(e => console.warn('Fallback beep failed:', e))
+          .finally(() => {
+            this.fallbackActive = false;
+            this.isPlaying = false;
+            this.activeButton = null;
+          });
+        return 'play';
       }
+    };
+
+    // --- Lightweight audio fallback for TTS (WebAudio beeps) ---
+    let _fitmateAudioCtx = null;
+    const getAudioContext = () => {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!_fitmateAudioCtx && Ctx) _fitmateAudioCtx = new Ctx();
+      return _fitmateAudioCtx;
+    };
+    // Unlock audio on first user interaction (needed in some webviews)
+    const unlockAudio = () => { const ctx = getAudioContext(); if (ctx && ctx.state === 'suspended') ctx.resume(); };
+    window.addEventListener('touchstart', unlockAudio, { once: true, passive: true });
+    window.addEventListener('click', unlockAudio, { once: true });
+    
+    const playBeep = (durationSec = 0.12, freq = 880, type = 'sine', gainValue = 0.08) => {
+      return new Promise((resolve) => {
+        const ctx = getAudioContext();
+        if (!ctx) return resolve(); // fail silently if no audio context
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = type;
+        osc.frequency.value = freq;
+        gain.gain.value = gainValue;
+        osc.connect(gain).connect(ctx.destination);
+        const now = ctx.currentTime;
+        osc.start(now);
+        // smooth fade out
+        gain.gain.setValueAtTime(gainValue, now);
+        try { gain.gain.exponentialRampToValueAtTime(0.0001, now + durationSec); } catch (_) {}
+        osc.stop(now + durationSec + 0.02);
+        osc.onended = () => resolve();
+      });
+    };
+    
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    
+    const playTextBeepSequence = async (text) => {
+      const t = (text || '').toString().trim().toLowerCase();
+      if (!t) return;
+      // Numeric countdown -> quick short beep
+      if (/^\d+$/.test(t)) { await playBeep(0.08, 1200, 'sine', 0.09); return; }
+      if (t.includes('begin') || t.includes('start')) {
+        await playBeep(0.08, 1000); await sleep(80);
+        await playBeep(0.08, 1200); await sleep(80);
+        await playBeep(0.14, 1400, 'square', 0.09); return;
+      }
+      if (t.includes('rest')) { await playBeep(0.10, 700); await sleep(120); await playBeep(0.10, 700); return; }
+      if (t.includes('complete') || t.includes('finished') || t.includes('workout')) {
+        await playBeep(0.18, 900, 'sawtooth', 0.1); await sleep(100); await playBeep(0.28, 1200, 'triangle', 0.08); return;
+      }
+      // Default cue
+      await playBeep(0.12, 880);
     };
 
     // Simple Text-to-Speech Function (for backward compatibility)
@@ -7161,6 +7242,7 @@ Respond ONLY with a valid JSON object in this format:
       const [isPlaying, setIsPlaying] = useState(false);
       
       const handleVoiceControl = () => {
+        unlockAudio();
         const action = speechController.speak(text, buttonId);
         setIsPlaying(action === 'play');
         
@@ -7207,6 +7289,7 @@ Respond ONLY with a valid JSON object in this format:
       }, [buttonId, isPlaying]);
       
       const handleVoiceControl = () => {
+        unlockAudio();
         let text = `${mealType}: ${meal.name}. `;
         text += "Ingredients: " + meal.ingredients.join(", ") + ". ";
         text += "Instructions: " + meal.instructions.join(". ") + ".";
@@ -7247,6 +7330,7 @@ Respond ONLY with a valid JSON object in this format:
       }, [isPlaying]);
       
       const handleVoiceControl = () => {
+        unlockAudio();
         let text = "Here is your complete meal plan. ";
         
         // Breakfast
@@ -7302,6 +7386,7 @@ Respond ONLY with a valid JSON object in this format:
       }, [buttonId, isPlaying]);
       
       const handleVoiceControl = () => {
+        unlockAudio();
         let text = `Exercise ${index + 1}: ${exercise.name}. `;
         text += `You will do ${exercise.sets} sets of ${exercise.reps} repetitions. `;
         text += `Instructions: ${exercise.instructions}.`;
@@ -7342,6 +7427,7 @@ Respond ONLY with a valid JSON object in this format:
       }, [isPlaying]);
       
       const handleVoiceControl = () => {
+        unlockAudio();
         let text = "Here is your complete workout plan. ";
         
         workoutPlan.exercises.forEach((exercise, index) => {
@@ -8538,6 +8624,8 @@ Respond ONLY with a valid JSON object in this format:
                 <video 
                   src={videoPreview} 
                   controls 
+                  playsInline
+                  webkit-playsinline
                   className="w-full h-64 object-cover"
                   poster="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect width='100' height='100' fill='%23f3f4f6'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%236b7280'%3EVideo%3C/text%3E%3C/svg%3E"
                 />
@@ -8823,17 +8911,13 @@ Respond ONLY with a valid JSON object in this format:
 
       // Workout Session Management Functions
       const speakInstruction = (text) => {
-        if (voiceInstructions && speechSynthesis) {
-          speechSynthesis.cancel();
-          const utterance = new SpeechSynthesisUtterance(text);
-          utterance.rate = 0.9;
-          utterance.pitch = 1;
-          utterance.volume = 0.8;
-          speechSynthesis.speak(utterance);
-        }
+        if (!voiceInstructions) return;
+        unlockAudio();
+        speechController.speak(text, 'workout-instructions');
       };
 
       const startWorkoutSession = (exercises) => {
+        unlockAudio();
         const sessionExercises = exercises.length > 0 ? exercises : exerciseDatabase.slice(0, 5);
         setWorkoutSession({
           isActive: true,
