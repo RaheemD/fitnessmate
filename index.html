@@ -2137,9 +2137,13 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
               } catch (e) { console.warn('meSpeak speak failed, falling back to beeps', e); }
             }
           } catch (e) { console.warn('meSpeak init/speak error:', e); }
-          // Beep fallback
+          // Beep fallback (only for short cues). Avoid beeps for long instructions.
           try {
-            await playTextBeepSequence(text);
+            const t = String(text || '');
+            const isShortCue = t.length <= 40 || /(\bbegin\b|\bstart\b|\brest\b|\bcomplete\b|\bfinished\b|\bworkout\b|^\d+$)/i.test(t);
+            if (isShortCue) {
+              await playTextBeepSequence(text);
+            }
           } catch (e) {
             console.warn('Fallback beep failed:', e);
           } finally {
