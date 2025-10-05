@@ -1564,10 +1564,20 @@
 
   </script>
   <script>
-    // Register service worker for PWA
+    // Ensure our SW takes control: unregister others, then register app-sw.js
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+      window.addEventListener('load', async () => {
+        try {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          for (const reg of regs) {
+            const url = (reg.active && reg.active.scriptURL) || reg.scriptURL || '';
+            if (!/\/app-sw\.js(\?.*)?$/.test(url)) {
+              try { await reg.unregister(); } catch (_) {}
+            }
+          }
+        } catch (_) {}
+        const ver = Date.now(); // bust cache to avoid stale SW
+        navigator.serviceWorker.register(`/app-sw.js?v=${ver}`).catch(() => {});
       });
     }
   </script>
