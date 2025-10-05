@@ -57,6 +57,192 @@
         window.location.reload();
       });
     }
+
+    // PWA Install Prompt Handler
+    let deferredPrompt;
+    let installButton = null;
+
+    // Create install button
+    function createInstallButton() {
+      if (installButton) return; // Already exists
+      
+      installButton = document.createElement('button');
+      installButton.innerHTML = `
+        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+        </svg>
+        Install App
+      `;
+      installButton.className = 'fixed top-4 right-4 z-50 bg-pink-500 hover:bg-pink-600 text-white font-semibold py-2 px-4 rounded-lg shadow-lg transition-all duration-300 flex items-center text-sm';
+      installButton.style.display = 'none';
+      
+      installButton.addEventListener('click', async () => {
+        if (deferredPrompt) {
+          // Show the install prompt
+          deferredPrompt.prompt();
+          
+          // Wait for the user to respond to the prompt
+          const { outcome } = await deferredPrompt.userChoice;
+          console.log(`User response to the install prompt: ${outcome}`);
+          
+          if (outcome === 'accepted') {
+            console.log('User accepted the install prompt');
+          } else {
+            console.log('User dismissed the install prompt');
+          }
+          
+          // Clear the deferredPrompt
+          deferredPrompt = null;
+          installButton.style.display = 'none';
+        }
+      });
+      
+      document.body.appendChild(installButton);
+    }
+
+    // Listen for the beforeinstallprompt event
+    window.addEventListener('beforeinstallprompt', (e) => {
+      console.log('🔔 PWA install prompt available');
+      
+      // Prevent the mini-infobar from appearing on mobile
+      e.preventDefault();
+      
+      // Stash the event so it can be triggered later
+      deferredPrompt = e;
+      
+      // Create and show the install button
+      createInstallButton();
+      installButton.style.display = 'flex';
+      
+      // Show a notification that the app can be installed
+      showInstallNotification();
+    });
+
+    // Listen for the appinstalled event
+    window.addEventListener('appinstalled', (evt) => {
+      console.log('✅ PWA was installed successfully');
+      
+      // Hide the install button
+      if (installButton) {
+        installButton.style.display = 'none';
+      }
+      
+      // Clear the deferredPrompt
+      deferredPrompt = null;
+      
+      // Show success message
+      showInstallSuccessMessage();
+    });
+
+    // Show install notification
+    function showInstallNotification() {
+      const notification = document.createElement('div');
+      notification.innerHTML = `
+        <div class="bg-blue-500 text-white px-4 py-3 rounded-lg shadow-lg flex items-center justify-between">
+          <div class="flex items-center">
+            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            <span>FitnessMate can be installed as an app!</span>
+          </div>
+          <button onclick="this.parentElement.parentElement.remove()" class="ml-4 text-white hover:text-gray-200">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+      `;
+      notification.className = 'fixed top-20 right-4 z-40 animate-pulse';
+      notification.style.animation = 'slideInRight 0.5s ease-out';
+      
+      document.body.appendChild(notification);
+      
+      // Auto-remove after 8 seconds
+      setTimeout(() => {
+        if (notification.parentElement) {
+          notification.remove();
+        }
+      }, 8000);
+    }
+
+    // Show install success message
+    function showInstallSuccessMessage() {
+      const success = document.createElement('div');
+      success.innerHTML = `
+        <div class="bg-green-500 text-white px-4 py-3 rounded-lg shadow-lg flex items-center">
+          <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+          </svg>
+          <span>FitnessMate installed successfully! 🎉</span>
+        </div>
+      `;
+      success.className = 'fixed top-4 right-4 z-50';
+      
+      document.body.appendChild(success);
+      
+      // Auto-remove after 5 seconds
+      setTimeout(() => {
+        if (success.parentElement) {
+          success.remove();
+        }
+      }, 5000);
+    }
+
+    // Manual install trigger for browsers that don't show the prompt automatically
+    function triggerInstallPrompt() {
+      if (deferredPrompt) {
+        deferredPrompt.prompt();
+        return;
+      }
+      
+      // Fallback: Show manual installation instructions
+      showManualInstallInstructions();
+    }
+
+    // Show manual installation instructions
+    function showManualInstallInstructions() {
+      const modal = document.createElement('div');
+      modal.innerHTML = `
+        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div class="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-md w-full shadow-xl">
+            <div class="flex justify-between items-center mb-4">
+              <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Install FitnessMate</h3>
+              <button onclick="this.closest('.fixed').remove()" class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 text-xl">&times;</button>
+            </div>
+            <div class="space-y-4 text-sm text-gray-700 dark:text-gray-300">
+              <div>
+                <strong>Chrome/Edge (Desktop):</strong>
+                <p>Look for the install icon (⊕) in the address bar, or go to Menu → Install FitnessMate</p>
+              </div>
+              <div>
+                <strong>Safari (iOS):</strong>
+                <p>Tap the Share button → Add to Home Screen</p>
+              </div>
+              <div>
+                <strong>Chrome (Android):</strong>
+                <p>Tap Menu (⋮) → Add to Home screen</p>
+              </div>
+            </div>
+            <div class="mt-6 flex justify-end">
+              <button onclick="this.closest('.fixed').remove()" class="px-4 py-2 bg-pink-500 text-white rounded-lg hover:bg-pink-600">Got it!</button>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      document.body.appendChild(modal);
+    }
+
+    // Add keyboard shortcut for install (Ctrl+Shift+I)
+    document.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'I') {
+        e.preventDefault();
+        triggerInstallPrompt();
+      }
+    });
+
+    // Expose install function globally for manual triggering
+    window.installPWA = triggerInstallPrompt;
   </script>
   <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
