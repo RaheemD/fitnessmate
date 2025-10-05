@@ -4,6 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Workouts — Single File App</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#8b5cf6">
 
   <!-- Tailwind CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -671,6 +673,8 @@
   detailStart.addEventListener('click', ()=> {
     // Unlock audio on explicit user gesture to satisfy autoplay restrictions in webviews
     try { ensureAudioUnlocked(); } catch(_) {}
+    // Optional: play a start cue if present
+    try { playSound('start_workout', 0.9).catch(()=>{}); } catch(_) {}
     // Try playing background music if the user enabled it
     try {
       const audio = document.getElementById('background-music');
@@ -865,15 +869,20 @@
       remainingSeconds--;
       if (remainingSeconds < 0) remainingSeconds = 0;
       playerTimer.textContent = formatTime(remainingSeconds);
-      // Countdown beeps for the last 3 seconds of a time-based set
+      // Countdown sounds for the last 3 seconds of a time-based set (play sound asset if present, else beep)
       if (remainingSeconds <= 3 && remainingSeconds > 0) {
-        try {
-          const freq = remainingSeconds === 3 ? 660 : remainingSeconds === 2 ? 740 : 820;
-          beep(freq, 110, 'sine', 0.08);
-        } catch(_) {}
+        const key = remainingSeconds === 3 ? 'count_3' : remainingSeconds === 2 ? 'count_2' : 'count_1';
+        playSound(key, 0.9).catch(() => {
+          try {
+            const freq = remainingSeconds === 3 ? 660 : remainingSeconds === 2 ? 740 : 820;
+            beep(freq, 110, 'sine', 0.08);
+          } catch(_) {}
+        });
       }
       if (remainingSeconds === 0){
         clearInterval(timerInterval);
+        // Optional: next exercise cue
+        try { playSound('next_exercise', 0.9).catch(()=>{}); } catch(_) {}
         speak('Good job. Moving to next exercise.');
         setTimeout(()=> playerNext(), 700);
       }
@@ -897,6 +906,8 @@
     playerPause.innerHTML = '↻';
     playerPause.title = 'Reset Rest Timer';
     
+    // Optional: rest start cue
+    try { playSound('rest_start', 0.9).catch(()=>{}); } catch(_) {}
     speak(`Rest for ${currentEx.rest} seconds.`);
     saveWorkoutState();
     
@@ -905,17 +916,22 @@
       remainingSeconds--;
       if (remainingSeconds < 0) remainingSeconds = 0;
       playerTimer.textContent = formatTime(remainingSeconds);
-      // Countdown beeps during rest period (within an exercise)
+      // Countdown sounds during rest period (within an exercise)
       if (remainingSeconds <= 3 && remainingSeconds > 0) {
-        try {
-          const freq = remainingSeconds === 3 ? 520 : remainingSeconds === 2 ? 600 : 700;
-          beep(freq, 100, 'sine', 0.07);
-        } catch(_) {}
+        const key = remainingSeconds === 3 ? 'count_3' : remainingSeconds === 2 ? 'count_2' : 'count_1';
+        playSound(key, 0.85).catch(() => {
+          try {
+            const freq = remainingSeconds === 3 ? 520 : remainingSeconds === 2 ? 600 : 700;
+            beep(freq, 100, 'sine', 0.07);
+          } catch(_) {}
+        });
       }
       if (remainingSeconds === 0){
         clearInterval(timerInterval);
         // Move to next set
         currentSet++;
+        // Optional: set start cue
+        try { playSound('start_set', 0.9).catch(()=>{}); } catch(_) {}
         speak(`Set ${currentSet}. Begin!`);
         setTimeout(()=> {
           isResting = false;
@@ -1048,18 +1064,23 @@
           if (!isPaused) {
             restTime--;
             playerTimer.textContent = formatTime(restTime);
-            // Countdown beeps during rest between exercises
+            // Countdown sounds during rest between exercises
             if (restTime <= 3 && restTime > 0) {
-              try {
-                const freq = restTime === 3 ? 520 : restTime === 2 ? 600 : 700;
-                beep(freq, 100, 'sine', 0.07);
-              } catch(_) {}
+              const key = restTime === 3 ? 'count_3' : restTime === 2 ? 'count_2' : 'count_1';
+              playSound(key, 0.85).catch(() => {
+                try {
+                  const freq = restTime === 3 ? 520 : restTime === 2 ? 600 : 700;
+                  beep(freq, 100, 'sine', 0.07);
+                } catch(_) {}
+              });
             }
             
             if (restTime <= 0) {
               clearInterval(timerInterval);
               isResting = false;
               currentSet = 1; // reset set count for new exercise
+              // Optional: exercise start cue
+              try { playSound('start_exercise', 0.9).catch(()=>{}); } catch(_) {}
               updatePlayerForExercise(currentExerciseIndex);
               
               // Only start timer for time-based exercises
@@ -1188,6 +1209,9 @@
     const completionMessage = workoutData.completionRate === 100 
       ? `Workout completed! Great job! You completed all ${workoutData.totalExercises} exercises in ${workoutData.duration} minutes.`
       : `Workout session ended. You completed ${workoutData.exercisesCompleted} out of ${workoutData.totalExercises} exercises in ${workoutData.duration} minutes.`;
+
+    // Optional: workout complete cue
+    try { playSound('workout_complete', 0.9).catch(()=>{}); } catch(_) {}
     
     speak(completionMessage);
     
@@ -1421,7 +1445,48 @@
   updateVoiceButtonUI();
   updateVoiceGenderUI();
 
-  function speak(text){
+  // Optional sound asset support (drop mp3s in ./sounds). If a file is missing, we fall back to beeps.
+  function playSound(key, volume = 0.9) {
+    ensureAudioUnlocked();
+    return new Promise((resolve, reject) => {
+      try {
+        const a = new Audio(`./sounds/${key}.mp3`);
+        a.preload = 'auto';
+        a.volume = Math.max(0, Math.min(1, volume));
+        const onError = () => { cleanup(); reject(new Error('sound-failed')); };
+        const cleanup = () => {
+          a.removeEventListener('error', onError);
+          a.removeEventListener('ended', onEnded);
+        };
+        const onEnded = () => { cleanup(); resolve(true); };
+        a.addEventListener('error', onError, { once: true });
+        a.addEventListener('ended', onEnded, { once: true });
+        // Try to play; if it rejects (e.g., 404 or policy), fall back
+        a.play().then(() => {/* ok */}).catch(onError);
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  // Wait for voices to load (important for PWAs and some webviews)
+  function waitForVoices(timeoutMs = 1500) {
+    return new Promise((resolve) => {
+      try {
+        const v = speechSynthesis.getVoices();
+        if (v && v.length) return resolve(true);
+        let done = false;
+        const onChanged = () => {
+          const voices = speechSynthesis.getVoices();
+          if (!done && voices && voices.length) { done = true; speechSynthesis.onvoiceschanged = null; resolve(true); }
+        };
+        speechSynthesis.onvoiceschanged = onChanged;
+        setTimeout(() => { if (!done) { done = true; resolve(false); } }, timeoutMs);
+      } catch (_) { resolve(false); }
+    });
+  }
+
+  async function speak(text){
     if (!voiceEnabled) return;
     // Ensure audio contexts are available before attempting TTS
     ensureAudioUnlocked();
@@ -1430,6 +1495,8 @@
       try { beep(750, 140, 'sine'); } catch(_) {}
       return;
     }
+    // Wait briefly for voices to become available
+    const haveVoices = await waitForVoices(1500);
     const u = new SpeechSynthesisUtterance(text);
     const voices = speechSynthesis.getVoices();
     
@@ -1463,7 +1530,12 @@
     u.rate = 1;
     try{ speechSynthesis.cancel(); }catch(e){}
     try {
-      speechSynthesis.speak(u);
+      if (haveVoices || (voices && voices.length)) {
+        speechSynthesis.speak(u);
+      } else {
+        // No voices became available; provide audible cue
+        try { beep(750, 140, 'sine'); } catch(_) {}
+      }
     } catch (e) {
       try { beep(750, 140, 'sine'); } catch(_) {}
     }
@@ -1490,6 +1562,14 @@
   // preload voices (some browsers require gesture)
   if ('speechSynthesis' in window) { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices(); }
 
+  </script>
+  <script>
+    // Register service worker for PWA
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+      });
+    }
   </script>
 </body>
 </html>
