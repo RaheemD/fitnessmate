@@ -1,9 +1,6 @@
 # Netlify redirects file for FitnessMate PWA
 # Handle client-side routing, PWA assets, and API endpoints
 
-# API endpoints - highest priority
-/api/*    /.netlify/edge-functions/myapi    200
-
 # PWA essential files - serve directly
 /manifest.json    /manifest.json    200
 /sw.js    /sw.js    200
