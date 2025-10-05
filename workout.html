@@ -47,12 +47,33 @@
     <script>
       // Dark mode detection - must run before body renders
       // Sync with index.html dark mode settings
-      const isDarkMode = localStorage.getItem('fitmate-dark-mode') === 'true';
-      if (isDarkMode) {
-        document.documentElement.classList.add('dark')
-      } else {
-        document.documentElement.classList.remove('dark')
-      }
+      (function() {
+        const applyTheme = () => {
+          const isDarkMode = localStorage.getItem('fitmate-dark-mode') === 'true';
+          if (isDarkMode) {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+        };
+        
+        // Apply theme immediately
+        applyTheme();
+        
+        // Listen for storage changes from parent window to update theme dynamically
+        window.addEventListener('storage', (e) => {
+          if (e.key === 'fitmate-dark-mode') {
+            applyTheme();
+          }
+        });
+        
+        // Also listen for direct messages from parent (for same-origin communication)
+        window.addEventListener('message', (e) => {
+          if (e.data && e.data.type === 'theme-change') {
+            applyTheme();
+          }
+        });
+      })();
     </script>
   </head>
 <body class="bottom-safe bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white">
@@ -648,6 +669,21 @@
 
   // Start workout from detail -> go to player
   detailStart.addEventListener('click', ()=> {
+    // Unlock audio on explicit user gesture to satisfy autoplay restrictions in webviews
+    try { ensureAudioUnlocked(); } catch(_) {}
+    // Try playing background music if the user enabled it
+    try {
+      const audio = document.getElementById('background-music');
+      if (audio && localStorage.getItem('backgroundMusicEnabled') === 'true') {
+        audio.volume = 0.3;
+        audio.play().catch(()=>{});
+      }
+    } catch(_) {}
+    // Unmute player animation video in case it contains an audio track
+    try {
+      const pv = document.getElementById('player-animation');
+      if (pv) pv.muted = false;
+    } catch(_) {}
     openPlayer(currentWorkoutIndex);
   });
 
@@ -829,6 +865,13 @@
       remainingSeconds--;
       if (remainingSeconds < 0) remainingSeconds = 0;
       playerTimer.textContent = formatTime(remainingSeconds);
+      // Countdown beeps for the last 3 seconds of a time-based set
+      if (remainingSeconds <= 3 && remainingSeconds > 0) {
+        try {
+          const freq = remainingSeconds === 3 ? 660 : remainingSeconds === 2 ? 740 : 820;
+          beep(freq, 110, 'sine', 0.08);
+        } catch(_) {}
+      }
       if (remainingSeconds === 0){
         clearInterval(timerInterval);
         speak('Good job. Moving to next exercise.');
@@ -862,6 +905,13 @@
       remainingSeconds--;
       if (remainingSeconds < 0) remainingSeconds = 0;
       playerTimer.textContent = formatTime(remainingSeconds);
+      // Countdown beeps during rest period (within an exercise)
+      if (remainingSeconds <= 3 && remainingSeconds > 0) {
+        try {
+          const freq = remainingSeconds === 3 ? 520 : remainingSeconds === 2 ? 600 : 700;
+          beep(freq, 100, 'sine', 0.07);
+        } catch(_) {}
+      }
       if (remainingSeconds === 0){
         clearInterval(timerInterval);
         // Move to next set
@@ -998,6 +1048,13 @@
           if (!isPaused) {
             restTime--;
             playerTimer.textContent = formatTime(restTime);
+            // Countdown beeps during rest between exercises
+            if (restTime <= 3 && restTime > 0) {
+              try {
+                const freq = restTime === 3 ? 520 : restTime === 2 ? 600 : 700;
+                beep(freq, 100, 'sine', 0.07);
+              } catch(_) {}
+            }
             
             if (restTime <= 0) {
               clearInterval(timerInterval);
@@ -1319,13 +1376,60 @@
     playerVoiceGender.title = `Switch to ${voiceGender === 'female' ? 'male' : 'female'} voice`;
   }
   
+  // Audio unlock + WebAudio beep fallback
+  function ensureAudioUnlocked() {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!window.__fitmateAudioCtx && Ctx) {
+        window.__fitmateAudioCtx = new Ctx();
+      }
+      const ctx = window.__fitmateAudioCtx;
+      if (ctx && ctx.state === 'suspended') {
+        ctx.resume().catch(()=>{});
+      }
+      if (ctx && !window.__fitmateAudioUnlocked) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.03);
+        window.__fitmateAudioUnlocked = true;
+      }
+    } catch (_) {}
+  }
+
+  function beep(freq = 880, durationMs = 120, type = 'sine', volume = 0.08) {
+    const ctx = window.__fitmateAudioCtx;
+    if (!ctx) return;
+    try {
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, now);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.linearRampToValueAtTime(volume, now + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + Math.max(0.02, durationMs/1000));
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + Math.max(0.03, durationMs/1000 + 0.01));
+    } catch (_) {}
+  }
+
   // Initialize UI
   updateVoiceButtonUI();
   updateVoiceGenderUI();
 
   function speak(text){
     if (!voiceEnabled) return;
-    if (!('speechSynthesis' in window)) return;
+    // Ensure audio contexts are available before attempting TTS
+    ensureAudioUnlocked();
+    if (!('speechSynthesis' in window)) {
+      // Webview may not support TTS – provide an audible cue
+      try { beep(750, 140, 'sine'); } catch(_) {}
+      return;
+    }
     const u = new SpeechSynthesisUtterance(text);
     const voices = speechSynthesis.getVoices();
     
@@ -1358,7 +1462,11 @@
     
     u.rate = 1;
     try{ speechSynthesis.cancel(); }catch(e){}
-    speechSynthesis.speak(u);
+    try {
+      speechSynthesis.speak(u);
+    } catch (e) {
+      try { beep(750, 140, 'sine'); } catch(_) {}
+    }
   }
 
   // keyboard support
