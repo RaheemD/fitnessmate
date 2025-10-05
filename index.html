@@ -165,25 +165,39 @@
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://www.masswerk.at/mespeak/mespeak.js"></script>
+  <!-- Prefer local meSpeak if bundled in the app; CDN script as a fallback below -->
+  <script src="./vendor/mespeak/mespeak.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mespeak/mespeak.min.js"></script>
 
   <script type="text/babel">
     const { useState, useRef, useEffect } = React;
     
     // --- meSpeak (offline TTS) init ---
-    // Uses remote assets from masswerk host; no API key required.
+    // Free fallback voice in WebViews. Tries LOCAL voice first; if missing, falls back to CDN.
     window._meSpeakReady = false;
+    window._meSpeakLoading = false;
+    window._meSpeakLoadPromise = null;
     window._initMeSpeak = function initMeSpeak() {
       try {
-        if (window.meSpeak && typeof window.meSpeak.loadVoice === 'function') {
-          // Reasonable default volume
-          try { window.meSpeak.setVolume(0.9); } catch (_) {}
-          window.meSpeak.loadVoice('en/en-us', function(success) {
-            window._meSpeakReady = !!success;
-            if (!success) console.warn('meSpeak voice load failed');
-          });
-        }
-      } catch (e) { console.warn('meSpeak init error:', e); }
+        if (!window.meSpeak || typeof window.meSpeak.loadVoice !== 'function') return null;
+        if (window._meSpeakReady || window._meSpeakLoading) return window._meSpeakLoadPromise;
+        window._meSpeakLoading = true;
+        try { window.meSpeak.setVolume(0.9); } catch (_) {}
+        const voiceLocal = './vendor/mespeak/voices/en/en-us.json';
+        const voiceCdn = 'https://cdn.jsdelivr.net/npm/mespeak/voices/en/en-us.json';
+        const loadVoice = (url) => new Promise((res) => {
+          try { window.meSpeak.loadVoice(url, (ok) => res(!!ok)); } catch (_) { res(false); }
+        });
+        window._meSpeakLoadPromise = (async () => {
+          let ok = await loadVoice(voiceLocal);
+          if (!ok) ok = await loadVoice(voiceCdn);
+          window._meSpeakReady = ok;
+          window._meSpeakLoading = false;
+          if (!ok) console.warn('meSpeak voice load failed (local and CDN)');
+          return ok;
+        })();
+        return window._meSpeakLoadPromise;
+      } catch (e) { console.warn('meSpeak init error:', e); return null; }
     };
     if (window.meSpeak) { window._initMeSpeak(); }
 
@@ -2101,34 +2115,39 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       // Fallback: try meSpeak (offline TTS), otherwise beep patterns using WebAudio
       fallbackSpeak: function(text, buttonId) {
         this.activeButton = buttonId;
-        // Try meSpeak first if available
-        if (window.meSpeak && window._meSpeakReady && typeof window.meSpeak.speak === 'function') {
-          try {
-            unlockAudio();
-            this.isPlaying = true;
-            this.fallbackActive = true; // treat as active
-            const id = window.meSpeak.speak(String(text || ''), { speed: 160, pitch: 60, volume: 1 }, (success) => {
-              this.fallbackActive = false;
-              this.isPlaying = false;
-              this.activeButton = null;
-              this.meSpeakId = null;
-            });
-            if (id && id > 0) {
-              this.meSpeakId = id;
-              return 'play';
-            }
-          } catch (e) { console.warn('meSpeak speak failed, falling back to beeps', e); }
-        }
-        // Beep fallback
         this.isPlaying = true;
         this.fallbackActive = true;
-        playTextBeepSequence(text)
-          .catch(e => console.warn('Fallback beep failed:', e))
-          .finally(() => {
+        // Run asynchronously so we can attempt meSpeak load before falling back
+        (async () => {
+          try {
+            // Ensure meSpeak is initialized/loaded if possible
+            if (typeof window._initMeSpeak === 'function') {
+              try { await window._initMeSpeak(); } catch (_) {}
+            }
+            if (window.meSpeak && window._meSpeakReady && typeof window.meSpeak.speak === 'function') {
+              try {
+                unlockAudio();
+                const id = window.meSpeak.speak(String(text || ''), { speed: 160, pitch: 60, volume: 1 }, (success) => {
+                  this.fallbackActive = false;
+                  this.isPlaying = false;
+                  this.activeButton = null;
+                  this.meSpeakId = null;
+                });
+                if (id && id > 0) { this.meSpeakId = id; return; }
+              } catch (e) { console.warn('meSpeak speak failed, falling back to beeps', e); }
+            }
+          } catch (e) { console.warn('meSpeak init/speak error:', e); }
+          // Beep fallback
+          try {
+            await playTextBeepSequence(text);
+          } catch (e) {
+            console.warn('Fallback beep failed:', e);
+          } finally {
             this.fallbackActive = false;
             this.isPlaying = false;
             this.activeButton = null;
-          });
+          }
+        })();
         return 'play';
       }
     };
@@ -2201,39 +2220,6 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
     };
 
     // --- Helper Components ---
-
-    // Manual Sound Enable Button (unlocks audio in WebViews and confirms with a short beep)
-    const SoundButton = ({ className = "" }) => {
-      const [ready, setReady] = useState(() => localStorage.getItem('fitmate-sound-ready') === 'true');
-      const [busy, setBusy] = useState(false);
-      const handleClick = async () => {
-        if (busy) return;
-        setBusy(true);
-        try {
-          unlockAudio();
-          await playBeep(0.08, 1000);
-          setReady(true);
-          localStorage.setItem('fitmate-sound-ready', 'true');
-        } finally {
-          setBusy(false);
-        }
-      };
-      return (
-        <button
-          onClick={handleClick}
-          disabled={busy}
-          className={`inline-flex items-center gap-1 px-3 py-1 rounded-lg border text-xs sm:text-sm transition-colors ${
-            ready
-              ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 border-green-300 dark:border-green-700'
-              : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600'
-          } ${className}`}
-          title={ready ? 'Sound is enabled' : 'Tap to enable sound'}
-        >
-          {ready ? '🔊 Sound On' : '🔈 Enable Sound'}
-        </button>
-      );
-    };
-
 
     // --- Main App Component ---
     function App() {
@@ -3360,11 +3346,8 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
                 <p className="text-gray-500 dark:text-gray-400">AI That Fuels Your Health Journey</p>
               </div>
               </div>
-              <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-3 sm:ml-auto self-center sm:self-auto">
-                <div className="merch-teaser starry blink text-gray-900 dark:text-white text-xs sm:text-sm md:text-base text-center sm:text-right w-full sm:w-auto sm:max-w-[60%] md:max-w-[50%] whitespace-normal md:whitespace-nowrap leading-tight mt-1 sm:mt-0 mx-auto sm:mx-0">
-                  Train hard. Look sharp. Merch drops soon
-                </div>
-                <SoundButton className="mt-1 sm:mt-0" />
+              <div className="merch-teaser starry blink text-gray-900 dark:text-white text-xs sm:text-sm md:text-base text-center sm:text-right w-full sm:w-auto sm:max-w-[60%] md:max-w-[50%] whitespace-normal md:whitespace-nowrap leading-tight mt-1 sm:mt-0 mx-auto sm:mx-0">
+                Train hard. Look sharp. Merch drops soon
               </div>
             </div>
             {quote && <p className="text-gray-600 dark:text-gray-300 italic mt-2 text-center bg-gray-100 dark:bg-gray-700 p-2 rounded-lg">"{quote}"</p>}
