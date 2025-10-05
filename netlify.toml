@@ -1,80 +1,12 @@
-# Netlify configuration for FitnessMate PWA
 [build]
-  publish = "."
-  command = "echo 'No build step required for static PWA'"
+  publish = "/"
 
-# PWA and caching headers
-[[headers]]
-  for = "/manifest.json"
-  [headers.values]
-    Content-Type = "application/manifest+json"
-    Cache-Control = "public, max-age=0, must-revalidate"
-
-[[headers]]
-  for = "/sw.js"
-  [headers.values]
-    Content-Type = "application/javascript"
-    Cache-Control = "public, max-age=0, must-revalidate"
-    Service-Worker-Allowed = "/"
-
-[[headers]]
-  for = "/*.html"
-  [headers.values]
-    Cache-Control = "public, max-age=0, must-revalidate"
-    X-Frame-Options = "DENY"
-    X-Content-Type-Options = "nosniff"
-    Referrer-Policy = "strict-origin-when-cross-origin"
-
-# Static assets caching
-[[headers]]
-  for = "/animations/*"
-  [headers.values]
-    Cache-Control = "public, max-age=31536000, immutable"
-
-[[headers]]
-  for = "/Gym.mp3"
-  [headers.values]
-    Cache-Control = "public, max-age=31536000, immutable"
-
-[[headers]]
-  for = "/*.png"
-  [headers.values]
-    Cache-Control = "public, max-age=31536000, immutable"
-
-[[headers]]
-  for = "/*.jpg"
-  [headers.values]
-    Cache-Control = "public, max-age=31536000, immutable"
-
-[[headers]]
-  for = "/*.svg"
-  [headers.values]
-    Cache-Control = "public, max-age=31536000, immutable"
-
-# Edge function for API
 [[edge_functions]]
   function = "myapi"
   path = "/api/myapi"
 
-# Redirects for backward compatibility
 [[redirects]]
   from = "/.netlify/functions/myapi"
   to = "/api/myapi"
-  status = 301
+  status = 200
   force = true
-
-# PWA install prompt optimization
-[[headers]]
-  for = "/*"
-  [headers.values]
-    X-Robots-Tag = "index, follow"
-    
-# Security headers for the entire site
-[[headers]]
-  for = "/*"
-  [headers.values]
-    X-Frame-Options = "DENY"
-    X-Content-Type-Options = "nosniff"
-    X-XSS-Protection = "1; mode=block"
-    Strict-Transport-Security = "max-age=31536000; includeSubDomains"
-    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
