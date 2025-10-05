@@ -1,24 +1,12 @@
-# Netlify redirects file for FitnessMate PWA
-# Handle client-side routing, PWA assets, and API endpoints
+# Netlify redirects file
+# Handle client-side routing for single page applications
 
-# PWA essential files - serve directly
-/manifest.json    /manifest.json    200
-/sw.js    /sw.js    200
+# Redirect all routes to index.html for client-side routing
+/*    /index.html   200
 
-# Static assets - serve directly with caching headers
-/animations/*    /animations/:splat    200
-/Gym.mp3    /Gym.mp3    200
-/*.png    /:splat.png    200
-/*.jpg    /:splat.jpg    200
-/*.jpeg    /:splat.jpeg    200
-/*.svg    /:splat.svg    200
-/*.ico    /:splat.ico    200
-/*.webp    /:splat.webp    200
+# Optional: Redirect root to index.html explicitly
+/     /index.html   200
 
-# Workout page routing
-/workout    /workout.html    200
-/workout/    /workout.html    200
-/workout/*    /workout.html    200
-
-# Main app routing - catch all other routes for SPA
-/*    /index.html    200
+# Handle workout.html as a separate page
+/workout    /workout.html   200
+/workout/   /workout.html   200
