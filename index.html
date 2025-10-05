@@ -11205,20 +11205,33 @@ ${habits.map(habit => {
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script>
-    // Ensure our SW takes control: unregister others, then register app-sw.js
+    // FORCE new SW to take control immediately
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', async () => {
         try {
+          // Unregister ALL existing service workers
           const regs = await navigator.serviceWorker.getRegistrations();
-          for (const reg of regs) {
-            const url = (reg.active && reg.active.scriptURL) || reg.scriptURL || '';
-            if (!/\/app-sw\.js(\?.*)?$/.test(url)) {
-              try { await reg.unregister(); } catch (_) {}
-            }
+          await Promise.all(regs.map(reg => reg.unregister()));
+          
+          // Wait a moment for cleanup
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+          // Register our new SW with immediate activation
+          const registration = await navigator.serviceWorker.register(`/app-sw.js?v=${Date.now()}`);
+          
+          // Force immediate activation if waiting
+          if (registration.waiting) {
+            registration.waiting.postMessage({ type: 'SKIP_WAITING' });
           }
-        } catch (_) {}
-        const ver = Date.now(); // bust cache to avoid stale SW
-        navigator.serviceWorker.register(`/app-sw.js?v=${ver}`).catch(() => {});
+          
+          // Reload page once new SW is controlling
+          navigator.serviceWorker.addEventListener('controllerchange', () => {
+            window.location.reload();
+          });
+          
+        } catch (e) {
+          console.log('SW registration failed:', e);
+        }
       });
     }
   </script>
