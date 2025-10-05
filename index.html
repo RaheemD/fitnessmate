@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>FitnessMate</title>
-  <link rel="icon" type="image/x-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23ec4899'/><text x='50' y='70' text-anchor='middle' fill='white' font-family='Arial, sans-serif' font-weight='bold' font-size='60'>F</text></svg>">
+  <link rel="icon" type="image/x-icon" href="/icon.png">
   
   <!-- PWA Manifest -->
   <link rel="manifest" href="/manifest.json">
@@ -18,11 +18,130 @@
   <meta name="application-name" content="FitnessMate">
   
   <!-- Apple Touch Icons -->
-  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect width='180' height='180' fill='%23ec4899' rx='20'/><text x='90' y='125' text-anchor='middle' fill='white' font-family='Arial, sans-serif' font-weight='bold' font-size='90'>F</text></svg>">
+  <link rel="apple-touch-icon" href="/icon.png">
   
   <!-- Microsoft Tiles -->
   <meta name="msapplication-TileColor" content="#ec4899">
-  <meta name="msapplication-TileImage" content="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 144 144'><rect width='144' height='144' fill='%23ec4899'/><text x='72' y='100' text-anchor='middle' fill='white' font-family='Arial, sans-serif' font-weight='bold' font-size='72'>F</text></svg>">
+  <meta name="msapplication-TileImage" content="/icon.png">
+  
+  <!-- Splash Screen Styles -->
+  <style>
+    /* Splash Screen */
+    #splash-screen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(135deg, #ec4899 0%, #3b82f6 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      transition: opacity 0.5s ease-out, visibility 0.5s ease-out;
+    }
+    
+    #splash-screen.hidden {
+      opacity: 0;
+      visibility: hidden;
+    }
+    
+    .splash-logo {
+      width: 120px;
+      height: 120px;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 24px;
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    
+    .splash-logo img {
+      width: 80px;
+      height: 80px;
+      border-radius: 16px;
+    }
+    
+    .splash-title {
+      color: white;
+      font-size: 2.5rem;
+      font-weight: 800;
+      margin-bottom: 8px;
+      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+      animation: slideUp 1s ease-out 0.3s both;
+    }
+    
+    .splash-subtitle {
+      color: rgba(255, 255, 255, 0.9);
+      font-size: 1.1rem;
+      font-weight: 500;
+      margin-bottom: 32px;
+      animation: slideUp 1s ease-out 0.6s both;
+    }
+    
+    .splash-loader {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(255, 255, 255, 0.3);
+      border-top: 3px solid white;
+      border-radius: 50%;
+      animation: spin 1s linear infinite, slideUp 1s ease-out 0.9s both;
+    }
+    
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+    
+    @keyframes slideUp {
+      from {
+        opacity: 0;
+        transform: translateY(30px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    /* Dark mode splash screen */
+    .dark #splash-screen {
+      background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+    }
+    
+    /* Mobile optimizations */
+    @media (max-width: 640px) {
+      .splash-logo {
+        width: 100px;
+        height: 100px;
+      }
+      
+      .splash-logo img {
+        width: 70px;
+        height: 70px;
+      }
+      
+      .splash-title {
+        font-size: 2rem;
+      }
+      
+      .splash-subtitle {
+        font-size: 1rem;
+        text-align: center;
+        padding: 0 20px;
+      }
+    }
+  </style>
   
   <!-- Service Worker Registration -->
   <script>
@@ -211,6 +330,16 @@
     <source src="./Gym.mp3" type="audio/mpeg">
     Your browser does not support the audio element.
   </audio>
+  
+  <!-- Splash Screen -->
+  <div id="splash-screen">
+    <div class="splash-logo">
+      <img src="/icon.png" alt="FitnessMate Logo" />
+    </div>
+    <h1 class="splash-title">FitnessMate</h1>
+    <p class="splash-subtitle">Your Personal Fitness Companion</p>
+    <div class="splash-loader"></div>
+  </div>
   
   <div id="root"></div>
 
@@ -11247,11 +11376,50 @@ ${habits.map(habit => {
 
     // --- Mount App ---
     const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(
-      <AuthProvider>
-        <App />
-      </AuthProvider>
-    );
+    
+    // Splash Screen Logic
+    const initializeApp = () => {
+      const splashScreen = document.getElementById('splash-screen');
+      
+      // Minimum splash screen duration (2 seconds)
+      const minSplashDuration = 2000;
+      const startTime = Date.now();
+      
+      // Hide splash screen after app is ready
+      const hideSplash = () => {
+        const elapsedTime = Date.now() - startTime;
+        const remainingTime = Math.max(0, minSplashDuration - elapsedTime);
+        
+        setTimeout(() => {
+          if (splashScreen) {
+            splashScreen.classList.add('hidden');
+            // Remove splash screen from DOM after transition
+            setTimeout(() => {
+              if (splashScreen && splashScreen.parentNode) {
+                splashScreen.parentNode.removeChild(splashScreen);
+              }
+            }, 500);
+          }
+        }, remainingTime);
+      };
+      
+      // Render the app
+      root.render(
+        <AuthProvider>
+          <App />
+        </AuthProvider>
+      );
+      
+      // Hide splash screen after React app is mounted
+      setTimeout(hideSplash, 100);
+    };
+    
+    // Initialize app when DOM is ready
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initializeApp);
+    } else {
+      initializeApp();
+    }
   </script>
   <!-- PDF Generation Library -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
