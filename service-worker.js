@@ -1,5 +1,5 @@
 /* Basic service worker for Fitmate PWA */
-const CACHE_NAME = 'fitmate-cache-v1';
+const CACHE_NAME = 'fitmate-cache-v2';
 const CORE_ASSETS = [
   '/',
   '/index.html',
