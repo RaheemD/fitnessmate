@@ -23,6 +23,41 @@
   <!-- Microsoft Tiles -->
   <meta name="msapplication-TileColor" content="#ec4899">
   <meta name="msapplication-TileImage" content="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 144 144'><rect width='144' height='144' fill='%23ec4899'/><text x='72' y='100' text-anchor='middle' fill='white' font-family='Arial, sans-serif' font-weight='bold' font-size='72'>F</text></svg>">
+  
+  <!-- Service Worker Registration -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then((registration) => {
+            console.log('✅ Service Worker registered successfully:', registration.scope);
+            
+            // Listen for updates
+            registration.addEventListener('updatefound', () => {
+              const newWorker = registration.installing;
+              newWorker.addEventListener('statechange', () => {
+                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                  // New version available
+                  console.log('🔄 New version available');
+                  if (confirm('A new version of FitnessMate is available. Reload to update?')) {
+                    newWorker.postMessage({ type: 'SKIP_WAITING' });
+                    window.location.reload();
+                  }
+                }
+              });
+            });
+          })
+          .catch((error) => {
+            console.log('❌ Service Worker registration failed:', error);
+          });
+      });
+      
+      // Listen for service worker updates
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        window.location.reload();
+      });
+    }
+  </script>
   <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
