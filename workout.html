@@ -7,17 +7,17 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="theme-color" content="#8b5cf6">
 
-  <!-- Tailwind CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Tailwind (define config first, add CDN with CSS fallback) -->
+  <script>
+    window.tailwind = window.tailwind || {};
+    window.tailwind.config = { darkMode: 'class' };
+  </script>
+  <script src="https://cdn.tailwindcss.com" onerror="(function(){var l=document.createElement('link');l.rel='stylesheet';l.href='https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css';document.head.appendChild(l);}())"></script>
   <script src="https://unpkg.com/@lottiefiles/lottie-player@latest/dist/lottie-player.js"></script>
   
   <!-- Supabase SDK -->
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
-  <script>
-    tailwind.config = {
-      darkMode: 'class'
-    }
-  </script>
+  <!-- tailwind.config already set above; no-op here to avoid ReferenceError if CDN blocked -->
 
   <style>
     :root{ --bg:#f9fafb; --bg-dark:#111827; --card:#ffffff; --card-dark:#1f2937; --muted:#9ca3af; --accent:#ec4899; }
