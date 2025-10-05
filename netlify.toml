@@ -5,11 +5,7 @@
   function = "myapi"
   path = "/api/myapi"
 
-[[redirects]]
-  from = "/.netlify/functions/myapi"
-  to = "/api/myapi"
-  status = 200
-  force = true
+# Removed problematic redirect that was causing build failure
 
 [[headers]]
   for = "/index.html"
