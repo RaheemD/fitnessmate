@@ -11206,10 +11206,20 @@ ${habits.map(habit => {
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script>
-    // Register service worker for PWA (also registered in workout.html)
+    // Ensure our SW takes control: unregister others, then register app-sw.js
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+      window.addEventListener('load', async () => {
+        try {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          for (const reg of regs) {
+            const url = (reg.active && reg.active.scriptURL) || reg.scriptURL || '';
+            if (!/\/app-sw\.js(\?.*)?$/.test(url)) {
+              try { await reg.unregister(); } catch (_) {}
+            }
+          }
+        } catch (_) {}
+        const ver = Date.now(); // bust cache to avoid stale SW
+        navigator.serviceWorker.register(`/app-sw.js?v=${ver}`).catch(() => {});
       });
     }
   </script>
