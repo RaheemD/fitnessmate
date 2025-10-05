@@ -6,12 +6,9 @@
 /app-sw.js           /app-sw.js           200
 /manifest.webmanifest /manifest.webmanifest 200
 
-# Redirect all routes to index.html for client-side routing
-/*    /index.html   200
-
-# Optional: Redirect root to index.html explicitly
-/     /index.html   200
-
 # Handle workout.html as a separate page
 /workout    /workout.html   200
 /workout/   /workout.html   200
+
+# Redirect all routes to index.html for client-side routing
+/*    /index.html   200
