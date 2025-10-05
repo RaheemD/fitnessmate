@@ -1,44 +1,57 @@
-/* Minimal stable service worker for FitnessMate (inline CSS/JS version) */
-const CACHE_NAME = 'fitnessmate-stable-v1';
-const FILES_TO_CACHE = [
+/* App SW: overrides any previously installed SW by claiming clients immediately */
+const CACHE_NAME = 'fitmate-appsw-v1';
+const CORE = [
   '/',
   '/index.html',
   '/workout.html',
-  '/offline.html',
-  '/Gym.mp3',
-  '/manifest.webmanifest',
-  '/naim.png'
+  '/manifest.webmanifest'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(FILES_TO_CACHE))
+      .then((cache) => cache.addAll(CORE))
       .then(() => self.skipWaiting())
   );
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    caches.keys().then((keys) => Promise.all(keys.map((k) => (k !== CACHE_NAME ? caches.delete(k) : null))))
+      .then(() => self.clients.claim())
   );
 });
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;
-  // Only handle GET requests
-  if (req.method !== 'GET') return;
+  const accept = req.headers.get('accept') || '';
+  const isHTML = accept.includes('text/html');
 
-  // Always try network first, fallback to cache
+  if (isHTML) {
+    // Network-first for HTML
+    event.respondWith(
+      fetch(req)
+        .then((resp) => {
+          const clone = resp.clone();
+          caches.open(CACHE_NAME).then((c) => c.put(req, clone)).catch(() => {});
+          return resp;
+        })
+        .catch(() => caches.match(req).then((c) => c || caches.match('/')))
+    );
+    return;
+  }
+
+  // Cache-first for others
   event.respondWith(
-    fetch(req)
-      .then((res) => {
-        const clone = res.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
-        return res;
-      })
-      .catch(() => caches.match(req).then((cached) => cached || caches.match('/offline.html')))
+    caches.match(req).then((cached) => {
+      if (cached) return cached;
+      return fetch(req)
+        .then((resp) => {
+          const clone = resp.clone();
+          caches.open(CACHE_NAME).then((c) => c.put(req, clone)).catch(() => {});
+          return resp;
+        })
+        .catch(() => cached);
+    })
   );
 });
