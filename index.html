@@ -4,15 +4,14 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>FitnessMate</title>
-  <link rel="manifest" href="/manifest.webmanifest">
-  <meta name="theme-color" content="#8b5cf6">
-  <link rel="icon" type="image/x-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23ec4899'/><text x='50' y='70' text-anchor='middle' fill='white' font-family='Arial, sans-serif' font-weight='bold' font-size='60'>F</text></svg>'>
-  <!-- Tailwind (define config first, add CDN with CSS fallback) -->
+  <link rel="icon" type="image/x-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23ec4899'/><text x='50' y='70' text-anchor='middle' fill='white' font-family='Arial, sans-serif' font-weight='bold' font-size='60'>F</text></svg>">
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
   <script>
-    window.tailwind = window.tailwind || {};
-    window.tailwind.config = { darkMode: 'class' };
+    tailwind.config = {
+      darkMode: 'class',
+    }
   </script>
-  <script src="https://cdn.tailwindcss.com" onerror="(function(){var l=document.createElement('link');l.rel='stylesheet';l.href='https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css';document.head.appendChild(l);}())"></script>
   
   <script>
     // Prevent white flash on page load - apply background immediately
@@ -11204,36 +11203,5 @@ ${habits.map(habit => {
   <!-- PDF Generation Library -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-  <script>
-    // FORCE new SW to take control immediately
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', async () => {
-        try {
-          // Unregister ALL existing service workers
-          const regs = await navigator.serviceWorker.getRegistrations();
-          await Promise.all(regs.map(reg => reg.unregister()));
-          
-          // Wait a moment for cleanup
-          await new Promise(resolve => setTimeout(resolve, 100));
-          
-          // Register our new SW with immediate activation
-          const registration = await navigator.serviceWorker.register(`/app-sw.js?v=${Date.now()}`);
-          
-          // Force immediate activation if waiting
-          if (registration.waiting) {
-            registration.waiting.postMessage({ type: 'SKIP_WAITING' });
-          }
-          
-          // Reload page once new SW is controlling
-          navigator.serviceWorker.addEventListener('controllerchange', () => {
-            window.location.reload();
-          });
-          
-        } catch (e) {
-          console.log('SW registration failed:', e);
-        }
-      });
-    }
-  </script>
 </body>
 </html>
