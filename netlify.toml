@@ -1,23 +1,12 @@
 [build]
-  publish = "."
+  publish = "/"
 
 [[edge_functions]]
   function = "myapi"
   path = "/api/myapi"
 
-# Removed problematic redirect that was causing build failure
-
-[[headers]]
-  for = "/index.html"
-  [headers.values]
-    Cache-Control = "no-cache, no-store, must-revalidate"
-
-[[headers]]
-  for = "/workout.html"
-  [headers.values]
-    Cache-Control = "no-cache, no-store, must-revalidate"
-
-[[headers]]
-  for = "/app-sw.js"
-  [headers.values]
-    Cache-Control = "no-cache"
+[[redirects]]
+  from = "/.netlify/functions/myapi"
+  to = "/api/myapi"
+  status = 200
+  force = true
