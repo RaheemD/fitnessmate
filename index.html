@@ -165,102 +165,9 @@
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <!-- Prefer local meSpeak if bundled in the app; CDN script as a fallback below -->
-  <script src="./vendor/mespeak/mespeak.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mespeak/mespeak.min.js"></script>
 
   <script type="text/babel">
     const { useState, useRef, useEffect } = React;
-    
-    // --- meSpeak (offline TTS) init ---
-    // Free fallback voice in WebViews. Tries LOCAL voice first; if missing, falls back to CDN.
-    window._meSpeakReady = false;
-    window._meSpeakLoading = false;
-    window._meSpeakLoadPromise = null;
-    window._initMeSpeak = function initMeSpeak() {
-      try {
-        if (!window.meSpeak || typeof window.meSpeak.loadVoice !== 'function') return null;
-        if (window._meSpeakReady || window._meSpeakLoading) return window._meSpeakLoadPromise;
-        window._meSpeakLoading = true;
-        try { window.meSpeak.setVolume(0.9); } catch (_) {}
-        const voiceLocal = './vendor/mespeak/voices/en/en-us.json';
-        const voiceCdn = 'https://cdn.jsdelivr.net/npm/mespeak/voices/en/en-us.json';
-        const loadVoice = (url) => new Promise((res) => {
-          try { window.meSpeak.loadVoice(url, (ok) => res(!!ok)); } catch (_) { res(false); }
-        });
-        window._meSpeakLoadPromise = (async () => {
-          let ok = await loadVoice(voiceLocal);
-          if (!ok) ok = await loadVoice(voiceCdn);
-          window._meSpeakReady = ok;
-          window._meSpeakLoading = false;
-          if (!ok) console.warn('meSpeak voice load failed (local and CDN)');
-          return ok;
-        })();
-        return window._meSpeakLoadPromise;
-      } catch (e) { console.warn('meSpeak init error:', e); return null; }
-    };
-    if (window.meSpeak) { window._initMeSpeak(); }
-
-    // --- Voice feature flags (easy undo) ---
-    // Toggle behavior without code removal. You can flip these via DevTools or set in localStorage then refresh.
-    // Example: localStorage.setItem('fitmate_audio_flags', JSON.stringify({ useNativeFirst:false, enableOfflineTTS:false, enableBeeps:false }))
-    try {
-      const persisted = JSON.parse(localStorage.getItem('fitmate_audio_flags') || 'null');
-      window.FITMATE_AUDIO_FLAGS = persisted || {
-        useNativeFirst: true,     // Try Capacitor native TTS first if available
-        enableOfflineTTS: true,   // Allow meSpeak offline TTS fallback
-        enableBeeps: false        // Disable beeps by default
-      };
-    } catch (_) {
-      window.FITMATE_AUDIO_FLAGS = { useNativeFirst:true, enableOfflineTTS:true, enableBeeps:false };
-    }
-    window.setAudioFlags = function(next){
-      try {
-        const current = window.FITMATE_AUDIO_FLAGS || {};
-        const merged = { ...current, ...(next||{}) };
-        localStorage.setItem('fitmate_audio_flags', JSON.stringify(merged));
-        window.FITMATE_AUDIO_FLAGS = merged;
-        console.log('Audio flags updated:', merged);
-      } catch(e){ console.warn('Failed to set audio flags', e); }
-    }
-
-    // --- Capacitor Native TTS Bridge (optional) ---
-    const nativeTTS = {
-      getPlugin() {
-        try {
-          const cap = window.Capacitor;
-          if (!cap || !cap.Plugins) return null;
-          return cap.Plugins.TextToSpeech || cap.Plugins.CapacitorTextToSpeech || window.TextToSpeech || null;
-        } catch (_) { return null; }
-      },
-      isAvailable() {
-        return !!(window.FITMATE_AUDIO_FLAGS?.useNativeFirst && this.getPlugin());
-      },
-      speak(text, opts = {}) {
-        const TTS = this.getPlugin();
-        if (!TTS) return Promise.reject('No native TTS');
-        const options = {
-          text: String(text || ''),
-          rate: opts.rate ?? 1.0,
-          pitch: opts.pitch ?? 1.0,
-          volume: opts.volume ?? 1.0,
-          language: opts.language ?? 'en-US',
-          category: opts.category ?? 'ambient',
-          queue: false
-        };
-        try {
-          const p = TTS.speak ? TTS.speak(options) : (TTS.speakText ? TTS.speakText(options) : Promise.reject('No speak method'));
-          return Promise.resolve(p);
-        } catch (e) { return Promise.reject(e); }
-      },
-      stop() {
-        try {
-          const TTS = this.getPlugin();
-          if (TTS && typeof TTS.stop === 'function') return TTS.stop();
-        } catch (_) {}
-        return Promise.resolve();
-      }
-    };
 
     // Global safe stub to avoid ReferenceError before the real helper is defined
     if (typeof window !== 'undefined' && typeof window.setLocalStorageWithSync === 'undefined') {
@@ -2088,38 +1995,8 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       currentUtterance: null,
       activeButton: null,
       currentText: null,
-      fallbackActive: false,
-      meSpeakId: null,
-      usingNative: false,
       
       speak: function(text, buttonId) {
-        // Prefer native TTS if available (Capacitor)
-        if (nativeTTS.isAvailable()) {
-          // Toggle stop if same button
-          if (this.isPlaying && this.activeButton === buttonId) {
-            this.stop();
-            return 'stop';
-          }
-          if (this.isPlaying) this.stop();
-          this.currentText = text;
-          this.isPlaying = true;
-          this.activeButton = buttonId;
-          this.usingNative = true;
-          try { unlockAudio(); } catch(_) {}
-          nativeTTS.speak(text, { rate: 1.0, pitch: 1.0, volume: 1.0 })
-            .then(() => {
-              this.isPlaying = false;
-              this.activeButton = null;
-              this.currentText = null;
-              this.usingNative = false;
-            })
-            .catch((e) => {
-              console.warn('Native TTS failed, falling back:', e);
-              this.usingNative = false;
-              this.fallbackSpeak(text, buttonId);
-            });
-          return 'play';
-        }
         if ('speechSynthesis' in window) {
           // If this button is currently playing, stop it
           if (this.isPlaying && this.activeButton === buttonId) {
@@ -2131,14 +2008,12 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
           if (this.isPlaying) {
             this.stop();
           }
-
+          
           // Start new speech
           this.currentText = text;
           const utterance = new SpeechSynthesisUtterance(text);
-          const self = this;
-          let started = false;
           utterance.rate = 0.9;
-
+          
           // Mobile-optimized voice selection
           const voices = window.speechSynthesis.getVoices();
           const preferredVoice = voices.find(voice => 
@@ -2147,11 +2022,10 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
           if (preferredVoice) {
             utterance.voice = preferredVoice;
           }
-
+          
           utterance.onstart = () => {
             this.isPlaying = true;
             this.activeButton = buttonId;
-            started = true;
           };
           
           utterance.onend = () => {
@@ -2167,140 +2041,27 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
           };
           
           this.currentUtterance = utterance;
-          try { unlockAudio(); window.speechSynthesis.speak(utterance); }
-          catch (e) { console.warn('speechSynthesis.speak failed, using fallback', e); return this.fallbackSpeak(text, buttonId); }
-          // If WebView exposes API but doesn't actually speak, fallback after a short timeout
-          setTimeout(() => {
-            if (!started && self.currentUtterance === utterance) {
-              try { window.speechSynthesis.cancel(); } catch(_) {}
-              self.fallbackSpeak(text, buttonId);
-            }
-          }, 1200);
+          window.speechSynthesis.speak(utterance);
           this.isPlaying = true;
           this.activeButton = buttonId;
           return 'play';
         } else {
-          console.warn('Text-to-speech not supported; using audio fallback');
-          return this.fallbackSpeak(text, buttonId);
+          alert('Text-to-speech not supported in this browser');
+          return 'error';
         }
       },
       
       stop: function() {
-        try { window.speechSynthesis.cancel(); } catch (_) {}
-        try { if (window.meSpeak && this.meSpeakId) { window.meSpeak.stop(this.meSpeakId); } } catch (_) {}
-        try { if (this.usingNative) { nativeTTS.stop(); } } catch (_) {}
+        window.speechSynthesis.cancel();
         this.isPlaying = false;
         this.currentUtterance = null;
         this.activeButton = null;
         this.currentText = null;
-        this.fallbackActive = false;
-        this.meSpeakId = null;
-        this.usingNative = false;
       },
       
       isActuallyPlaying: function() {
-        const speaking = (typeof window !== 'undefined' && window.speechSynthesis) ? window.speechSynthesis.speaking : false;
-        return this.isPlaying && (speaking || this.fallbackActive || this.usingNative);
-      },
-      
-      // Fallback: try meSpeak (offline TTS), otherwise beep patterns using WebAudio
-      fallbackSpeak: function(text, buttonId) {
-        this.activeButton = buttonId;
-        this.isPlaying = true;
-        this.fallbackActive = true;
-        // Run asynchronously so we can attempt meSpeak load before falling back
-        (async () => {
-          try {
-            // Ensure meSpeak is initialized/loaded if possible
-            if (typeof window._initMeSpeak === 'function') {
-              try { await window._initMeSpeak(); } catch (_) {}
-            }
-            const allowOffline = !!(window.FITMATE_AUDIO_FLAGS && window.FITMATE_AUDIO_FLAGS.enableOfflineTTS);
-            if (allowOffline && window.meSpeak && window._meSpeakReady && typeof window.meSpeak.speak === 'function') {
-              try {
-                unlockAudio();
-                const id = window.meSpeak.speak(String(text || ''), { speed: 160, pitch: 60, volume: 1 }, (success) => {
-                  this.fallbackActive = false;
-                  this.isPlaying = false;
-                  this.activeButton = null;
-                  this.meSpeakId = null;
-                });
-                if (id && id > 0) { this.meSpeakId = id; return; }
-              } catch (e) { console.warn('meSpeak speak failed, falling back to beeps', e); }
-            }
-          } catch (e) { console.warn('meSpeak init/speak error:', e); }
-          // Beep fallback (only for short cues). Avoid beeps for long instructions.
-          try {
-            const allowBeeps = !!(window.FITMATE_AUDIO_FLAGS && window.FITMATE_AUDIO_FLAGS.enableBeeps);
-            if (allowBeeps) {
-              const t = String(text || '');
-              const isShortCue = t.length <= 40 || /(\bbegin\b|\bstart\b|\brest\b|\bcomplete\b|\bfinished\b|\bworkout\b|^\d+$)/i.test(t);
-              if (isShortCue) {
-                await playTextBeepSequence(text);
-              }
-            }
-          } catch (e) {
-            console.warn('Fallback beep failed:', e);
-          } finally {
-            this.fallbackActive = false;
-            this.isPlaying = false;
-            this.activeButton = null;
-          }
-        })();
-        return 'play';
+        return this.isPlaying && window.speechSynthesis.speaking;
       }
-    };
-
-    // --- Lightweight audio fallback for TTS (WebAudio beeps) ---
-    let _fitmateAudioCtx = null;
-    const getAudioContext = () => {
-      const Ctx = window.AudioContext || window.webkitAudioContext;
-      if (!_fitmateAudioCtx && Ctx) _fitmateAudioCtx = new Ctx();
-      return _fitmateAudioCtx;
-    };
-    // Unlock audio on first user interaction (needed in some webviews)
-    const unlockAudio = () => { const ctx = getAudioContext(); if (ctx && ctx.state === 'suspended') ctx.resume(); };
-    window.addEventListener('touchstart', unlockAudio, { once: true, passive: true });
-    window.addEventListener('click', unlockAudio, { once: true });
-    
-    const playBeep = (durationSec = 0.12, freq = 880, type = 'sine', gainValue = 0.08) => {
-      return new Promise((resolve) => {
-        const ctx = getAudioContext();
-        if (!ctx) return resolve(); // fail silently if no audio context
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = type;
-        osc.frequency.value = freq;
-        gain.gain.value = gainValue;
-        osc.connect(gain).connect(ctx.destination);
-        const now = ctx.currentTime;
-        osc.start(now);
-        // smooth fade out
-        gain.gain.setValueAtTime(gainValue, now);
-        try { gain.gain.exponentialRampToValueAtTime(0.0001, now + durationSec); } catch (_) {}
-        osc.stop(now + durationSec + 0.02);
-        osc.onended = () => resolve();
-      });
-    };
-    
-    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-    
-    const playTextBeepSequence = async (text) => {
-      const t = (text || '').toString().trim().toLowerCase();
-      if (!t) return;
-      // Numeric countdown -> quick short beep
-      if (/^\d+$/.test(t)) { await playBeep(0.08, 1200, 'sine', 0.09); return; }
-      if (t.includes('begin') || t.includes('start')) {
-        await playBeep(0.08, 1000); await sleep(80);
-        await playBeep(0.08, 1200); await sleep(80);
-        await playBeep(0.14, 1400, 'square', 0.09); return;
-      }
-      if (t.includes('rest')) { await playBeep(0.10, 700); await sleep(120); await playBeep(0.10, 700); return; }
-      if (t.includes('complete') || t.includes('finished') || t.includes('workout')) {
-        await playBeep(0.18, 900, 'sawtooth', 0.1); await sleep(100); await playBeep(0.28, 1200, 'triangle', 0.08); return;
-      }
-      // Default cue
-      await playBeep(0.12, 880);
     };
 
     // Simple Text-to-Speech Function (for backward compatibility)
@@ -2319,6 +2080,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
     };
 
     // --- Helper Components ---
+
 
     // --- Main App Component ---
     function App() {
@@ -3445,7 +3207,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
                 <p className="text-gray-500 dark:text-gray-400">AI That Fuels Your Health Journey</p>
               </div>
               </div>
-              <div className="merch-teaser starry blink text-gray-900 dark:text-white text-xs sm:text-sm md:text-base text-center sm:text-right w-full sm:w-auto sm:max-w-[60%] md:max-w-[50%] whitespace-normal md:whitespace-nowrap leading-tight mt-1 sm:mt-0 mx-auto sm:mx-0">
+              <div className="merch-teaser starry blink text-gray-900 dark:text-white text-xs sm:text-sm md:text-base text-center sm:text-right w-full sm:w-auto sm:max-w-[60%] md:max-w-[50%] whitespace-normal md:whitespace-nowrap leading-tight mt-1 sm:mt-0 mx-auto sm:mx-0 self-center sm:self-auto">
                 Train hard. Look sharp. Merch drops soon
               </div>
             </div>
@@ -3552,24 +3314,6 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         subject: '',
         message: ''
       });
-      // Voice & Audio flags (UI mirror of global flags)
-      const [audioFlags, setAudioFlags] = useState(() => {
-        try { return window.FITMATE_AUDIO_FLAGS || { useNativeFirst:true, enableOfflineTTS:true, enableBeeps:false }; }
-        catch(_) { return { useNativeFirst:true, enableOfflineTTS:true, enableBeeps:false }; }
-      });
-      const updateAudioFlags = (next) => {
-        const merged = { ...audioFlags, ...(next||{}) };
-        setAudioFlags(merged);
-        if (typeof window.setAudioFlags === 'function') window.setAudioFlags(merged);
-      };
-      const toggleNative = () => updateAudioFlags({ useNativeFirst: !audioFlags.useNativeFirst });
-      const toggleOffline = () => updateAudioFlags({ enableOfflineTTS: !audioFlags.enableOfflineTTS });
-      const toggleBeeps = () => updateAudioFlags({ enableBeeps: !audioFlags.enableBeeps });
-      const resetAudioFlagsToBrowserOnly = () => {
-        const reset = { useNativeFirst:false, enableOfflineTTS:false, enableBeeps:false };
-        setAudioFlags(reset);
-        if (typeof window.setAudioFlags === 'function') window.setAudioFlags(reset);
-      };
       const [isSubmittingSupport, setIsSubmittingSupport] = useState(false);
       const [supportSubmissionStatus, setSupportSubmissionStatus] = useState(null);
       const [showBookingModal, setShowBookingModal] = useState(false);
@@ -5268,60 +5012,6 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
                     📱 On mobile: Tap anywhere to start music
                   </p>
                 )}
-              </div>
-
-              {/* Voice & Audio (Native/Offline/Beep) */}
-              <div className="p-3 space-y-2">
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-700 dark:text-gray-300">Use Native TTS (Capacitor)</span>
-                  <button
-                    onClick={toggleNative}
-                    className={`relative w-14 h-7 rounded-full p-1 transition-colors duration-200 focus:outline-none ${
-                      audioFlags.useNativeFirst ? 'bg-green-500' : 'bg-gray-300'
-                    }`}
-                    title={audioFlags.useNativeFirst ? 'Native TTS ON' : 'Native TTS OFF'}
-                  >
-                    <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-200 ${
-                      audioFlags.useNativeFirst ? 'translate-x-7' : 'translate-x-0'
-                    }`}></div>
-                  </button>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-700 dark:text-gray-300">Offline TTS (meSpeak)</span>
-                  <button
-                    onClick={toggleOffline}
-                    className={`relative w-14 h-7 rounded-full p-1 transition-colors duration-200 focus:outline-none ${
-                      audioFlags.enableOfflineTTS ? 'bg-green-500' : 'bg-gray-300'
-                    }`}
-                    title={audioFlags.enableOfflineTTS ? 'Offline TTS ON' : 'Offline TTS OFF'}
-                  >
-                    <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-200 ${
-                      audioFlags.enableOfflineTTS ? 'translate-x-7' : 'translate-x-0'
-                    }`}></div>
-                  </button>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-700 dark:text-gray-300">Short Beeps (cues only)</span>
-                  <button
-                    onClick={toggleBeeps}
-                    className={`relative w-14 h-7 rounded-full p-1 transition-colors duration-200 focus:outline-none ${
-                      audioFlags.enableBeeps ? 'bg-green-500' : 'bg-gray-300'
-                    }`}
-                    title={audioFlags.enableBeeps ? 'Beeps ON' : 'Beeps OFF'}
-                  >
-                    <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-200 ${
-                      audioFlags.enableBeeps ? 'translate-x-7' : 'translate-x-0'
-                    }`}></div>
-                  </button>
-                </div>
-                <div className="pt-1">
-                  <button
-                    onClick={resetAudioFlagsToBrowserOnly}
-                    className="w-full text-left p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 transition-colors"
-                  >
-                    Reset voice to browser-only (undo)
-                  </button>
-                </div>
               </div>
               
               <button 
@@ -7471,7 +7161,6 @@ Respond ONLY with a valid JSON object in this format:
       const [isPlaying, setIsPlaying] = useState(false);
       
       const handleVoiceControl = () => {
-        unlockAudio();
         const action = speechController.speak(text, buttonId);
         setIsPlaying(action === 'play');
         
@@ -7518,7 +7207,6 @@ Respond ONLY with a valid JSON object in this format:
       }, [buttonId, isPlaying]);
       
       const handleVoiceControl = () => {
-        unlockAudio();
         let text = `${mealType}: ${meal.name}. `;
         text += "Ingredients: " + meal.ingredients.join(", ") + ". ";
         text += "Instructions: " + meal.instructions.join(". ") + ".";
@@ -7559,7 +7247,6 @@ Respond ONLY with a valid JSON object in this format:
       }, [isPlaying]);
       
       const handleVoiceControl = () => {
-        unlockAudio();
         let text = "Here is your complete meal plan. ";
         
         // Breakfast
@@ -7615,7 +7302,6 @@ Respond ONLY with a valid JSON object in this format:
       }, [buttonId, isPlaying]);
       
       const handleVoiceControl = () => {
-        unlockAudio();
         let text = `Exercise ${index + 1}: ${exercise.name}. `;
         text += `You will do ${exercise.sets} sets of ${exercise.reps} repetitions. `;
         text += `Instructions: ${exercise.instructions}.`;
@@ -7656,7 +7342,6 @@ Respond ONLY with a valid JSON object in this format:
       }, [isPlaying]);
       
       const handleVoiceControl = () => {
-        unlockAudio();
         let text = "Here is your complete workout plan. ";
         
         workoutPlan.exercises.forEach((exercise, index) => {
@@ -8853,8 +8538,6 @@ Respond ONLY with a valid JSON object in this format:
                 <video 
                   src={videoPreview} 
                   controls 
-                  playsInline
-                  webkit-playsinline
                   className="w-full h-64 object-cover"
                   poster="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect width='100' height='100' fill='%23f3f4f6'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%236b7280'%3EVideo%3C/text%3E%3C/svg%3E"
                 />
@@ -9140,13 +8823,17 @@ Respond ONLY with a valid JSON object in this format:
 
       // Workout Session Management Functions
       const speakInstruction = (text) => {
-        if (!voiceInstructions) return;
-        unlockAudio();
-        speechController.speak(text, 'workout-instructions');
+        if (voiceInstructions && speechSynthesis) {
+          speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.rate = 0.9;
+          utterance.pitch = 1;
+          utterance.volume = 0.8;
+          speechSynthesis.speak(utterance);
+        }
       };
 
       const startWorkoutSession = (exercises) => {
-        unlockAudio();
         const sessionExercises = exercises.length > 0 ? exercises : exerciseDatabase.slice(0, 5);
         setWorkoutSession({
           isActive: true,
