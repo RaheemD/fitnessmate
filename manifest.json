@@ -3,18 +3,20 @@
   "short_name": "FitnessMate",
   "description": "Your personal fitness companion with guided workouts and exercise tracking.",
   "start_url": "/index.html",
-  "display": "standalone",
-  "background_color": "#111827",
-  "theme_color": "#ec4899",
-  "orientation": "portrait-primary",
   "scope": "/",
-  "lang": "en",
+  "display": "standalone",
+  "background_color": "##ec4899",
+  "theme_color": "##ec4899",
+  "orientation": "portrait-primary",
   "dir": "ltr",
+  "lang": "en",
+
   "categories": [
     "health",
     "fitness",
     "lifestyle"
   ],
+
   "icons": [
     {
       "src": "/icon-192.png",
@@ -29,6 +31,7 @@
       "purpose": "any maskable"
     }
   ],
+
   "shortcuts": [
     {
       "name": "Start Workout",
@@ -38,23 +41,27 @@
       "icons": [
         {
           "src": "/icon-192.png",
-          "sizes": "96x96",
+          "sizes": "192x192",
           "type": "image/png"
         }
       ]
     }
   ],
+
   "permissions": [
-    "audio-capture",
-    "microphone"
+    "microphone",
+    "audio-capture"
   ],
-  "prefer_related_applications": false,
+
   "screenshots": [
     {
       "src": "/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "form_factor": "narrow"
+      "form_factor": "wide"
     }
-  ]
+  ],
+
+  "prefer_related_applications": false,
+  "related_applications": []
 }
