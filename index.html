@@ -3377,10 +3377,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
     const Profile = ({ isDarkMode, toggleDarkMode, goals, setGoals, setDailyIntake, setRecentMeals, setDailyHistory, setScreen }) => {
       const { user, signOut, updateUserData } = useAuth();
       const [profilePicture, setProfilePicture] = useState(() => {
-        // For signed-in users, start with default and let remote data load via useEffect
-        if (user) {
-          return "https://placehold.co/100x100/EAB543/ffffff?text=User";
-        }
+        // Initialize from localStorage for both signed-in and guest users to avoid placeholder flicker
         const saved = localStorage.getItem('profilePicture');
         return saved || "https://placehold.co/100x100/EAB543/ffffff?text=User";
       });
