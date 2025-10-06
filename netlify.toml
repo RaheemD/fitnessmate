@@ -1,38 +1,19 @@
-# netlify.toml - place at repo root (replace your current netlify.toml)
+# ✅ netlify.toml (Final Correct Version)
 
 [build]
-  # If you use a specific publish directory change the line below.
-  # Typical Netlify static site uses the repo root or 'dist' or 'public'.
-  # Example (uncomment & edit if needed):
-  # publish = "public"
+  publish = "."
+  command = ""
 
-# --- Redirect .well-known requests to the folder you actually uploaded (well-known) ---
-# This lets Android and verification tools request /.well-known/assetlinks.json
-# while your repo contains the non-hidden folder /well-known/assetlinks.json
+# Redirect .well-known to your visible folder
 [[redirects]]
   from = "/.well-known/*"
   to = "/well-known/:splat"
   status = 200
   force = true
 
-# --- OPTIONAL: safe catch-all for a single asset (if you only need this file) ---
-#[[redirects]]
-#  from = "/.well-known/assetlinks.json"
-#  to = "/well-known/assetlinks.json"
-#  status = 200
-#  force = true
-
-# --- IMPORTANT: remove any redirect entries that use /.netlify/... as the `from` path ---
-# Netlify does not allow "from" paths that begin with "/.netlify".
-# If you previously had something like:
-# from = "/.netlify/functions/myapi"
-# remove it or change it to a proper public path (e.g. "/api/*" -> "/.netlify/functions/:splat")
-#
-# Example of correct proxying to functions (ONLY if you actually use Netlify Functions):
-# [[redirects]]
-#   from = "/api/*"
-#   to = "/.netlify/functions/:splat"
-#   status = 200
-#   force = false
-#
-# But you said you no longer use Netlify functions, so do NOT add the .netlify path here.
+# ✅ Ensure proper content-type for Android verification
+[[headers]]
+  for = "/.well-known/assetlinks.json"
+  [headers.values]
+    Content-Type = "application/json; charset=utf-8"
+    Access-Control-Allow-Origin = "*"
