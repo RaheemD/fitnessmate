@@ -1,0 +1,54 @@
+{
+  "name": "FitnessMate - Workout Hub",
+  "short_name": "FitnessMate",
+  "description": "Your personal fitness companion with guided workouts and exercise tracking.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "dir": "ltr",
+  "lang": "en",
+
+  "background_color": "#ffffff",
+  "theme_color": "#ec4899",
+
+  "theme_color_scheme": {
+    "light": "#ffffff",
+    "dark": "#000000"
+  },
+
+  "display_override": ["standalone", "fullscreen", "minimal-ui", "browser"],
+
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+
+  "shortcuts": [
+    {
+      "name": "Start Workout",
+      "short_name": "Workout",
+      "url": "/workout.html",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ],
+
+  "prefer_related_applications": false,
+  "related_applications": []
+}
