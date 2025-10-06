@@ -11,11 +11,7 @@
   "dir": "ltr",
   "lang": "en",
 
-  "categories": [
-    "health",
-    "fitness",
-    "lifestyle"
-  ],
+  "categories": ["health", "fitness", "lifestyle"],
 
   "icons": [
     {
@@ -48,10 +44,7 @@
     }
   ],
 
-  "permissions": [
-    "microphone",
-    "audio-capture"
-  ],
+  "permissions": ["microphone", "audio-capture"],
 
   "screenshots": [
     {
