@@ -54,6 +54,14 @@
         document.documentElement.classList.remove('dark')
       }
     </script>
+  <!-- PWA manifest + theme -->
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#ec4899"> <!-- main app pink -->
+  <meta name="color-scheme" content="light dark"> <!-- Let browser auto-select Light/dark -->
+
+  <!-- icons (ensure these files exist at repo root) -->
+  <link rel="icon" href="/icon.png">
+  <link rel="apple-touch-icon" href="/icon-192.png">
   </head>
 <body class="bottom-safe bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white">
   <!-- Background Music Audio Element -->
@@ -1405,6 +1413,16 @@
   // preload voices (some browsers require gesture)
   if ('speechSynthesis' in window) { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices(); }
 
+  </script>
+  <script>
+    // Register service worker (safe, idempotent). Remove duplicate registrations if already present
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then(reg => console.log('ServiceWorker registered:', reg.scope))
+          .catch(err => console.warn('ServiceWorker registration failed:', err));
+      });
+    }
   </script>
 </body>
 </html>
