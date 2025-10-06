@@ -721,7 +721,7 @@ Respond ONLY with a valid JSON object in this exact format:
             
             // Profile data
             goals: JSON.parse(localStorage.getItem('goals') || '{}'),
-            profile_picture: localStorage.getItem('profilePicture') || '',
+            // profile_picture omitted to avoid overwriting remote value during remote-only mode,
             notifications_enabled: JSON.parse(localStorage.getItem('notificationsEnabled') || 'true'),
             dark_mode: JSON.parse(localStorage.getItem('fitmate-dark-mode') || 'false'),
             
@@ -1810,7 +1810,7 @@ Respond ONLY with a valid JSON object in this exact format:
           const currentTimestamp = new Date().toISOString();
           const allLocalData = {
             goals: JSON.parse(localStorage.getItem('goals') || '{}'),
-            profile_picture: localStorage.getItem('profilePicture') || '',
+            // profile_picture intentionally excluded in remote-only mode to avoid overwriting remote data,
             notifications_enabled: JSON.parse(localStorage.getItem('notificationsEnabled') || 'true'),
             daily_intake: JSON.parse(localStorage.getItem('dailyIntake') || '{}'),
             recent_meals: JSON.parse(localStorage.getItem('recentMeals') || '[]'),
@@ -1912,7 +1912,9 @@ Respond ONLY with a valid JSON object in this exact format:
         syncAIContent,
         triggerAutoSync,
         setLocalStorageWithSync,
-        setAuthError
+        setAuthError,
+        forceNextRemoteOnlyRef,
+        authInitialRemoteAppliedRef
       };
 
       return (
@@ -2117,10 +2119,18 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
 
       // --- Coach and Progress State Management ---
       const [coachMessages, setCoachMessages] = useState(() => {
+        // For signed-in users, start with default message and let remote data load via useEffect
+        if (user) {
+          return [{ text: "Hello! I'm your AI Health Coach. Ask me anything about your nutrition or meals.", sender: 'ai' }];
+        }
         const savedMessages = localStorage.getItem('coachMessages');
         return savedMessages ? JSON.parse(savedMessages) : [{ text: "Hello! I'm your AI Health Coach. Ask me anything about your nutrition or meals.", sender: 'ai' }];
       });
       const [habitAIAdvice, setHabitAIAdvice] = useState(() => {
+        // For signed-in users, start with empty string and let remote data load via useEffect
+        if (user) {
+          return '';
+        }
         const savedAdvice = localStorage.getItem('habitAIAdvice');
         return savedAdvice || '';
       });
@@ -2129,6 +2139,10 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
 
       // Add these new AI states:
       const [scanResult, setScanResult] = useState(() => {
+        // For signed-in users, start with null and let remote data load via useEffect
+        if (user) {
+          return null;
+        }
         const saved = localStorage.getItem('scanResult');
         return saved ? JSON.parse(saved) : null;
       });
@@ -2136,6 +2150,10 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       const [scanError, setScanError] = useState(null);
 
       const [mealPlan, setMealPlan] = useState(() => {
+        // For signed-in users, start with null and let remote data load via useEffect
+        if (user) {
+          return null;
+        }
         const saved = localStorage.getItem('mealPlan');
         return saved ? JSON.parse(saved) : null;
       });
@@ -2143,6 +2161,10 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       const [mealPlanError, setMealPlanError] = useState(null);
 
       const [workoutPlan, setWorkoutPlan] = useState(() => {
+        // For signed-in users, start with null and let remote data load via useEffect
+        if (user) {
+          return null;
+        }
         const saved = localStorage.getItem('workoutPlan');
         return saved ? JSON.parse(saved) : null;
       });
@@ -2150,6 +2172,10 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       const [workoutPlanError, setWorkoutPlanError] = useState(null);
 
       const [formAnalysis, setFormAnalysis] = useState(() => {
+        // For signed-in users, start with null and let remote data load via useEffect
+        if (user) {
+          return null;
+        }
         const saved = localStorage.getItem('formAnalysis');
         return saved ? JSON.parse(saved) : null;
       });
@@ -2217,9 +2243,9 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
               setRecentMeals([]);
               localStorage.setItem('lastSavedDate', todayISO);
               localStorage.setItem('dailyIntakeDate', todayISO);
-              // Do not push zeros during initial remote-only sign-in window
+              // Do not push zeros during initial remote-only sign-in window AND prevent overwriting remote data
               try {
-                if (user && initialSyncCompletedRef.current && !isRemoteSyncRef.current) {
+                if (user && initialSyncCompletedRef.current && !isRemoteSyncRef.current && !forceNextRemoteOnlyRef?.current && authInitialRemoteAppliedRef.current) {
                   syncDailyIntake(zero);
                 } else {
                   console.log('⏸️ Skipping EOD zero sync until initial remote data is applied');
@@ -2430,6 +2456,10 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
 
       // --- State Initialization from localStorage ---
       const [goals, setGoals] = useState(() => {
+        // For signed-in users, start with defaults and let remote data load via useEffect
+        if (user) {
+          return defaultGoals;
+        }
         const savedGoals = localStorage.getItem('goals');
         return savedGoals ? JSON.parse(savedGoals) : defaultGoals;
       });
@@ -2437,6 +2467,14 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       const [dailyIntake, setDailyIntake] = useState(() => {
         try {
           const zero = { calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0 };
+          
+          // For signed-in users, start with zero and let remote data load via useEffect
+          if (user) {
+            const today = toLocalISODate(new Date());
+            try { localStorage.setItem('dailyIntakeDate', today); } catch (_) {}
+            return zero;
+          }
+          
           const today = toLocalISODate(new Date());
           const lastSaved = localStorage.getItem('lastSavedDate');
           const intakeDate = localStorage.getItem('dailyIntakeDate');
@@ -2463,11 +2501,19 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       });
 
       const [recentMeals, setRecentMeals] = useState(() => {
+        // For signed-in users, start with empty array and let remote data load via useEffect
+        if (user) {
+          return [];
+        }
         const savedMeals = localStorage.getItem('recentMeals');
         return savedMeals ? JSON.parse(savedMeals) : [];
       });
 
       const [dailyHistory, setDailyHistory] = useState(() => {
+        // For signed-in users, start with empty object and let remote data load via useEffect
+        if (user) {
+          return {};
+        }
         const savedHistory = localStorage.getItem('dailyHistory');
         return savedHistory ? JSON.parse(savedHistory) : {};
       });
@@ -2557,8 +2603,12 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
           setDailyIntake(zeroIntake);
           setRecentMeals([]);
           localStorage.setItem('dailyIntakeDate', today);
-          // Proactively sync zero to remote to avoid backfill flicker from old remote value
-          try { if (user) syncDailyIntake(zeroIntake); } catch (_) {}
+          // Proactively sync zero to remote to avoid backfill flicker from old remote value, but prevent overwriting during sign-in
+          try { 
+            if (user && !forceNextRemoteOnlyRef?.current && authInitialRemoteAppliedRef.current) {
+              syncDailyIntake(zeroIntake); 
+            }
+          } catch (_) {}
         } else {
           // Fallback: ensure yesterday exists with a zero placeholder if missing
           try {
@@ -2618,7 +2668,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       }, []);
 
       // --- Enhanced Data Persistence with Supabase Sync ---
-      const { user, updateUserData, syncDailyIntake, syncMealsData, syncDailyHistory, syncAIContent } = useAuth();
+      const { user, updateUserData, syncDailyIntake, syncMealsData, syncDailyHistory, syncAIContent, forceNextRemoteOnlyRef, authInitialRemoteAppliedRef } = useAuth();
       const isRemoteSyncRef = useRef(false);
       // Track initial state to avoid overwriting remote with local defaults/stale data
       const hadDailyIntakeAtStartRef = useRef(!!localStorage.getItem('dailyIntake'));
@@ -2713,9 +2763,11 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       
       useEffect(() => { 
         localStorage.setItem('goals', JSON.stringify(goals));
-        // Defer pushing goals until initial remote sync completes to avoid overwriting
-        if (user && !isRemoteSyncRef.current) {
+        // Defer pushing goals until initial remote sync completes AND prevent overwriting remote data
+        if (user && !isRemoteSyncRef.current && !forceNextRemoteOnlyRef?.current) {
           if (!initialSyncCompletedRef.current) return;
+          // Additional guard: Don't sync if we just loaded remote data
+          if (!authInitialRemoteAppliedRef.current) return;
           updateUserData({ goals });
         }
       }, [goals, user, updateUserData]);
@@ -2724,9 +2776,11 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         localStorage.setItem('dailyIntake', JSON.stringify(dailyIntake));
         // Track which day this intake belongs to (timezone-aware)
         try { localStorage.setItem('dailyIntakeDate', toLocalISODate(new Date())); } catch (_) {}
-        // Defer pushing intake until initial remote sync completes
-        if (user && !isRemoteSyncRef.current) {
+        // Defer pushing intake until initial remote sync completes AND prevent overwriting remote data
+        if (user && !isRemoteSyncRef.current && !forceNextRemoteOnlyRef?.current) {
           if (!initialSyncCompletedRef.current) return;
+          // Additional guard: Don't sync if we just loaded remote data
+          if (!authInitialRemoteAppliedRef.current) return;
           syncDailyIntake(dailyIntake);
         }
       }, [dailyIntake, user, syncDailyIntake]);
@@ -2743,58 +2797,80 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       
       useEffect(() => { 
         localStorage.setItem('recentMeals', JSON.stringify(recentMeals));
-        // Defer pushing meals until initial remote sync completes
-        if (user && !isRemoteSyncRef.current) {
+        // Defer pushing meals until initial remote sync completes AND prevent overwriting remote data
+        if (user && !isRemoteSyncRef.current && !forceNextRemoteOnlyRef?.current) {
           if (!initialSyncCompletedRef.current) return;
+          // Additional guard: Don't sync if we just loaded remote data
+          if (!authInitialRemoteAppliedRef.current) return;
           syncMealsData(recentMeals);
         }
       }, [recentMeals, user, syncMealsData]);
       
       useEffect(() => { 
         localStorage.setItem('dailyHistory', JSON.stringify(dailyHistory));
-        // Defer pushing history until initial remote sync completes (prevents Device 2 overwriting Device 1)
-        if (user && !isRemoteSyncRef.current) {
+        // Defer pushing history until initial remote sync completes AND prevent overwriting remote data
+        if (user && !isRemoteSyncRef.current && !forceNextRemoteOnlyRef?.current) {
           if (!initialSyncCompletedRef.current) return;
+          // Additional guard: Don't sync if we just loaded remote data
+          if (!authInitialRemoteAppliedRef.current) return;
           syncDailyHistory(dailyHistory);
         }
       }, [dailyHistory, user, syncDailyHistory]);
       
       useEffect(() => { 
         localStorage.setItem('coachMessages', JSON.stringify(coachMessages));
-        if (user) updateUserData({ coach_messages: coachMessages });
+        // Prevent overwriting remote data during sign-in
+        if (user && !forceNextRemoteOnlyRef?.current && authInitialRemoteAppliedRef.current) {
+          updateUserData({ coach_messages: coachMessages });
+        }
       }, [coachMessages, user, updateUserData]);
       
       useEffect(() => { 
         localStorage.setItem('habitAIAdvice', habitAIAdvice);
-        if (user) updateUserData({ habit_ai_advice: habitAIAdvice });
+        // Prevent overwriting remote data during sign-in
+        if (user && !forceNextRemoteOnlyRef?.current && authInitialRemoteAppliedRef.current) {
+          updateUserData({ habit_ai_advice: habitAIAdvice });
+        }
       }, [habitAIAdvice, user, updateUserData]);
       
       // --- AI State Persistence with Firebase Sync ---
       useEffect(() => {
         if (scanResult) {
           localStorage.setItem('scanResult', JSON.stringify(scanResult));
-          if (user) syncAIContent('scanResult', scanResult);
+          // Prevent overwriting remote data during sign-in
+          if (user && !forceNextRemoteOnlyRef?.current && authInitialRemoteAppliedRef.current) {
+            syncAIContent('scanResult', scanResult);
+          }
         }
       }, [scanResult, user, syncAIContent]);
       
       useEffect(() => {
         if (mealPlan) {
           localStorage.setItem('mealPlan', JSON.stringify(mealPlan));
-          if (user) syncAIContent('mealPlan', mealPlan);
+          // Prevent overwriting remote data during sign-in
+          if (user && !forceNextRemoteOnlyRef?.current && authInitialRemoteAppliedRef.current) {
+            syncAIContent('mealPlan', mealPlan);
+          }
         }
       }, [mealPlan, user, syncAIContent]);
       
       useEffect(() => {
         if (workoutPlan) {
           localStorage.setItem('workoutPlan', JSON.stringify(workoutPlan));
-          if (user) syncAIContent('workoutPlan', workoutPlan);
+          // Prevent overwriting remote data during sign-in
+          if (user && !forceNextRemoteOnlyRef?.current && authInitialRemoteAppliedRef.current) {
+            syncAIContent('workoutPlan', workoutPlan);
+          }
         }
       }, [workoutPlan, user, syncAIContent]);
       
       useEffect(() => {
         if (formAnalysis) {
           localStorage.setItem('formAnalysis', JSON.stringify(formAnalysis));
-          if (user) syncAIContent('formAnalysis', formAnalysis);
+          // Prevent overwriting remote data during sign-in
+          if (user && !forceNextRemoteOnlyRef?.current && authInitialRemoteAppliedRef.current) {
+            syncAIContent('formAnalysis', formAnalysis);
+          }
         }
       }, [formAnalysis, user, syncAIContent]);
 
@@ -2945,8 +3021,8 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         };
         setDailyIntake(updatedIntake);
         
-        // Sync to server only after initial remote fetch completes; avoid overwriting on new devices
-        if (user && initialSyncCompletedRef.current && !isRemoteSyncRef.current) {
+        // Sync to server only after initial remote fetch completes AND prevent overwriting remote data
+        if (user && initialSyncCompletedRef.current && !isRemoteSyncRef.current && !forceNextRemoteOnlyRef?.current && authInitialRemoteAppliedRef.current) {
           syncDailyIntake(updatedIntake);
         }
       };
@@ -2958,8 +3034,8 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         };
         setDailyIntake(updatedIntake);
         
-        // Sync to server only after initial remote fetch completes; avoid overwriting on new devices
-        if (user && initialSyncCompletedRef.current && !isRemoteSyncRef.current) {
+        // Sync to server only after initial remote fetch completes AND prevent overwriting remote data
+        if (user && initialSyncCompletedRef.current && !isRemoteSyncRef.current && !forceNextRemoteOnlyRef?.current && authInitialRemoteAppliedRef.current) {
           syncDailyIntake(updatedIntake);
         }
       };
@@ -3293,15 +3369,27 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
     const Profile = ({ isDarkMode, toggleDarkMode, goals, setGoals, setDailyIntake, setRecentMeals, setDailyHistory, setScreen }) => {
       const { user, signOut, updateUserData } = useAuth();
       const [profilePicture, setProfilePicture] = useState(() => {
+        // For signed-in users, start with default and let remote data load via useEffect
+        if (user) {
+          return "https://placehold.co/100x100/EAB543/ffffff?text=User";
+        }
         const saved = localStorage.getItem('profilePicture');
         return saved || "https://placehold.co/100x100/EAB543/ffffff?text=User";
       });
       const [isGeneratingAvatar, setIsGeneratingAvatar] = useState(false);
       const [notificationsEnabled, setNotificationsEnabled] = useState(() => {
+        // For signed-in users, start with default and let remote data load via useEffect
+        if (user) {
+          return true;
+        }
         const saved = localStorage.getItem('notificationsEnabled');
         return saved ? JSON.parse(saved) : true;
       });
       const [backgroundMusicEnabled, setBackgroundMusicEnabled] = useState(() => {
+        // For signed-in users, start with default and let remote data load via useEffect
+        if (user) {
+          return false;
+        }
         const saved = localStorage.getItem('backgroundMusicEnabled');
         return saved ? JSON.parse(saved) : false;
       });
@@ -3344,7 +3432,8 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
 
       // Save profile picture to localStorage whenever it changes (with quota handling)
       useEffect(() => {
-        if (profilePicture) {
+        // Only save to localStorage for non-signed-in users
+        if (profilePicture && !user) {
           try {
             setLocalStorageWithSync('profilePicture', profilePicture);
           } catch (error) {
@@ -3353,28 +3442,39 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
             }
           }
         }
-      }, [profilePicture]);
-
-      // Sync profile picture to Supabase when user is authenticated
-      useEffect(() => {
-        if (user && profilePicture) {
-          updateUserData({ profile_picture: profilePicture });
-        }
       }, [profilePicture, user]);
+
+      // Sync profile picture only on explicit user actions (upload/generate avatar)
+      // Removed automatic syncing effect to prevent overwriting remote data with placeholders
+      // useEffect(() => {
+      //   if (user && profilePicture) {
+      //     updateUserData({ profile_picture: profilePicture });
+      //   }
+      // }, [profilePicture, user]);
 
       // Listen for remote data sync and update profile picture
       useEffect(() => {
-        const handleUserDataSync = () => {
-          const syncedProfilePicture = localStorage.getItem('profilePicture');
-          if (syncedProfilePicture && syncedProfilePicture !== profilePicture) {
-            setProfilePicture(syncedProfilePicture);
-            console.log('✅ Profile picture synced in Profile component');
+        const handleUserDataSync = (event) => {
+          // For signed-in users, only use remote data from the event payload
+          if (user && event?.detail?.userData?.profile_picture) {
+            const remoteProfilePicture = event.detail.userData.profile_picture;
+            if (remoteProfilePicture !== profilePicture) {
+              setProfilePicture(remoteProfilePicture);
+              console.log('✅ Profile picture synced from remote data');
+            }
+          } else if (!user) {
+            // For non-signed-in users, use localStorage as before
+            const syncedProfilePicture = localStorage.getItem('profilePicture');
+            if (syncedProfilePicture && syncedProfilePicture !== profilePicture) {
+              setProfilePicture(syncedProfilePicture);
+              console.log('✅ Profile picture synced from localStorage');
+            }
           }
         };
 
         window.addEventListener('userDataSynced', handleUserDataSync);
         return () => window.removeEventListener('userDataSynced', handleUserDataSync);
-      }, [profilePicture]);
+      }, [profilePicture, user]);
 
       // Listen for remote data sync and update notifications setting
       useEffect(() => {
@@ -3410,15 +3510,15 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         return () => window.removeEventListener('userDataSynced', handleUserDataSync);
       }, [backgroundMusicEnabled]);
 
-      // Load profile picture from localStorage when user logs in
+      // Load profile picture from localStorage only for non-signed-in users
       useEffect(() => {
-        if (user) {
+        if (!user) {
           const savedProfilePicture = localStorage.getItem('profilePicture');
           if (savedProfilePicture && savedProfilePicture !== profilePicture) {
             setProfilePicture(savedProfilePicture);
           }
         }
-      }, [user]);
+      }, [user, profilePicture]);
 
       // Save notifications setting to localStorage
       useEffect(() => {
@@ -3552,6 +3652,11 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
               // Convert to compressed data URL (0.7 quality)
               const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
               setProfilePicture(compressedDataUrl);
+              
+              // Sync to remote if user is signed in
+              if (user) {
+                updateUserData({ profile_picture: compressedDataUrl });
+              }
             };
             img.src = e.target.result;
           };
@@ -4393,6 +4498,11 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
           const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed)}&backgroundColor=b6e3f4,c0aede,d1d4f9,ffd5dc,ffdfbf&hair=${hairColor === 'blonde' ? 'blonde' : hairColor === 'red' ? 'red' : 'brown'}`;
           
           setProfilePicture(avatarUrl);
+          
+          // Sync to remote if user is signed in
+          if (user) {
+            updateUserData({ profile_picture: avatarUrl });
+          }
         } catch (error) {
           console.error('Avatar generation error:', error);
           alert('Failed to generate avatar. Please try again.');
@@ -4900,7 +5010,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
                           // Force sync all current data to Supabase
                           const allLocalData = {
                             goals: JSON.parse(localStorage.getItem('goals') || '{}'),
-                            profile_picture: localStorage.getItem('profilePicture') || '',
+                            // profile_picture intentionally excluded to avoid overwriting remote value during remote-only mode,
                             notifications_enabled: JSON.parse(localStorage.getItem('notificationsEnabled') || 'true'),
                             daily_intake: JSON.parse(localStorage.getItem('dailyIntake') || '{}'),
                             recent_meals: JSON.parse(localStorage.getItem('recentMeals') || '[]'),
@@ -9796,21 +9906,29 @@ User's question: "${userMessage.text}"`;
         return 'shadow-red-500/50';
       };
 
-      // Calculate current streak (includes today's computed score if not archived yet)
+      // Calculate current streak without breaking mid-day: if today's score < 70 or not yet available, start from yesterday
       const calculateStreak = () => {
         const today = new Date();
         let streak = 0;
         let currentDay = new Date(today);
 
+        const todayISO = toLocalISODate(today);
+        let todayScore = dailyHistory[todayISO]?.score;
+        if (todayScore === undefined) {
+          // Compute on the fly if not archived yet
+          const computed = computeHealthScoreForDate(dailyIntake, goals, todayISO).score;
+          todayScore = typeof computed === 'number' ? computed : undefined;
+        }
+
+        // If today's score isn't >= 70, begin counting from yesterday so the streak doesn't drop to 0 mid-day
+        if (!(typeof todayScore === 'number' && todayScore >= 70)) {
+          currentDay.setDate(currentDay.getDate() - 1);
+        }
+
         const oneYearAgo = new Date(today.getTime() - 365 * 24 * 60 * 60 * 1000);
         while (currentDay >= oneYearAgo) {
           const dateString = toLocalISODate(currentDay);
           let dayScore = dailyHistory[dateString]?.score;
-
-          // If the loop is on today and no archive exists, compute on the fly
-          if (dayScore === undefined && dateString === toLocalISODate(today)) {
-            dayScore = computeHealthScoreForDate(dailyIntake, goals, dateString).score;
-          }
 
           if (typeof dayScore === 'number' && dayScore >= 70) {
             streak++;
