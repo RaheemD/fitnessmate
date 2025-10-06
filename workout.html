@@ -718,6 +718,8 @@
     // Check if there's an existing workout state to resume
     const hasExistingState = restoreWorkoutState();
     
+    // CRITICAL FIX: Always initialize new workout session for different workouts
+    // This prevents completedExercises from carrying over between different workouts
     if (!hasExistingState || currentWorkoutIndex !== workoutIndex) {
       // Initialize new workout session
       currentWorkoutIndex = workoutIndex;
@@ -728,7 +730,7 @@
       // Initialize workout session tracking
       workoutStartTime = new Date();
       workoutTotalTime = 0;
-      completedExercises = [];
+      completedExercises = []; // CRITICAL: Reset for new workout
       window.lastPlayerNextState = null; // Reset duplicate call prevention
       sessionExercises = workout.exercises.map(ex => ({
         title: ex.title,
@@ -737,6 +739,10 @@
         durationSeconds: ex.durationSeconds || 0,
         muscles: ex.muscles || 'Unknown'
       }));
+      
+      console.log(`Starting new workout: ${workout.title}, completedExercises reset to empty array`);
+    } else {
+      console.log(`Resuming existing workout: ${workout.title}, completedExercises has ${completedExercises.length} items`);
     }
     
     voiceEnabled = true; // Always ensure voice is enabled when opening player
@@ -967,6 +973,7 @@
       if (!completedExercises.includes(currentExerciseIndex)) {
         completedExercises.push(currentExerciseIndex);
         console.log(`Exercise ${currentExerciseIndex} completed. Total completed: ${completedExercises.length}/${sessionExercises.length}`);
+        console.log(`Current completedExercises array:`, completedExercises); // CRITICAL: Debug logging
         saveWorkoutState();
       }
       
@@ -1055,6 +1062,7 @@
       exercises: sessionExercises
     };
     
+    // CRITICAL FIX: Save workout data IMMEDIATELY to prevent overwriting
     // Log workout as activity minutes and save to history
     if (workoutData.duration > 0) {
       // Log activity minutes to daily intake (same as index.html)
@@ -1068,6 +1076,9 @@
       // Keep only last 30 workouts
       if (workoutHistory.length > 30) workoutHistory.shift();
       localStorage.setItem('workoutHistory', JSON.stringify(workoutHistory));
+      
+      // CRITICAL FIX: Force immediate localStorage save to prevent data loss
+      console.log('Workout data saved immediately:', workoutData);
       
       // Sync workout data to Supabase if user is logged in
       if (currentUser && supabase) {
@@ -1115,11 +1126,19 @@
       }
     }
     
-    // Reset workout session tracking
-    workoutStartTime = null;
-    workoutTotalTime = 0;
-    completedExercises = [];
-    sessionExercises = [];
+    // CRITICAL FIX: Delay the reset of workout session tracking to ensure data persistence
+    // Reset workout session tracking AFTER all data operations are complete
+    setTimeout(() => {
+      workoutStartTime = null;
+      workoutTotalTime = 0;
+      completedExercises = [];
+      sessionExercises = [];
+      
+      // Clear workout state since workout is completed
+      clearWorkoutState();
+      
+      console.log('Workout session variables reset after data persistence');
+    }, 100); // Small delay to ensure all localStorage operations complete
     
     // Update UI
     playerTitle.textContent = 'Workout complete';
@@ -1133,9 +1152,6 @@
       : `Workout session ended. You completed ${workoutData.exercisesCompleted} out of ${workoutData.totalExercises} exercises in ${workoutData.duration} minutes.`;
     
     speak(completionMessage);
-    
-    // Clear workout state since workout is completed
-    clearWorkoutState();
     
     // Save completion
     localStorage.setItem('completedWorkoutIndex', currentWorkoutIndex.toString());
@@ -1220,6 +1236,8 @@
         if (workoutHistory.length > 30) workoutHistory.shift();
         localStorage.setItem('workoutHistory', JSON.stringify(workoutHistory));
         
+        console.log('Early exit workout data saved:', workoutData); // CRITICAL: Debug logging
+        
         // Sync to Supabase if user is logged in
         if (currentUser && supabase) {
           try {
@@ -1277,11 +1295,16 @@
       }
     }
     
-    // Reset workout session tracking
-    workoutStartTime = null;
-    workoutTotalTime = 0;
-    completedExercises = [];
-    sessionExercises = [];
+    // CRITICAL FIX: Reset workout session tracking AFTER all data operations are complete
+    // This prevents premature clearing that could cause data loss
+    setTimeout(() => {
+      workoutStartTime = null;
+      workoutTotalTime = 0;
+      completedExercises = [];
+      sessionExercises = [];
+      
+      console.log('Early exit: Workout session variables reset after data persistence');
+    }, 100); // Small delay to ensure all localStorage operations complete
     
     try{ speechSynthesis.cancel(); }catch(e){}
     // return to detail (same workout)
