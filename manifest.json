@@ -4,14 +4,19 @@
   "description": "Your personal fitness companion with guided workouts and exercise tracking.",
   "start_url": "/index.html",
   "scope": "/",
-  "display": "fullscreen",
-  "background_color": "#ffffff",
-  "theme_color": "#111827",
+  "display": "standalone",
   "orientation": "portrait-primary",
   "dir": "ltr",
   "lang": "en",
 
-  "categories": ["health", "fitness", "lifestyle"],
+  "background_color": "#000000",
+  "theme_color": "#000000",
+
+  "categories": [
+    "health",
+    "fitness",
+    "lifestyle"
+  ],
 
   "icons": [
     {
@@ -44,7 +49,10 @@
     }
   ],
 
-  "permissions": ["microphone", "audio-capture"],
+  "permissions": [
+    "microphone",
+    "audio-capture"
+  ],
 
   "screenshots": [
     {
@@ -56,5 +64,12 @@
   ],
 
   "prefer_related_applications": false,
-  "related_applications": []
+  "related_applications": [],
+
+  "display_override": ["standalone", "fullscreen", "minimal-ui", "browser"],
+  
+  "theme_color_scheme": {
+    "light": "#ffffff",
+    "dark": "#000000"
+  }
 }
