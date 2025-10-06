@@ -1,17 +1,17 @@
-# ✅ netlify.toml (Final Correct Version)
+# ✅ Final working netlify.toml
 
 [build]
   publish = "."
   command = ""
 
-# Redirect .well-known to your visible folder
+# Redirect .well-known requests to visible folder
 [[redirects]]
   from = "/.well-known/*"
   to = "/well-known/:splat"
   status = 200
   force = true
 
-# ✅ Ensure proper content-type for Android verification
+# Make sure Android sees JSON instead of HTML
 [[headers]]
   for = "/.well-known/assetlinks.json"
   [headers.values]
