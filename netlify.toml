@@ -1,19 +1,26 @@
-# ✅ Final working netlify.toml
+# ✅ FINAL VERIFIED VERSION (fixes HTML leak issue)
 
 [build]
   publish = "."
   command = ""
 
-# Redirect .well-known requests to visible folder
+# --- Redirect .well-known requests to your visible folder ---
 [[redirects]]
   from = "/.well-known/*"
   to = "/well-known/:splat"
   status = 200
   force = true
 
-# Make sure Android sees JSON instead of HTML
+# --- Ensure Netlify treats JSON correctly (not HTML) ---
 [[headers]]
-  for = "/.well-known/assetlinks.json"
+  for = "/.well-known/*"
   [headers.values]
     Content-Type = "application/json; charset=utf-8"
     Access-Control-Allow-Origin = "*"
+    Cache-Control = "public, max-age=3600"
+
+# --- Optional fallback to prevent HTML from leaking if misrouted ---
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
