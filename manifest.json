@@ -2,7 +2,7 @@
   "name": "FitnessMate - Workout Hub",
   "short_name": "FitnessMate",
   "description": "Your personal fitness companion with guided workouts and exercise tracking",
-  "start_url": "/",
+  "start_url": "/index.html",
   "display": "standalone",
   "background_color": "#111827",
   "theme_color": "#ec4899",
@@ -16,13 +16,13 @@
   ],
   "icons": [
     {
-      "src": "data:image/svg+xml,&amp;lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'&amp;gt;&amp;lt;rect width='192' height='192' fill='%23ec4899' rx='24'/&amp;gt;&amp;lt;text x='96' y='130' text-anchor='middle' fill='white' font-family='Arial, sans-serif' font-weight='bold' font-size='100'&amp;gt;F&amp;lt;/text&amp;gt;&amp;lt;/svg&amp;gt;",
+      "src": "data:image/svg+xml,&amp;amp;lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'&amp;amp;gt;&amp;amp;lt;rect width='192' height='192' fill='%23ec4899' rx='24'/&amp;amp;gt;&amp;amp;lt;text x='96' y='130' text-anchor='middle' fill='white' font-family='Arial, sans-serif' font-weight='bold' font-size='100'&amp;amp;gt;F&amp;amp;lt;/text&amp;amp;gt;&amp;amp;lt;/svg&amp;amp;gt;",
       "sizes": "192x192",
       "type": "image/svg+xml",
       "purpose": "any maskable"
     },
     {
-      "src": "data:image/svg+xml,&amp;lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'&amp;gt;&amp;lt;rect width='512' height='512' fill='%23ec4899' rx='64'/&amp;gt;&amp;lt;text x='256' y='350' text-anchor='middle' fill='white' font-family='Arial, sans-serif' font-weight='bold' font-size='280'&amp;gt;F&amp;lt;/text&amp;gt;&amp;lt;/svg&amp;gt;",
+      "src": "data:image/svg+xml,&amp;amp;lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'&amp;amp;gt;&amp;amp;lt;rect width='512' height='512' fill='%23ec4899' rx='64'/&amp;amp;gt;&amp;amp;lt;text x='256' y='350' text-anchor='middle' fill='white' font-family='Arial, sans-serif' font-weight='bold' font-size='280'&amp;amp;gt;F&amp;amp;lt;/text&amp;amp;gt;&amp;amp;lt;/svg&amp;amp;gt;",
       "sizes": "512x512",
       "type": "image/svg+xml",
       "purpose": "any maskable"
@@ -36,7 +36,7 @@
       "url": "/workout.html",
       "icons": [
         {
-          "src": "data:image/svg+xml,&amp;lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'&amp;gt;&amp;lt;rect width='96' height='96' fill='%2310b981' rx='12'/&amp;gt;&amp;lt;text x='48' y='65' text-anchor='middle' fill='white' font-family='Arial, sans-serif' font-weight='bold' font-size='50'&amp;gt;🏃&amp;lt;/text&amp;gt;&amp;lt;/svg&amp;gt;",
+          "src": "data:image/svg+xml,&amp;amp;lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'&amp;amp;gt;&amp;amp;lt;rect width='96' height='96' fill='%2310b981' rx='12'/&amp;amp;gt;&amp;amp;lt;text x='48' y='65' text-anchor='middle' fill='white' font-family='Arial, sans-serif' font-weight='bold' font-size='50'&amp;amp;gt;🏃&amp;amp;lt;/text&amp;amp;gt;&amp;amp;lt;/svg&amp;amp;gt;",
           "sizes": "96x96",
           "type": "image/svg+xml"
         }
@@ -50,10 +50,11 @@
   "prefer_related_applications": false,
   "screenshots": [
     {
-      "src": "data:image/svg+xml,&amp;lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 390 844'&amp;gt;&amp;lt;rect width='390' height='844' fill='%23f9fafb'/&amp;gt;&amp;lt;rect x='20' y='60' width='350' height='200' fill='%23ec4899' rx='16'/&amp;gt;&amp;lt;text x='195' y='140' text-anchor='middle' fill='white' font-family='Arial, sans-serif' font-weight='bold' font-size='24'&amp;gt;FitnessMate&amp;lt;/text&amp;gt;&amp;lt;text x='195' y='170' text-anchor='middle' fill='white' font-family='Arial, sans-serif' font-size='16'&amp;gt;Your Workout Companion&amp;lt;/text&amp;gt;&amp;lt;/svg&amp;gt;",
+      "src": "data:image/svg+xml,&amp;amp;lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 390 844'&amp;amp;gt;&amp;amp;lt;rect width='390' height='844' fill='%23f9fafb'/&amp;amp;gt;&amp;amp;lt;rect x='20' y='60' width='350' height='200' fill='%23ec4899' rx='16'/&amp;amp;gt;&amp;amp;lt;text x='195' y='140' text-anchor='middle' fill='white' font-family='Arial, sans-serif' font-weight='bold' font-size='24'&amp;amp;gt;FitnessMate&amp;amp;lt;/text&amp;amp;gt;&amp;amp;lt;text x='195' y='170' text-anchor='middle' fill='white' font-family='Arial, sans-serif' font-size='16'&amp;amp;gt;Your Workout Companion&amp;amp;lt;/text&amp;amp;gt;&amp;amp;lt;/svg&amp;amp;gt;",
       "sizes": "390x844",
       "type": "image/svg+xml",
       "form_factor": "narrow"
     }
-  ]
+  ],
+  "dir": "ltr"
 }
