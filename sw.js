@@ -37,9 +37,20 @@ self.addEventListener('fetch', event => {
     event.respondWith(
       fetch(req)
         .then(res => {
-          // Put a copy in cache for offline fallback
-          const copy = res.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(req, copy));
+          // Put a copy in cache for offline fallback — only cache full 200 responses
+          try {
+            if (
+              req.method === 'GET' &&
+              !req.headers.get('range') &&
+              res && res.ok && res.status === 200 &&
+              (res.type === 'basic' || res.type === 'cors')
+            ) {
+              const copy = res.clone();
+              caches.open(CACHE_NAME).then(cache => cache.put(req, copy)).catch(() => {});
+            }
+          } catch (_) {
+            // Ignore caching errors (e.g., 206 partial content)
+          }
           return res;
         })
         .catch(() =>
@@ -53,10 +64,20 @@ self.addEventListener('fetch', event => {
   if (url.origin === location.origin) {
     event.respondWith(
       caches.match(req).then(cached => cached || fetch(req).then(res => {
-        // optionally cache fetched static files
-        if (req.method === 'GET' && req.destination !== 'document') {
-          const copy = res.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(req, copy));
+        // optionally cache fetched static files — only cache full 200 responses, skip Range
+        try {
+          if (
+            req.method === 'GET' &&
+            req.destination !== 'document' &&
+            !req.headers.get('range') &&
+            res && res.ok && res.status === 200 &&
+            (res.type === 'basic' || res.type === 'cors')
+          ) {
+            const copy = res.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(req, copy)).catch(() => {});
+          }
+        } catch (_) {
+          // Ignore caching errors
         }
         return res;
       }).catch(() => cached))
