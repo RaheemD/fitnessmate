@@ -1,26 +1,12 @@
-# ✅ FINAL VERIFIED VERSION (fixes HTML leak issue)
-
 [build]
-  publish = "."
-  command = ""
+  publish = "/"
 
-# --- Redirect .well-known requests to your visible folder ---
+[[edge_functions]]
+  function = "myapi"
+  path = "/api/myapi"
+
 [[redirects]]
-  from = "/.well-known/*"
-  to = "/well-known/:splat"
+  from = "/.netlify/functions/myapi"
+  to = "/api/myapi"
   status = 200
   force = true
-
-# --- Ensure Netlify treats JSON correctly (not HTML) ---
-[[headers]]
-  for = "/.well-known/*"
-  [headers.values]
-    Content-Type = "application/json; charset=utf-8"
-    Access-Control-Allow-Origin = "*"
-    Cache-Control = "public, max-age=3600"
-
-# --- Optional fallback to prevent HTML from leaking if misrouted ---
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
