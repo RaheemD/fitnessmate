@@ -47,33 +47,12 @@
     <script>
       // Dark mode detection - must run before body renders
       // Sync with index.html dark mode settings
-      (function() {
-        const applyTheme = () => {
-          const isDarkMode = localStorage.getItem('fitmate-dark-mode') === 'true';
-          if (isDarkMode) {
-            document.documentElement.classList.add('dark');
-          } else {
-            document.documentElement.classList.remove('dark');
-          }
-        };
-        
-        // Apply theme immediately
-        applyTheme();
-        
-        // Listen for storage changes from parent window to update theme dynamically
-        window.addEventListener('storage', (e) => {
-          if (e.key === 'fitmate-dark-mode') {
-            applyTheme();
-          }
-        });
-        
-        // Also listen for direct messages from parent (for same-origin communication)
-        window.addEventListener('message', (e) => {
-          if (e.data && e.data.type === 'theme-change') {
-            applyTheme();
-          }
-        });
-      })();
+      const isDarkMode = localStorage.getItem('fitmate-dark-mode') === 'true';
+      if (isDarkMode) {
+        document.documentElement.classList.add('dark')
+      } else {
+        document.documentElement.classList.remove('dark')
+      }
     </script>
   </head>
 <body class="bottom-safe bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white">
