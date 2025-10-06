@@ -1,87 +1,47 @@
-// Simple, safe Service Worker for FitnessMate
-const CACHE_NAME = 'fitnessmate-static-v1';
-const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/icon-192.png',
-  '/icon-512.png',
-  '/sw.js'
-];
+// This is the "Offline page" service worker
 
-// Install - cache essential static files
-self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(STATIC_ASSETS))
-  );
-  self.skipWaiting();
-});
+importScripts('https://storage.googleapis.com/workbox-cdn/releases/5.1.2/workbox-sw.js');
 
-// Activate - clean up old caches
-self.addEventListener('activate', event => {
-  event.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.map(k => (k !== CACHE_NAME ? caches.delete(k) : null)))
-    )
-  );
-  self.clients.claim();
-});
+const CACHE = "pwabuilder-page";
 
-// Helper: network-first for HTML navigation & API; cache-first for static assets
-self.addEventListener('fetch', event => {
-  const req = event.request;
-  const url = new URL(req.url);
+// TODO: replace the following with the correct offline fallback page i.e.: const offlineFallbackPage = "offline.html";
+const offlineFallbackPage = "ToDo-replace-this-name.html";
 
-  // Network-first for navigation (single page app) and for requests to /api/
-  if (req.mode === 'navigate' || req.headers.get('accept')?.includes('text/html') || url.pathname.startsWith('/api/')) {
-    event.respondWith(
-      fetch(req)
-        .then(res => {
-          // Put a copy in cache for offline fallback — only cache full 200 responses
-          try {
-            if (
-              req.method === 'GET' &&
-              !req.headers.get('range') &&
-              res && res.ok && res.status === 200 &&
-              (res.type === 'basic' || res.type === 'cors')
-            ) {
-              const copy = res.clone();
-              caches.open(CACHE_NAME).then(cache => cache.put(req, copy)).catch(() => {});
-            }
-          } catch (_) {
-            // Ignore caching errors (e.g., 206 partial content)
-          }
-          return res;
-        })
-        .catch(() =>
-          caches.match(req).then(found => found || caches.match('/index.html'))
-        )
-    );
-    return;
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
   }
+});
 
-  // For other same-origin requests: try cache then network
-  if (url.origin === location.origin) {
-    event.respondWith(
-      caches.match(req).then(cached => cached || fetch(req).then(res => {
-        // optionally cache fetched static files — only cache full 200 responses, skip Range
-        try {
-          if (
-            req.method === 'GET' &&
-            req.destination !== 'document' &&
-            !req.headers.get('range') &&
-            res && res.ok && res.status === 200 &&
-            (res.type === 'basic' || res.type === 'cors')
-          ) {
-            const copy = res.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put(req, copy)).catch(() => {});
-          }
-        } catch (_) {
-          // Ignore caching errors
+self.addEventListener('install', async (event) => {
+  event.waitUntil(
+    caches.open(CACHE)
+      .then((cache) => cache.add(offlineFallbackPage))
+  );
+});
+
+if (workbox.navigationPreload.isSupported()) {
+  workbox.navigationPreload.enable();
+}
+
+self.addEventListener('fetch', (event) => {
+  if (event.request.mode === 'navigate') {
+    event.respondWith((async () => {
+      try {
+        const preloadResp = await event.preloadResponse;
+
+        if (preloadResp) {
+          return preloadResp;
         }
-        return res;
-      }).catch(() => cached))
-    );
+
+        const networkResp = await fetch(event.request);
+        return networkResp;
+      } catch (error) {
+
+        const cache = await caches.open(CACHE);
+        const cachedResp = await cache.match(offlineFallbackPage);
+        return cachedResp;
+      }
+    })());
   }
-  // Let cross-origin requests go to network (no interference)
 });
