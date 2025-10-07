@@ -1,16 +1,17 @@
-# netlify.toml — place at repo root (replace any existing netlify.toml)
+# netlify.toml — clean working version for Supabase + PWA
+
 [build]
   publish = "."
   command = ""
 
-# Redirect requests for /.well-known/* to the visible /well-known/:splat folder
+# 1. Redirect .well-known (for Android Asset Links)
 [[redirects]]
   from = "/.well-known/*"
   to = "/well-known/:splat"
   status = 200
   force = true
 
-# Ensure assetlinks.json is served as JSON and CORS-friendly for Android verification
+# 2. Serve assetlinks.json correctly (for Android verification)
 [[headers]]
   for = "/.well-known/assetlinks.json"
   [headers.values]
@@ -18,8 +19,16 @@
     Access-Control-Allow-Origin = "*"
     Cache-Control = "public, max-age=3600"
 
-# Extra safety: serve any /.well-known requests as application/json when present
+# 3. Allow CORS for all API calls (important for Supabase)
 [[headers]]
-  for = "/.well-known/*"
+  for = "/*"
   [headers.values]
     Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
+    Access-Control-Allow-Headers = "Origin, Content-Type, Authorization"
+
+# 4. Keep client-side routing working (for index.html + workout.html)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
