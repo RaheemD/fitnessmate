@@ -1,12 +1,25 @@
+# netlify.toml — place at repo root (replace any existing netlify.toml)
 [build]
-  publish = "/"
+  publish = "."
+  command = ""
 
-[[edge_functions]]
-  function = "myapi"
-  path = "/api/myapi"
-
+# Redirect requests for /.well-known/* to the visible /well-known/:splat folder
 [[redirects]]
-  from = "/.netlify/functions/myapi"
-  to = "/api/myapi"
+  from = "/.well-known/*"
+  to = "/well-known/:splat"
   status = 200
   force = true
+
+# Ensure assetlinks.json is served as JSON and CORS-friendly for Android verification
+[[headers]]
+  for = "/.well-known/assetlinks.json"
+  [headers.values]
+    Content-Type = "application/json; charset=utf-8"
+    Access-Control-Allow-Origin = "*"
+    Cache-Control = "public, max-age=3600"
+
+# Extra safety: serve any /.well-known requests as application/json when present
+[[headers]]
+  for = "/.well-known/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
