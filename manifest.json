@@ -9,12 +9,12 @@
   "dir": "ltr",
   "lang": "en",
 
-  "background_color": "#ffffff",
-  "theme_color": "#ec4899",
+ "background_color": "#2563EB",
+ "theme_color": "#2563EB",
 
   "theme_color_scheme": {
-    "light": "#ffffff",
-    "dark": "#000000"
+    "light": "#2563EB",
+    "dark": "#2563EB"
   },
 
   "display_override": ["standalone", "fullscreen", "minimal-ui", "browser"],
@@ -52,3 +52,4 @@
   "prefer_related_applications": false,
   "related_applications": []
 }
+
