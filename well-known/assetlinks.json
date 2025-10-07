@@ -1,10 +1,10 @@
-{
-  "relation": ["delegate_permission/common.handle_all_urls"],
-  "target": {
-    "namespace": "android_app",
-    "package_name": "app.netlify.fitnessmate.twa",
-    "sha256_cert_fingerprints": [
-      "3B:4C:F0:4C:35:24:13:5D:E0:5B:A6:27:3B:CF:2F:B3:7B:FD:B5:A0:EC:F9:A7:54:8A:A5:0C:86:5A:96:A6:24"
-    ]
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "xyz.appmaker.qbqkoi",
+      "sha256_cert_fingerprints": ["02:2D:A3:27:4A:E3:FF:9A:14:41:C5:03:9B:8E:26:F7:6A:F5:B7:C6:08:71:06:FB:AA:EE:F1:83:B2:09:40:B7"]
+    }
   }
-}
+]
