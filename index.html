@@ -11336,5 +11336,87 @@ ${habits.map(habit => {
       });
     }
   </script>
+  
+  <!-- ✅ Animated Install FitnessMate App Banner -->
+  <style>
+    #installBanner {
+      position: fixed;
+      bottom: -100px;
+      left: 0;
+      right: 0;
+      background: #2563EB;
+      color: white;
+      text-align: center;
+      padding: 14px;
+      font-family: system-ui, sans-serif;
+      font-size: 15px;
+      z-index: 9999;
+      box-shadow: 0 -2px 8px rgba(0,0,0,0.3);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 10px;
+      transition: bottom 0.4s ease;
+    }
+    #installBanner.show { bottom: 0; }
+    #installBanner button {
+      background: white;
+      color: #2563EB;
+      border: none;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #closeBanner {
+      background: transparent;
+      border: none;
+      color: white;
+      font-size: 20px;
+      line-height: 1;
+      cursor: pointer;
+      position: absolute;
+      right: 12px;
+      top: 8px;
+    }
+  </style>
+  
+  <div id="installBanner">
+    💪 Install <b>FitnessMate</b> for faster access!
+    <button id="installBtn">Install</button>
+    <button id="closeBanner">×</button>
+  </div>
+  
+  <script>
+    let deferredPrompt;
+    const banner = document.getElementById('installBanner');
+    const installBtn = document.getElementById('installBtn');
+    const closeBanner = document.getElementById('closeBanner');
+  
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      banner.classList.add('show');
+    });
+  
+    installBtn.addEventListener('click', async () => {
+      banner.classList.remove('show');
+      if (deferredPrompt) {
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        deferredPrompt = null;
+        console.log('User response:', outcome);
+      }
+    });
+  
+    closeBanner.addEventListener('click', () => {
+      banner.classList.remove('show');
+    });
+  
+    window.addEventListener('appinstalled', () => {
+      banner.classList.remove('show');
+      console.log('PWA installed');
+    });
+  </script>
 </body>
 </html>
