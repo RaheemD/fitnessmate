@@ -7,10 +7,16 @@
 
   <!-- Tailwind CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/@lottiefiles/lottie-player@latest/dist/lottie-player.js"></script>
+  <script src="https://unpkg.com/@lottiefiles/lottie-player@latest/dist/lottie-player.js" defer></script>
   
   <!-- Supabase SDK -->
-  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script src="https://unpkg.com/@supabase/supabase-js@2" defer></script>
+  
+  <!-- Performance hints -->
+  <link rel="preconnect" href="https://unpkg.com">
+  <link rel="dns-prefetch" href="https://unpkg.com">
+  <link rel="preconnect" href="https://bhtabgrcxaahkuwrdwec.supabase.co" crossorigin>
+  <link rel="dns-prefetch" href="https://bhtabgrcxaahkuwrdwec.supabase.co">
   <script>
     tailwind.config = {
       darkMode: 'class'
@@ -18,16 +24,24 @@
   </script>
 
   <style>
-    :root{ --bg:#f9fafb; --bg-dark:#111827; --card:#ffffff; --card-dark:#1f2937; --muted:#9ca3af; --accent:#ec4899; }
+    :root{ --bg:#f9fafb; --bg-dark:#111827; --card:#ffffff; --card-dark:#1f2937; --muted:#9ca3af; --accent:#ec4899; --bottom-nav:80px; }
     html,body{ height:100%; color:#111827; font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto; -webkit-font-smoothing:antialiased;}
     .dark html,.dark body{ color:#f9fafb; }
     .hero-pattern {
       background-image:
-        linear-gradient(180deg, rgba(236,72,153,0.1), rgba(59,130,246,0.1)),
-        url('data:image/svg+xml;utf8,\
-        <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700">\
-        <defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="%23ec4899" stop-opacity="0.3"/><stop offset="1" stop-color="%233b82f6" stop-opacity="0.3"/></linearGradient></defs>\
-        <rect width="100%" height="100%" fill="url(%23g)"/><g opacity="0.03" fill="%23000"><circle cx="220" cy="200" r="180"/><circle cx="900" cy="150" r="260"/><circle cx="600" cy="500" r="300"/></g></svg>');
+        url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700"><rect width="100%" height="100%" fill="%23f9fafb"/><g opacity="0.9"><circle cx="220" cy="200" r="180" fill="%23ec4899"/><circle cx="900" cy="150" r="260" fill="%233b82f6"/><circle cx="600" cy="500" r="300" fill="%2310b981"/></g></svg>'),
+        radial-gradient(1200px 600px at -10% 0%, rgba(236,72,153,0.3), transparent 60%),
+        radial-gradient(900px 500px at 110% 20%, rgba(59,130,246,0.25), transparent 60%),
+        radial-gradient(900px 500px at 50% 120%, rgba(16,185,129,0.2), transparent 60%);
+      background-size: cover;
+      background-position: center;
+    }
+    .dark .hero-pattern {
+      background-image:
+        url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700"><rect width="100%" height="100%" fill="%23111827"/><g opacity="0.2"><circle cx="220" cy="200" r="180" fill="%23ec4899"/><circle cx="900" cy="150" r="260" fill="%233b82f6"/><circle cx="600" cy="500" r="300" fill="%2310b981"/></g></svg>'),
+        radial-gradient(1100px 600px at -10% 0%, rgba(139,92,246,0.14), transparent 60%),
+        radial-gradient(900px 500px at 110% 20%, rgba(59,130,246,0.12), transparent 60%),
+        linear-gradient(180deg, rgba(17,24,39,0.75), rgba(17,24,39,0.75));
       background-size: cover;
       background-position: center;
     }
@@ -35,13 +49,22 @@
     .dark .card-stats { background: linear-gradient(180deg, rgba(31,41,55,0.9), rgba(31,41,55,0.95)); }
     .hidden-view { display:none; }
     .active-view { display:block; }
-    .big-circle { width:180px;height:180px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:2.4rem;background: radial-gradient(circle at 30% 30%, #10b981, #059669);box-shadow:0 6px 18px rgba(0,0,0,0.1); }
+    .big-circle { width:120px;height:120px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:2rem;background: radial-gradient(circle at 30% 30%, #10b981, #059669);box-shadow:0 6px 18px rgba(0,0,0,0.1); }
     .dark .big-circle { box-shadow:0 6px 18px rgba(0,0,0,0.6); }
     .progress-track { height:6px; background: rgba(156,163,175,0.3); border-radius:99px; overflow:hidden; }
     .progress-fill { height:100%; background: linear-gradient(90deg,#ec4899,#3b82f6); width:0%; transition:width .25s linear; }
-    .player-overlay { min-height:100vh; }
+    .player-overlay { height:calc(100vh - var(--bottom-nav) - env(safe-area-inset-bottom)); overflow:hidden; }
+    .player-overlay.active-view { display:grid; grid-template-rows: auto auto 1fr auto; }
+    .hero-box { background: linear-gradient(180deg, rgba(255,255,255,0.7), rgba(255,255,255,0.8)); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.45); }
+    .dark .hero-box { background: linear-gradient(180deg, rgba(31,41,55,0.6), rgba(31,41,55,0.7)); border: 1px solid rgba(255,255,255,0.08); }
+    /* Ensure the animation elements never show a solid background; smooth crossfade */
+    #player-lottie, #player-animation { transition: opacity 250ms ease-in-out; background: transparent !important; }
+    .hero-box .w-28.h-28 { background: transparent !important; }
     .chip:focus { outline: 2px solid rgba(236,72,153,0.18); outline-offset: 2px; }
     .bottom-safe { padding-bottom: env(safe-area-inset-bottom); }
+    body.player-active { overflow:hidden; }
+    body.player-active.bottom-safe { padding-bottom:0 !important; }
+    #app.player-active { padding-top:0 !important; padding-bottom:0 !important; height:100vh; min-height:100vh; overflow:hidden; }
     @media (min-width:1024px){ .page-title { font-size:3rem; } .card-title{ font-size:1.5rem; } }
   </style>
     <script>
@@ -65,7 +88,7 @@
   </head>
 <body class="bottom-safe bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white">
   <!-- Background Music Audio Element -->
-  <audio id="background-music" loop preload="auto">
+  <audio id="background-music" loop preload="none">
     <source src="./Gym.mp3" type="audio/mpeg">
     Your browser does not support the audio element.
   </audio>
@@ -120,8 +143,8 @@
     </section>
 
     <!-- VIEW: Player -->
-    <section id="view-player" class="hidden-view player-overlay bg-gray-50 dark:bg-gray-900">
-      <div class="px-4 pt-6 pb-3">
+    <section id="view-player" class="hidden-view player-overlay hero-pattern">
+      <div class="px-4 pt-3 pb-2">
         <div class="flex items-center gap-3">
           <button id="player-close" class="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white" title="Close workout">
             <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
@@ -151,7 +174,7 @@
       </div>
 
       <!-- Tip/Disclaimer -->
-      <div class="mx-4 mb-4 px-4 py-3 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg">
+      <div class="mx-4 mb-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg hidden sm:block">
         <div class="flex items-start gap-3">
           <div class="flex-shrink-0 mt-0.5">
             <svg class="w-4 h-4 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
@@ -164,38 +187,39 @@
         </div>
       </div>
 
-      <div class="flex-1 flex flex-col items-center px-6 pt-6 pb-8 overflow-auto">
+      <div class="flex-1 flex flex-col items-center px-4 pt-2 pb-2 min-h-0">
         <div class="inline-block bg-transparent"><span class="text-xs font-semibold px-4 py-2 rounded-full bg-green-500 text-black">EXERCISE</span></div>
 
-        <h2 id="player-title" class="text-3xl font-extrabold mt-4 text-center text-gray-900 dark:text-white">Jumping Jacks</h2>
+        <h2 id="player-title" class="text-2xl font-extrabold mt-3 text-center text-gray-900 dark:text-white">Jumping Jacks</h2>
         <p id="player-set-info" class="text-gray-600 dark:text-gray-300 mt-1">Set 1 of 3</p>
 
-        <div class="mt-6 w-full max-w-md hero-box rounded-2xl p-8 flex flex-col items-center justify-center">
-          <div class="w-40 h-40 flex items-center justify-center rounded-lg bg-[#111111] overflow-hidden">
-            <video id="player-animation" class="w-full h-full object-cover rounded-lg" autoplay loop muted style="display:none;">
+        <div class="mt-3 w-full max-w-sm hero-box rounded-2xl p-3 flex flex-col items-center justify-center">
+          <div class="w-28 h-28 flex items-center justify-center rounded-lg bg-transparent overflow-hidden transition-colors">
+            <lottie-player id="player-lottie" background="transparent" style="width:100%;height:100%;display:none" speed="1" loop autoplay></lottie-player>
+            <video id="player-animation" class="w-full h-full object-cover rounded-lg" autoplay loop muted playsinline preload="none" style="display:none;">
               <source src="" type="video/mp4">
             </video>
-            <div id="player-animation-fallback" class="text-center text-gray-300">
-              <div style="font-size:44px">🏋️</div>
-              <div class="mt-3 text-sm">Exercise Animation</div>
+            <div id="player-animation-fallback" class="text-center text-gray-600 dark:text-gray-300">
+              <div style="font-size:36px">🏋️</div>
+              <div class="mt-2 text-xs">Exercise Animation</div>
             </div>
           </div>
         </div>
 
-        <div class="mt-8 flex flex-col items-center">
+        <div class="mt-4 flex flex-col items-center">
           <div id="player-timer" class="big-circle">00:24</div>
-          <div id="player-reps" class="text-gray-600 dark:text-gray-300 mt-4">20 repetitions</div>
+          <div id="player-reps" class="text-gray-600 dark:text-gray-300 mt-3">20 repetitions</div>
         </div>
       </div>
 
-      <div class="px-6 pb-8 pt-2">
+      <div class="px-4 pt-1" style="padding-bottom: calc(env(safe-area-inset-bottom));">
         <div class="flex items-center justify-between">
           <button id="player-skip" class="flex items-center gap-2 text-gray-600 dark:text-gray-300">
             <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 4v16l11-8zM19 5v14" stroke-linecap="round" stroke-linejoin="round"/></svg>
             <span class="text-sm">Skip</span>
           </button>
 
-          <button id="player-pause" class="mx-4 w-20 h-20 rounded-2xl bg-pink-500 flex items-center justify-center text-white text-2xl shadow-lg">
+          <button id="player-pause" class="mx-4 w-16 h-16 rounded-2xl bg-pink-500 flex items-center justify-center text-white text-xl shadow-lg">
             ||
           </button>
 
@@ -544,7 +568,7 @@
       art.innerHTML = `
         <div class="hero-pattern h-44 md:h-52 rounded-2xl relative">
           <div class="absolute inset-0 flex items-start px-5 pt-5">
-            <span class="text-2xl md:text-3xl font-extrabold text-white">${w.title}</span>
+            <span class="text-2xl md:text-3xl font-extrabold text-gray-900 dark:text-white">${w.title}</span>
             <div class="ml-auto">
               <span class="inline-block text-xs font-semibold uppercase px-3 py-1 rounded-full ${w.difficulty==='beginner' ? 'bg-green-500 text-black' : w.difficulty==='intermediate' ? 'bg-pink-500 text-white' : 'bg-red-500 text-white'}">${w.difficulty.charAt(0).toUpperCase() + w.difficulty.slice(1)}</span>
             </div>
@@ -578,8 +602,14 @@
     viewList.classList.add('hidden-view'); viewList.classList.remove('active-view');
     viewDetail.classList.add('hidden-view'); viewDetail.classList.remove('active-view');
     viewPlayer.classList.add('hidden-view'); viewPlayer.classList.remove('active-view');
-    document.getElementById(viewId).classList.remove('hidden-view');
-    document.getElementById(viewId).classList.add('active-view');
+    const target = document.getElementById(viewId);
+    target.classList.remove('hidden-view');
+    target.classList.add('active-view');
+    // Apply player-active layout adjustments to remove scrolling when player is visible
+    const appEl = document.getElementById('app');
+    const isPlayer = viewId === 'view-player';
+    document.body.classList.toggle('player-active', isPlayer);
+    appEl.classList.toggle('player-active', isPlayer);
     // scroll top for better UX
     window.scrollTo({ top: 0, behavior: 'instant' });
   }
@@ -810,17 +840,55 @@
     const pct = Math.round((i / workout.exercises.length) * 100);
     playerProgressFill.style.width = pct + '%';
     
-    // Handle exercise animation
+    // Handle exercise animation (prefer Lottie with transparent background, fallback to MP4)
     const animationVideo = document.getElementById('player-animation');
+    const animationLottie = document.getElementById('player-lottie');
     const animationFallback = document.getElementById('player-animation-fallback');
-    
+
     if (ex.animation) {
-      animationVideo.src = `./animations/${ex.animation}`;
-      animationVideo.style.display = 'block';
-      animationFallback.style.display = 'none';
-      animationVideo.load(); // Reload video with new source
+      const isLottie = /\.json$/i.test(ex.animation);
+
+      if (isLottie) {
+        // Hide and reset video
+        animationVideo.pause();
+        animationVideo.removeAttribute('src');
+        animationVideo.style.display = 'none';
+
+        // Prepare lottie element for smooth fade-in
+        animationLottie.style.opacity = '0';
+        animationLottie.style.display = 'block';
+        animationFallback.style.display = 'none';
+        animationLottie.setAttribute('src', `./animations/${ex.animation}`);
+
+        const onLottieLoad = () => {
+          animationLottie.removeEventListener('load', onLottieLoad);
+          animationLottie.style.transition = 'opacity 250ms ease-in-out';
+          animationLottie.style.opacity = '1';
+        };
+        animationLottie.addEventListener('load', onLottieLoad);
+      } else {
+        // Use MP4 video with fade-in when ready
+        animationLottie.removeAttribute('src');
+        animationLottie.style.display = 'none';
+        animationVideo.style.opacity = '0';
+        animationVideo.style.display = 'block';
+        animationFallback.style.display = 'none';
+        animationVideo.src = `./animations/${ex.animation}`;
+        animationVideo.load();
+        const onCanPlay = () => {
+          animationVideo.removeEventListener('canplay', onCanPlay);
+          animationVideo.style.transition = 'opacity 250ms ease-in-out';
+          animationVideo.style.opacity = '1';
+        };
+        animationVideo.addEventListener('canplay', onCanPlay);
+      }
     } else {
+      // No animation available: hide both players and show fallback
+      animationVideo.pause();
+      animationVideo.removeAttribute('src');
       animationVideo.style.display = 'none';
+      animationLottie.removeAttribute('src');
+      animationLottie.style.display = 'none';
       animationFallback.style.display = 'block';
     }
     
