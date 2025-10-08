@@ -1412,6 +1412,86 @@ Respond ONLY with a valid JSON object in this exact format:
         };
       };
 
+      // Write coalescing queue to serialize Supabase updates and handle timeouts safely
+      let userUpdateQueue = {
+        inFlight: false,
+        pending: null,
+        resolvers: [],
+        backoffMs: 0,
+        flushTimer: null,
+      };
+
+      const mergeUserUpdatePayloads = (base, add) => {
+        const a = base || {};
+        const b = add || {};
+        const result = { ...a };
+        for (const [k, v] of Object.entries(b)) {
+          if (
+            v && typeof v === 'object' && !Array.isArray(v) &&
+            result[k] && typeof result[k] === 'object' && !Array.isArray(result[k])
+          ) {
+            // shallow merge nested objects to avoid overwriting entire JSONB fields
+            result[k] = { ...result[k], ...v };
+          } else {
+            result[k] = v;
+          }
+        }
+        return result;
+      };
+
+      const flushUserUpdate = async (userId) => {
+        if (userUpdateQueue.inFlight || !userUpdateQueue.pending) return;
+        userUpdateQueue.inFlight = true;
+        const payload = userUpdateQueue.pending;
+        userUpdateQueue.pending = null;
+        try {
+          await db.updateUser(userId, payload);
+          const resolvers = userUpdateQueue.resolvers;
+          userUpdateQueue.resolvers = [];
+          userUpdateQueue.backoffMs = 0;
+          userUpdateQueue.inFlight = false;
+          resolvers.forEach(fn => fn());
+        } catch (err) {
+          // Handle statement timeout: retry with exponential backoff, do NOT create doc here
+          const msg = (err && err.message || '').toLowerCase();
+          if (err && (err.code === '57014' || msg.includes('statement timeout'))) {
+            userUpdateQueue.inFlight = false;
+            userUpdateQueue.pending = mergeUserUpdatePayloads(userUpdateQueue.pending, payload) || payload;
+            userUpdateQueue.backoffMs = Math.min(userUpdateQueue.backoffMs ? userUpdateQueue.backoffMs * 2 : 2000, 8000);
+            if (userUpdateQueue.flushTimer) clearTimeout(userUpdateQueue.flushTimer);
+            userUpdateQueue.flushTimer = setTimeout(() => flushUserUpdate(userId), userUpdateQueue.backoffMs);
+            return;
+          }
+          // Handle not found: create initial document then retry once
+          if (err && err.code === 'PGRST116') {
+            try { await createInitialUserDocument(user); } catch (e) { console.warn('createInitialUserDocument failed:', e); }
+            userUpdateQueue.inFlight = false;
+            if (userUpdateQueue.flushTimer) clearTimeout(userUpdateQueue.flushTimer);
+            userUpdateQueue.flushTimer = setTimeout(() => flushUserUpdate(userId), 250);
+            return;
+          }
+          // Propagate other errors to callers to preserve behavior
+          const resolvers = userUpdateQueue.resolvers;
+          userUpdateQueue.resolvers = [];
+          userUpdateQueue.inFlight = false;
+          resolvers.forEach(fn => fn(err));
+        }
+      };
+
+      const scheduleUserUpdateFlush = (userId) => {
+        if (userUpdateQueue.flushTimer) clearTimeout(userUpdateQueue.flushTimer);
+        // Debounce flush to coalesce bursts of updates
+        userUpdateQueue.flushTimer = setTimeout(() => flushUserUpdate(userId), 1000);
+      };
+
+      const queueUserUpdate = (userId, update) => {
+        userUpdateQueue.pending = mergeUserUpdatePayloads(userUpdateQueue.pending, update);
+        return new Promise((resolve, reject) => {
+          userUpdateQueue.resolvers.push((err) => err ? reject(err) : resolve());
+          if (!userUpdateQueue.inFlight) scheduleUserUpdateFlush(userId);
+        });
+      };
+
       const updateUserData = async (data) => {
         if (!user) {
           console.log('No user signed in');
@@ -1460,7 +1540,7 @@ Respond ONLY with a valid JSON object in this exact format:
             return;
           }
 
-          await db.updateUser(user.id, {
+          await queueUserUpdate(user.id, {
             ...payload,
             updated_at: new Date().toISOString()
           });
@@ -1477,44 +1557,7 @@ Respond ONLY with a valid JSON object in this exact format:
             details: error.details,
             hint: error.hint
           });
-          
-          // For Supabase Database, if user doesn't exist, create initial document
-          try {
-            await createInitialUserDocument(user);
-            // Then update with the new data
-            const currentTimestamp = Date.now();
-
-            let payload = { ...data };
-            if (payload && typeof payload === 'object' && 'daily_intake' in payload) {
-              const localIntake = payload.daily_intake || {};
-              const isLocalDefault = Object.values(localIntake).every(v => Number(v) === 0);
-              const localSyncTs = parseInt(localStorage.getItem('lastSyncTimestamp') || '0');
-              try {
-                const remote = await db.getUser(user.id);
-                const remoteIntake = remote?.daily_intake || {};
-                const remoteHasNonZero = Object.values(remoteIntake).some(v => Number(v) > 0);
-                if (localSyncTs === 0 && isLocalDefault && remoteHasNonZero) {
-                  delete payload.daily_intake;
-                }
-              } catch (cmpErr) {
-                console.warn('Safe-guard compare failed, proceeding:', cmpErr);
-              }
-            }
-
-            if (Object.keys(payload).length === 0) {
-              console.log('⏭️ Skipping update to avoid overwriting remote with defaults on fresh device');
-              return;
-            }
-
-            await db.updateUser(user.id, {
-              ...payload,
-              updated_at: new Date().toISOString()
-            });
-            localStorage.setItem('lastSyncTimestamp', currentTimestamp.toString());
-            console.log('✅ User document created and updated');
-          } catch (createError) {
-            console.error('Error creating user document:', createError);
-          }
+          // Avoid creating user document here on timeouts; queue handles not-found and backoff.
         }
       };
 
@@ -1835,12 +1878,12 @@ Respond ONLY with a valid JSON object in this exact format:
             updated_at: currentTimestamp
           };
           
-          await db.updateUser(user.id, allLocalData);
+          await queueUserUpdate(user.id, allLocalData);
           
           // Update local sync timestamp to match what we just sent
           localStorage.setItem('lastSyncTimestamp', Date.now().toString());
           
-          console.log('✅ All local data synced to Supabase Database with timestamp:', currentTimestamp);
+          console.log('✅ All local data queued for Supabase update with timestamp:', currentTimestamp);
         } catch (error) {
           console.error('Error syncing all data to Supabase Database:', error);
           throw error; // Re-throw to handle in calling function
@@ -5031,8 +5074,8 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
                             updated_at: new Date().toISOString()
                           };
                           
-                          await db.updateUser(user.id, allLocalData);
-                          console.log('✅ Manual upload completed successfully!');
+                          await queueUserUpdate(user.id, allLocalData);
+                          console.log('✅ Manual upload queued and will be sent shortly!');
                           alert('✅ Data uploaded successfully! Check another device to see if it appears.');
                         } catch (error) {
                           console.error('❌ Manual upload failed:', error);
