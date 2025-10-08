@@ -11379,6 +11379,15 @@ ${habits.map(habit => {
       right: 12px;
       top: 8px;
     }
+    /* Mobile-only: prevent close (×) from overlapping Install button */
+    @media (max-width: 480px) {
+      #closeBanner {
+        position: static;
+        right: auto;
+        top: auto;
+        margin-left: auto; /* push close to the far right */
+      }
+    }
   </style>
   
   <div id="installBanner">
