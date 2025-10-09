@@ -8,6 +8,7 @@
   <!-- Tailwind CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/@lottiefiles/lottie-player@latest/dist/lottie-player.js"></script>
+  <script type="module" src="https://unpkg.com/@google/model-viewer@latest/dist/model-viewer.min.js"></script>
   
   <!-- Supabase SDK -->
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
@@ -23,10 +24,11 @@
     .dark html,.dark body{ color:#f9fafb; }
     .hero-pattern {
       background-image:
-        url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700"><rect width="100%" height="100%" fill="%23f9fafb"/><g opacity="0.9"><circle cx="220" cy="200" r="180" fill="%23ec4899"/><circle cx="900" cy="150" r="260" fill="%233b82f6"/><circle cx="600" cy="500" r="300" fill="%2310b981"/></g></svg>'),
+        url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700"><rect width="100%" height="100%" fill="%2310b981"/><g opacity="0.9"><circle cx="220" cy="200" r="180" fill="%23ec4899"/><circle cx="900" cy="150" r="260" fill="%233b82f6"/><circle cx="600" cy="500" r="300" fill="%2310b981"/></g></svg>'),
         radial-gradient(1200px 600px at -10% 0%, rgba(236,72,153,0.3), transparent 60%),
         radial-gradient(900px 500px at 110% 20%, rgba(59,130,246,0.25), transparent 60%),
         radial-gradient(900px 500px at 50% 120%, rgba(16,185,129,0.2), transparent 60%);
+      background-color: #10b981;
       background-size: cover;
       background-position: center;
     }
@@ -43,22 +45,44 @@
     .dark .card-stats { background: linear-gradient(180deg, rgba(31,41,55,0.9), rgba(31,41,55,0.95)); }
     .hidden-view { display:none; }
     .active-view { display:block; }
-    .big-circle { width:120px;height:120px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:2rem;background: radial-gradient(circle at 30% 30%, #10b981, #059669);box-shadow:0 6px 18px rgba(0,0,0,0.1); }
+    .big-circle { width:90px;height:90px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1.5rem;background: radial-gradient(circle at 30% 30%, #10b981, #059669);box-shadow:0 6px 18px rgba(0,0,0,0.1); }
     .dark .big-circle { box-shadow:0 6px 18px rgba(0,0,0,0.6); }
     .progress-track { height:6px; background: rgba(156,163,175,0.3); border-radius:99px; overflow:hidden; }
     .progress-fill { height:100%; background: linear-gradient(90deg,#ec4899,#3b82f6); width:0%; transition:width .25s linear; }
-    .player-overlay { height:calc(100vh - var(--bottom-nav) - env(safe-area-inset-bottom)); overflow:hidden; }
+    .player-overlay { height:calc(100vh - env(safe-area-inset-bottom)); overflow-y:auto; }
     .player-overlay.active-view { display:grid; grid-template-rows: auto auto 1fr auto; }
+    /* Info panel helpers */
+    .muscle { fill: #f3f4f6; stroke: #d1d5db; stroke-width: 1; transition: all 0.3s ease; }
+    .muscle.highlight { fill: rgba(16,185,129,0.7); stroke: #10b981; stroke-width: 2; }
+    .dark .muscle { fill: #374151; stroke: #6b7280; }
+    .dark .muscle.highlight { fill: rgba(16,185,129,0.6); stroke: #34d399; }
+    .muscle-diagram { filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1)); }
+    .dark .muscle-diagram { filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3)); }
+    .info-chip { font-size: 10px; padding: 3px 8px; border-radius: 9999px; background: #e5f9f1; color: #065f46; display:inline-flex; align-items:center; }
+    .dark .info-chip { background: rgba(16,185,129,0.15); color: #a7f3d0; border: 1px solid rgba(16,185,129,0.3); }
     .hero-box { background: linear-gradient(180deg, rgba(255,255,255,0.7), rgba(255,255,255,0.8)); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.45); }
     .dark .hero-box { background: linear-gradient(180deg, rgba(31,41,55,0.6), rgba(31,41,55,0.7)); border: 1px solid rgba(255,255,255,0.08); }
     /* Ensure the animation elements never show a solid background; smooth crossfade */
     #player-lottie, #player-animation { transition: opacity 250ms ease-in-out; background: transparent !important; }
     .hero-box .w-28.h-28 { background: transparent !important; }
     .chip:focus { outline: 2px solid rgba(236,72,153,0.18); outline-offset: 2px; }
+    /* Segmented tabs and bullets for richer info panel */
+    .segmented { display:flex; gap:4px; background:#f3f4f6; border-radius:9999px; padding:4px; }
+    .dark .segmented { background:rgba(255,255,255,0.08); }
+    .segmented button { flex:1; font-weight:600; font-size:12px; padding:6px 10px; border-radius:9999px; color:#065f46; background:transparent; }
+    .segmented button.active { background:#10b981; color:#000; box-shadow:0 1px 4px rgba(0,0,0,0.12); }
+    .dark .segmented button.active { background:#10b981; color:#000; }
+    .list-bullets { margin-top:6px; }
+    .list-bullets li { display:flex; gap:8px; margin:6px 0; font-size:12px; color:#374151; }
+    .list-bullets li::before { content:"•"; color:#10b981; font-weight:700; }
+    .dark .list-bullets li { color:#d1d5db; }
     .bottom-safe { padding-bottom: env(safe-area-inset-bottom); }
     body.player-active { overflow:hidden; }
-    body.player-active.bottom-safe { padding-bottom:0 !important; }
+    body.player-active.bottom-safe { padding-bottom:0 !important; background-color:#10b981; }
     #app.player-active { padding-top:0 !important; padding-bottom:0 !important; height:100vh; min-height:100vh; overflow:hidden; }
+    /* Universal title spacing fix for workout cards */
+    .hero-pattern .absolute { padding-top: 1.25rem; padding-left: 1.25rem; padding-right: 1.25rem; }
+    .hero-pattern .absolute span.font-extrabold { display: inline-block; line-height: 1.15; margin-bottom: 8px; }
     @media (min-width:1024px){ .page-title { font-size:3rem; } .card-title{ font-size:1.5rem; } }
   </style>
     <script>
@@ -181,32 +205,32 @@
         </div>
       </div>
 
-      <div class="flex-1 flex flex-col items-center px-4 pt-2 pb-2 min-h-0">
+      <div class="flex flex-col items-center px-4 pt-1 pb-1 flex-1 justify-center">
         <div class="inline-block bg-transparent"><span class="text-xs font-semibold px-4 py-2 rounded-full bg-green-500 text-black">EXERCISE</span></div>
 
-        <h2 id="player-title" class="text-2xl font-extrabold mt-3 text-center text-gray-900 dark:text-white">Jumping Jacks</h2>
+        <h2 id="player-title" class="text-xl font-extrabold mt-2 text-center text-gray-900 dark:text-white">Jumping Jacks</h2>
         <p id="player-set-info" class="text-gray-600 dark:text-gray-300 mt-1">Set 1 of 3</p>
 
-        <div class="mt-3 w-full max-w-sm hero-box rounded-2xl p-3 flex flex-col items-center justify-center">
-          <div class="w-28 h-28 flex items-center justify-center rounded-lg bg-transparent overflow-hidden transition-colors">
+        <div class="mt-2 w-48 h-48 hero-box rounded-2xl p-2 flex flex-col items-center justify-center">
+          <div class="w-full h-full flex items-center justify-center rounded-lg bg-transparent overflow-hidden transition-colors">
             <lottie-player id="player-lottie" background="transparent" style="width:100%;height:100%;display:none" speed="1" loop autoplay></lottie-player>
             <video id="player-animation" class="w-full h-full object-cover rounded-lg" autoplay loop muted playsinline preload="auto" style="display:none;">
               <source src="" type="video/mp4">
             </video>
             <div id="player-animation-fallback" class="text-center text-gray-600 dark:text-gray-300">
-              <div style="font-size:36px">🏋️</div>
-              <div class="mt-2 text-xs">Exercise Animation</div>
+              <div style="font-size:32px">🏋️</div>
+              <div class="mt-1 text-xs">Exercise Animation</div>
             </div>
           </div>
         </div>
 
-        <div class="mt-4 flex flex-col items-center">
+        <div class="mt-3 flex flex-col items-center">
           <div id="player-timer" class="big-circle">00:24</div>
-          <div id="player-reps" class="text-gray-600 dark:text-gray-300 mt-3">20 repetitions</div>
+          <div id="player-reps" class="text-gray-600 dark:text-gray-300 mt-2">20 repetitions</div>
         </div>
       </div>
 
-      <div class="px-4 pt-1" style="padding-bottom: calc(env(safe-area-inset-bottom));">
+      <div class="px-4 pt-0 pb-3">
         <div class="flex items-center justify-between">
           <button id="player-skip" class="flex items-center gap-2 text-gray-600 dark:text-gray-300">
             <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 4v16l11-8zM19 5v14" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -218,6 +242,104 @@
           </button>
 
           <div style="width:48px"></div>
+        </div>
+      </div>
+      <!-- Info panel under controls -->
+      <div id="player-info" class="px-4 pb-4 mt-2">
+        <div class="rounded-2xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm p-3">
+          <div class="grid grid-cols-3 gap-3">
+            <div>
+              <div class="text-xs text-gray-500 dark:text-gray-400">Duration</div>
+              <div id="info-duration" class="text-sm font-semibold text-gray-800 dark:text-gray-200">00:30</div>
+            </div>
+            <div class="col-span-2">
+              <div class="text-xs text-gray-500 dark:text-gray-400">Focus area</div>
+              <div id="info-focus" class="mt-1 flex flex-wrap gap-1"></div>
+            </div>
+          </div>
+          <div class="mt-2">
+            <div class="text-xs font-semibold text-gray-700 dark:text-gray-300">Instructions</div>
+            <p id="info-instructions" class="text-xs text-gray-600 dark:text-gray-300 mt-1 leading-relaxed"></p>
+            
+            <div class="mt-3 flex items-center justify-center gap-4">
+              <!-- Front View Human Figure -->
+              <svg id="muscle-front" width="100" height="130" viewBox="0 0 100 130" class="muscle-diagram">
+                <!-- Head -->
+                <circle cx="50" cy="12" r="8" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1"/>
+                
+                <!-- Torso outline -->
+                <path d="M42 20 Q50 18 58 20 L60 45 Q60 50 58 55 L55 70 Q50 72 45 70 L42 55 Q40 50 40 45 Z" 
+                      fill="#f9fafb" stroke="#d1d5db" stroke-width="1.5"/>
+                
+                <!-- Arms -->
+                <ellipse cx="35" cy="35" rx="4" ry="12" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-arms"/>
+                <ellipse cx="65" cy="35" rx="4" ry="12" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-arms"/>
+                
+                <!-- Chest -->
+                <ellipse cx="46" cy="28" rx="8" ry="6" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-chest"/>
+                <ellipse cx="54" cy="28" rx="8" ry="6" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-chest"/>
+                
+                <!-- Abs -->
+                <rect x="46" y="38" width="8" height="6" rx="2" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-abs"/>
+                <rect x="46" y="46" width="8" height="6" rx="2" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-abs"/>
+                <rect x="46" y="54" width="8" height="6" rx="2" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-abs"/>
+                
+                <!-- Legs outline -->
+                <path d="M42 70 L45 70 L47 95 L45 120 L40 120 L38 95 Z" fill="#f9fafb" stroke="#d1d5db" stroke-width="1.5"/>
+                <path d="M58 70 L55 70 L53 95 L55 120 L60 120 L62 95 Z" fill="#f9fafb" stroke="#d1d5db" stroke-width="1.5"/>
+                
+                <!-- Quadriceps -->
+                <ellipse cx="42" cy="80" rx="4" ry="10" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-quadriceps"/>
+                <ellipse cx="58" cy="80" rx="4" ry="10" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-quadriceps"/>
+                
+                <!-- Calves -->
+                <ellipse cx="42" cy="105" rx="3" ry="8" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-calves"/>
+                <ellipse cx="58" cy="105" rx="3" ry="8" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-calves"/>
+              </svg>
+              
+              <!-- Back View Human Figure -->
+              <svg id="muscle-back" width="100" height="130" viewBox="0 0 100 130" class="muscle-diagram">
+                <!-- Head -->
+                <circle cx="50" cy="12" r="8" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1"/>
+                
+                <!-- Torso outline -->
+                <path d="M42 20 Q50 18 58 20 L60 45 Q60 50 58 55 L55 70 Q50 72 45 70 L42 55 Q40 50 40 45 Z" 
+                      fill="#f9fafb" stroke="#d1d5db" stroke-width="1.5"/>
+                
+                <!-- Shoulders -->
+                <ellipse cx="35" cy="30" rx="5" ry="8" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-shoulders"/>
+                <ellipse cx="65" cy="30" rx="5" ry="8" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-shoulders"/>
+                
+                <!-- Upper Back -->
+                <path d="M44 25 Q50 23 56 25 L58 40 Q50 42 42 40 Z" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-upper-back"/>
+                
+                <!-- Lower Back -->
+                <ellipse cx="50" cy="50" rx="8" ry="10" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-lower-back"/>
+                
+                <!-- Legs outline -->
+                <path d="M42 70 L45 70 L47 95 L45 120 L40 120 L38 95 Z" fill="#f9fafb" stroke="#d1d5db" stroke-width="1.5"/>
+                <path d="M58 70 L55 70 L53 95 L55 120 L60 120 L62 95 Z" fill="#f9fafb" stroke="#d1d5db" stroke-width="1.5"/>
+                
+                <!-- Glutes -->
+                <ellipse cx="42" cy="75" rx="4" ry="6" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-glutes"/>
+                <ellipse cx="58" cy="75" rx="4" ry="6" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-glutes"/>
+                
+                <!-- Hamstrings -->
+                <ellipse cx="42" cy="85" rx="3" ry="8" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-hamstrings"/>
+                <ellipse cx="58" cy="85" rx="3" ry="8" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-hamstrings"/>
+                
+                <!-- Calves -->
+                <ellipse cx="42" cy="105" rx="3" ry="8" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-calves"/>
+                <ellipse cx="58" cy="105" rx="3" ry="8" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-calves"/>
+              </svg>
+            </div>
+            
+            <div class="mt-3 text-xs font-semibold text-gray-700 dark:text-gray-300">Common Mistakes</div>
+            <ul id="info-mistakes" class="list-bullets"></ul>
+            
+            <div class="mt-3 text-xs font-semibold text-gray-700 dark:text-gray-300">Breathing Tips</div>
+            <ul id="info-tips" class="list-bullets"></ul>
+          </div>
         </div>
       </div>
     </section>
@@ -235,7 +357,7 @@
   const WORKOUTS = [
     // BEGINNER WORKOUTS
     {
-      title:'Upper Body',
+      title:'Upper Body', 
       desc:'Introduction to upper body strength with basic movements',
       duration:'18 min',
       difficulty:'beginner',
@@ -285,11 +407,21 @@
       difficulty:'intermediate',
       tag:'Upper Body',
       exercises:[
-        { title:'Cobras', sets:3, reps:10, rest:60, muscles:'Back, Core', durationSeconds:35, animation:'Cobras.mp4', description:'Lie face down with hands under shoulders. Lift chest and head up by extending spine, keeping hips on ground. Lower slowly back down.' },
-        { title:'Military Push Ups', sets:3, reps:10, rest:60, muscles:'Chest, Triceps', durationSeconds:40, animation:'Military Push Ups.mp4', description:'Start in plank position. Lower chest to floor by bending elbows, keeping body straight. Push back up to starting position.' },
-        { title:'Wide Arm Push Ups', sets:3, reps:8, rest:60, muscles:'Chest, Arms', durationSeconds:40, animation:'Widearmpushup.mp4', description:'Place hands wider than shoulder-width apart. Perform push-up with wide hand position, targeting outer chest muscles. Keep body straight throughout.' },
-        { title:'Staggered Push-ups', sets:3, reps:8, rest:45, muscles:'Chest, Core', durationSeconds:35, animation:'Staggeredpushups.mp4', description:'Place one hand forward and one back in staggered position. Perform push-up, then switch hand positions. Challenges stability and unilateral strength.' },
-        { title:'Plank', sets:3, reps:0, rest:45, muscles:'Core, Shoulders', durationSeconds:40, animation:'Plank.mp4', description:'Hold plank position with straight body from head to heels. Keep core engaged and maintain neutral spine. Focus on stability and endurance.' }
+        { title:'Cobras', sets:3, reps:10, rest:60, muscles:'Back, Core', durationSeconds:35, animation:'Cobras.mp4', description:'Lie face down with hands under shoulders. Lift chest and head up by extending spine, keeping hips on ground. Lower slowly back down.', 
+          mistakes: ['Lifting too high and straining the neck', 'Using arms to push up instead of back muscles', 'Lifting hips off the ground', 'Holding breath during the movement'],
+          tips: ['Exhale as you lift your chest up', 'Inhale as you lower back down', 'Keep breathing steady and controlled', 'Focus on lengthening the spine with each breath'] },
+        { title:'Military Push Ups', sets:3, reps:10, rest:60, muscles:'Chest, Triceps', durationSeconds:40, animation:'Military Push Ups.mp4', description:'Start in plank position. Lower chest to floor by bending elbows, keeping body straight. Push back up to starting position.',
+          mistakes: ['Sagging hips or arching back', 'Not going down far enough', 'Flaring elbows too wide', 'Holding breath during reps'],
+          tips: ['Exhale forcefully as you push up', 'Inhale as you lower down', 'Maintain steady breathing rhythm', 'Breathe through your nose when possible'] },
+        { title:'Wide Arm Push Ups', sets:3, reps:8, rest:60, muscles:'Chest, Arms', durationSeconds:40, animation:'Widearmpushup.mp4', description:'Place hands wider than shoulder-width apart. Perform push-up with wide hand position, targeting outer chest muscles. Keep body straight throughout.',
+          mistakes: ['Placing hands too wide causing shoulder strain', 'Not maintaining straight body line', 'Partial range of motion', 'Rushing through the movement'],
+          tips: ['Exhale as you press up from the bottom', 'Inhale deeply as you lower your chest', 'Use controlled breathing to maintain rhythm', 'Take a breath at the top if needed'] },
+        { title:'Staggered Push-ups', sets:3, reps:8, rest:45, muscles:'Chest, Core', durationSeconds:35, animation:'Staggeredpushups.mp4', description:'Place one hand forward and one back in staggered position. Perform push-up, then switch hand positions. Challenges stability and unilateral strength.',
+          mistakes: ['Not switching hand positions between sets', 'Allowing body to twist or rotate', 'Uneven weight distribution', 'Moving too quickly without control'],
+          tips: ['Exhale as you push up from staggered position', 'Inhale as you lower with control', 'Breathe steadily to maintain balance', 'Focus on core breathing for stability'] },
+        { title:'Plank', sets:3, reps:0, rest:45, muscles:'Core, Shoulders', durationSeconds:40, animation:'Plank.mp4', description:'Hold plank position with straight body from head to heels. Keep core engaged and maintain neutral spine. Focus on stability and endurance.',
+          mistakes: ['Sagging hips or raising butt too high', 'Looking up and straining neck', 'Holding breath during the hold', 'Placing hands too far forward'],
+          tips: ['Breathe normally and steadily throughout', 'Inhale and exhale at regular intervals', 'Use breathing to help engage your core', 'Never hold your breath during planks'] }
       ]
     },
 
@@ -300,12 +432,22 @@
       difficulty:'intermediate',
       tag:'Lower Body',
       exercises:[
-        { title:'Squat Kicks', sets:3, reps:12, rest:60, muscles:'Legs, Glutes', durationSeconds:40, animation:'Squat kicks.mp4', description:'Perform a squat, then explode up into a jump. Land softly and immediately go into next squat. Keep chest up throughout.' },
+        { title:'Squat Kicks', sets:3, reps:12, rest:60, muscles:'Legs, Glutes', durationSeconds:40, animation:'Squat kicks.mp4', description:'Perform a squat, then explode up into a jump. Land softly and immediately go into next squat. Keep chest up throughout.',
+          mistakes: ['Landing hard on heels', 'Not squatting deep enough before jump', 'Leaning forward during squat', 'Not controlling the landing'],
+          tips: ['Exhale explosively during the jump', 'Inhale as you squat down', 'Quick breath at the top before next rep', 'Use breathing to power the explosive movement'] },
         
-        { title:'Split Jump Exercise', sets:3, reps:8, rest:60, muscles:'Legs, Power', durationSeconds:40, animation:'Split Jump Exercise.mp4', description:'Start in lunge position. Jump up and switch leg positions in air. Land in lunge with opposite leg forward. Repeat explosively.' },
-        { title:'Lunge', sets:3, reps:10, rest:45, muscles:'Quadriceps, Glutes', durationSeconds:35, animation:'Lunge.mp4', description:'Step forward into lunge position, lowering back knee toward floor. Push off front foot to return to standing. Alternate legs.' },
-        { title:'Bridge', sets:3, reps:8, rest:45, muscles:'Glutes', durationSeconds:35, animation:'Bridge.mp4', description:'Lie on back, one foot flat on floor, other leg extended. Lift hips up squeezing glutes. Lower slowly and repeat.' },
-        { title:'Calf Raise', sets:2, reps:15, rest:30, muscles:'Calves', durationSeconds:25, animation:'calfraise.mp4', description:'Stand tall with feet hip-width apart. Rise up onto toes by lifting heels as high as possible. Hold briefly, then lower heels back down slowly.' }
+        { title:'Split Jump Exercise', sets:3, reps:8, rest:60, muscles:'Legs, Power', durationSeconds:40, animation:'Split Jump Exercise.mp4', description:'Start in lunge position. Jump up and switch leg positions in air. Land in lunge with opposite leg forward. Repeat explosively.',
+          mistakes: ['Not switching legs completely in air', 'Landing with straight legs', 'Losing balance during landing', 'Not jumping high enough'],
+          tips: ['Exhale as you explode up from lunge', 'Quick inhale during flight phase', 'Controlled exhale as you land', 'Breathe rhythmically between jumps'] },
+        { title:'Lunge', sets:3, reps:10, rest:45, muscles:'Quadriceps, Glutes', durationSeconds:35, animation:'Lunge.mp4', description:'Step forward into lunge position, lowering back knee toward floor. Push off front foot to return to standing. Alternate legs.',
+          mistakes: ['Stepping too far or too short', 'Allowing front knee to go past toes', 'Not lowering back knee enough', 'Leaning forward excessively'],
+          tips: ['Inhale as you step into lunge', 'Exhale as you push back to standing', 'Steady breathing helps with balance', 'Breathe through nose for better control'] },
+        { title:'Bridge', sets:3, reps:8, rest:45, muscles:'Glutes', durationSeconds:35, animation:'Bridge.mp4', description:'Lie on back, one foot flat on floor, other leg extended. Lift hips up squeezing glutes. Lower slowly and repeat.',
+          mistakes: ['Using back instead of glutes to lift', 'Not squeezing glutes at the top', 'Lifting too fast without control', 'Not keeping core engaged'],
+          tips: ['Exhale as you lift hips up', 'Inhale as you lower down slowly', 'Hold breath briefly at the top', 'Focus on glute activation with each breath'] },
+        { title:'Calf Raise', sets:2, reps:15, rest:30, muscles:'Calves', durationSeconds:25, animation:'calfraise.mp4', description:'Stand tall with feet hip-width apart. Rise up onto toes by lifting heels as high as possible. Hold briefly, then lower heels back down slowly.',
+          mistakes: ['Not going up high enough on toes', 'Bouncing at the bottom', 'Using momentum instead of muscle', 'Not controlling the descent'],
+          tips: ['Exhale as you rise up on toes', 'Inhale as you lower heels down', 'Pause and breathe at the top', 'Steady rhythm matches your breathing'] }
       ]
     },
 
@@ -316,11 +458,21 @@
       difficulty:'intermediate',
       tag:'Full Body',
       exercises:[
-        { title:'Burpees and Jump Exercise', sets:3, reps:8, rest:60, muscles:'Full Body', durationSeconds:45, animation:'Burpee and Jump Exercise.mp4', description:'Squat down, place hands on floor, jump feet back to plank. Do push-up, jump feet forward, then jump up with arms overhead.' },
-        { title:'Inchworm', sets:3, reps:8, rest:60, muscles:'Full Body', durationSeconds:40, animation:'Inchworm.mp4', description:'Stand tall, bend forward and place hands on floor. Walk hands forward to plank position, then walk feet toward hands. Return to standing.' },
-        { title:'Jumping Jack', sets:3, reps:20, rest:45, muscles:'Cardio, Legs', durationSeconds:35, animation:'Jumping Jack.mp4', description:'Start with feet together, arms at sides. Jump feet apart while raising arms overhead. Jump back to starting position. Maintain rhythm throughout.' },
-        { title:'Reverse Crunches', sets:3, reps:15, rest:45, muscles:'Core', durationSeconds:35, animation:'Reverse Crunches.mp4', description:'Lie on back, knees bent at 90 degrees. Lift hips off floor by contracting abs, bringing knees toward chest. Lower slowly.' },
-        { title:'Plank', sets:3, reps:0, rest:45, muscles:'Core', durationSeconds:35, animation:'Plank.mp4', description:'Hold plank position with straight body from head to heels. Keep core engaged and maintain neutral spine. Focus on stability and endurance.' }
+        { title:'Burpees and Jump Exercise', sets:3, reps:8, rest:60, muscles:'Full Body', durationSeconds:45, animation:'Burpee and Jump Exercise.mp4', description:'Squat down, place hands on floor, jump feet back to plank. Do push-up, jump feet forward, then jump up with arms overhead.',
+          mistakes: ['Not doing full push-up in plank', 'Landing hard from jump', 'Not jumping feet close enough to hands', 'Rushing through without proper form'],
+          tips: ['Exhale during push-up and jump phases', 'Inhale during transitions', 'Quick breaths between movements', 'Use breathing to pace the exercise'] },
+        { title:'Inchworm', sets:3, reps:8, rest:60, muscles:'Full Body', durationSeconds:40, animation:'Inchworm.mp4', description:'Stand tall, bend forward and place hands on floor. Walk hands forward to plank position, then walk feet toward hands. Return to standing.',
+          mistakes: ['Bending knees when walking hands out', 'Not reaching full plank position', 'Walking feet too close to hands', 'Moving too quickly without control'],
+          tips: ['Exhale as you walk hands forward', 'Inhale as you walk feet toward hands', 'Breathe steadily during the movement', 'Control breathing helps maintain form'] },
+        { title:'Jumping Jack', sets:3, reps:20, rest:45, muscles:'Cardio, Legs', durationSeconds:35, animation:'Jumping Jack.mp4', description:'Start with feet together, arms at sides. Jump feet apart while raising arms overhead. Jump back to starting position. Maintain rhythm throughout.',
+          mistakes: ['Not jumping feet wide enough', 'Arms not reaching overhead', 'Landing too heavily', 'Losing rhythm and coordination'],
+          tips: ['Exhale as you jump feet apart', 'Inhale as you return to center', 'Maintain steady breathing rhythm', 'Breathe through nose for endurance'] },
+        { title:'Reverse Crunches', sets:3, reps:15, rest:45, muscles:'Core', durationSeconds:35, animation:'Reverse Crunches.mp4', description:'Lie on back, knees bent at 90 degrees. Lift hips off floor by contracting abs, bringing knees toward chest. Lower slowly.',
+          mistakes: ['Using momentum instead of abs', 'Not lifting hips off floor', 'Lowering legs too quickly', 'Pulling on neck or head'],
+          tips: ['Exhale as you lift hips and knees up', 'Inhale as you lower with control', 'Steady breathing engages core better', 'Never hold breath during crunches'] },
+        { title:'Plank', sets:3, reps:0, rest:45, muscles:'Core', durationSeconds:35, animation:'Plank.mp4', description:'Hold plank position with straight body from head to heels. Keep core engaged and maintain neutral spine. Focus on stability and endurance.',
+          mistakes: ['Sagging hips or raising butt too high', 'Looking up and straining neck', 'Holding breath during the hold', 'Placing hands too far forward'],
+          tips: ['Breathe normally and steadily throughout', 'Inhale and exhale at regular intervals', 'Use breathing to help engage your core', 'Never hold your breath during planks'] }
       ]
     },
 
@@ -332,11 +484,21 @@
       difficulty:'advanced',
       tag:'Upper Body',
       exercises:[
-        { title:'Wide Arm Push Up', sets:4, reps:12, rest:60, muscles:'Chest, Arms', durationSeconds:50, animation:'Widearmpushup.mp4', description:'Place hands wider than shoulder-width apart. Perform push-up with wide hand position, targeting outer chest muscles. Keep body straight throughout.' },
-        { title:'Military Push Ups', sets:4, reps:15, rest:60, muscles:'Chest, Arms', durationSeconds:50, animation:'Military Push Ups.mp4', description:'Strict push-up with hands directly under shoulders. Keep body rigid like a plank throughout the movement. Focus on controlled motion.' },
-        { title:'Staggered Push-ups', sets:4, reps:10, rest:75, muscles:'Chest, Core', durationSeconds:45, animation:'Staggeredpushups.mp4', description:'Place one hand forward and one back in staggered position. Perform push-up, then switch hand positions. Challenges stability and unilateral strength.' },
-        { title:'Plank', sets:4, reps:10, rest:45, muscles:'Core, Arms', durationSeconds:40, animation:'Plank.mp4', description:'Start in plank. Lower to forearms one arm at a time, then push back up to full plank. Alternate leading arm.' },
-        { title:'Deadbug Fitness Exercise', sets:4, reps:12, rest:60, muscles:'Core, Stability', durationSeconds:45, animation:'Deadbug fitness exercise.mp4', description:'Lie on back, arms up, knees bent. Lower opposite arm and leg slowly, maintaining core stability. Return and alternate sides.' }
+        { title:'Wide Arm Push Up', sets:4, reps:12, rest:60, muscles:'Chest, Arms', durationSeconds:50, animation:'Widearmpushup.mp4', description:'Place hands wider than shoulder-width apart. Perform push-up with wide hand position, targeting outer chest muscles. Keep body straight throughout.',
+          mistakes: ['Placing hands too wide causing shoulder strain', 'Not maintaining straight body line', 'Partial range of motion', 'Rushing through the movement'],
+          tips: ['Exhale as you press up from the bottom', 'Inhale deeply as you lower your chest', 'Use controlled breathing to maintain rhythm', 'Take a breath at the top if needed'] },
+        { title:'Military Push Ups', sets:4, reps:15, rest:60, muscles:'Chest, Arms', durationSeconds:50, animation:'Military Push Ups.mp4', description:'Strict push-up with hands directly under shoulders. Keep body rigid like a plank throughout the movement. Focus on controlled motion.',
+          mistakes: ['Sagging hips or arching back', 'Not going down far enough', 'Flaring elbows too wide', 'Holding breath during reps'],
+          tips: ['Exhale forcefully as you push up', 'Inhale as you lower down', 'Maintain steady breathing rhythm', 'Breathe through your nose when possible'] },
+        { title:'Staggered Push-ups', sets:4, reps:10, rest:75, muscles:'Chest, Core', durationSeconds:45, animation:'Staggeredpushups.mp4', description:'Place one hand forward and one back in staggered position. Perform push-up, then switch hand positions. Challenges stability and unilateral strength.',
+          mistakes: ['Not switching hand positions between sets', 'Allowing body to twist or rotate', 'Uneven weight distribution', 'Moving too quickly without control'],
+          tips: ['Exhale as you push up from staggered position', 'Inhale as you lower with control', 'Breathe steadily to maintain balance', 'Focus on core breathing for stability'] },
+        { title:'Plank', sets:4, reps:10, rest:45, muscles:'Core, Arms', durationSeconds:40, animation:'Plank.mp4', description:'Start in plank. Lower to forearms one arm at a time, then push back up to full plank. Alternate leading arm.',
+          mistakes: ['Sagging hips during transitions', 'Moving too quickly between positions', 'Not maintaining core engagement', 'Allowing body to rock side to side'],
+          tips: ['Exhale during the challenging up phase', 'Inhale as you lower to forearms', 'Steady breathing maintains core stability', 'Control breath during transitions'] },
+        { title:'Deadbug Fitness Exercise', sets:4, reps:12, rest:60, muscles:'Core, Stability', durationSeconds:45, animation:'Deadbug fitness exercise.mp4', description:'Lie on back, arms up, knees bent. Lower opposite arm and leg slowly, maintaining core stability. Return and alternate sides.',
+          mistakes: ['Allowing lower back to arch', 'Moving arms and legs too quickly', 'Not maintaining opposite arm/leg pattern', 'Holding breath during movement'],
+          tips: ['Exhale as you extend arm and leg', 'Inhale as you return to start', 'Breathe steadily to maintain core control', 'Use breath to stabilize your spine'] }
       ]
     },
 
@@ -347,12 +509,24 @@
       difficulty:'advanced',
       tag:'Lower Body',
       exercises:[
-        { title:'Squats', sets:4, reps:15, rest:60, muscles:'Quadriceps, Glutes', durationSeconds:50, animation:'Squats.mp4', description:'Stand with feet shoulder-width apart. Lower hips back and down as if sitting in a chair. Keep chest up and knees behind toes. Return to standing.' },
-        { title:'Jumping Lunges', sets:4, reps:12, rest:60, muscles:'Legs, Power', durationSeconds:50, animation:'Jumping Lunges.mp4', description:'Start in lunge position. Jump up and switch leg positions in air. Land in lunge with opposite leg forward. Repeat explosively.' },
-        { title:'Squat Kicks', sets:4, reps:15, rest:45, muscles:'Quads, Glutes', durationSeconds:45, animation:'Squat kicks.mp4', description:'Squat down, then as you stand up, kick one leg forward. Alternate legs with each rep. Keep core engaged for balance.' },
-        { title:'Side Hip Abduction', sets:4, reps:12, rest:60, muscles:'Hip Abductors', durationSeconds:45, animation:'Side Hip Abduction.mp4', description:'Lie on side, lift top leg up and down in controlled motion. Targets hip abductors and glute medius for stability.' },
-        { title:'Lunge', sets:4, reps:8, rest:60, muscles:'Quadriceps, Glutes', durationSeconds:45, animation:'Lunge.mp4', description:'Step forward into lunge position, lowering back knee toward floor. Push off front foot to return to standing. Alternate legs.' },
-        { title:'Frog Press', sets:4, reps:16, rest:45, muscles:'Glutes, Legs', durationSeconds:40, animation:'Frog Press.mp4', description:'Lie on back with soles of feet together, knees out. Press through heels to lift hips up. Targets glutes in stretched position.' }
+        { title:'Squats', sets:4, reps:15, rest:60, muscles:'Quadriceps, Glutes', durationSeconds:50, animation:'Squats.mp4', description:'Stand with feet shoulder-width apart. Lower hips back and down as if sitting in a chair. Keep chest up and knees behind toes. Return to standing.',
+          mistakes: ['Knees caving inward', 'Not going deep enough', 'Leaning too far forward', 'Rising up on toes'],
+          tips: ['Inhale as you lower down', 'Exhale as you stand up', 'Deep breath at the top', 'Controlled breathing maintains form'] },
+        { title:'Jumping Lunges', sets:4, reps:12, rest:60, muscles:'Legs, Power', durationSeconds:50, animation:'Jumping Lunges.mp4', description:'Start in lunge position. Jump up and switch leg positions in air. Land in lunge with opposite leg forward. Repeat explosively.',
+          mistakes: ['Landing too hard', 'Not switching legs completely', 'Poor landing position', 'Losing balance on landing'],
+          tips: ['Exhale explosively on jump', 'Quick inhale between jumps', 'Controlled breathing on landing', 'Steady rhythm helps coordination'] },
+        { title:'Squat Kicks', sets:4, reps:15, rest:45, muscles:'Quads, Glutes', durationSeconds:45, animation:'Squat kicks.mp4', description:'Squat down, then as you stand up, kick one leg forward. Alternate legs with each rep. Keep core engaged for balance.',
+          mistakes: ['Not squatting deep enough before kick', 'Losing balance during kick', 'Kicking too high', 'Not engaging core'],
+          tips: ['Exhale as you stand and kick', 'Inhale during squat phase', 'Quick breath during kick', 'Steady breathing for balance'] },
+        { title:'Side Hip Abduction', sets:4, reps:12, rest:60, muscles:'Hip Abductors', durationSeconds:45, animation:'Side Hip Abduction.mp4', description:'Lie on side, lift top leg up and down in controlled motion. Targets hip abductors and glute medius for stability.',
+          mistakes: ['Using momentum instead of muscle', 'Not lifting leg high enough', 'Rolling body instead of isolating leg', 'Moving too quickly'],
+          tips: ['Exhale as you lift leg up', 'Inhale as you lower leg', 'Steady breathing rhythm', 'Control breath for better isolation'] },
+        { title:'Lunge', sets:4, reps:8, rest:60, muscles:'Quadriceps, Glutes', durationSeconds:45, animation:'Lunge.mp4', description:'Step forward into lunge position, lowering back knee toward floor. Push off front foot to return to standing. Alternate legs.',
+          mistakes: ['Knee extending past toes', 'Not lowering back knee enough', 'Leaning forward too much', 'Taking uneven steps'],
+          tips: ['Inhale as you step into lunge', 'Exhale as you push back', 'Steady breathing for balance', 'Deep breath helps stability'] },
+        { title:'Frog Press', sets:4, reps:16, rest:45, muscles:'Glutes, Legs', durationSeconds:40, animation:'Frog Press.mp4', description:'Lie on back with soles of feet together, knees out. Press through heels to lift hips up. Targets glutes in stretched position.',
+          mistakes: ['Not pressing through heels', 'Using back instead of glutes', 'Not squeezing glutes at top', 'Rushing the movement'],
+          tips: ['Exhale as you press hips up', 'Inhale as you lower down', 'Hold breath briefly at top', 'Controlled breathing enhances glute activation'] }
       ]
     },
 
@@ -363,11 +537,21 @@
       difficulty:'advanced',
       tag:'Full Body',
       exercises:[
-        { title:'Burpee and Jump Exercise', sets:4, reps:12, rest:75, muscles:'Full Body Power', durationSeconds:60, animation:'Burpee and Jump Exercise.mp4', description:'Perform a burpee with an explosive jump at the end. Focus on maximum height and power in the jump phase.' },
-        { title:'Spiderman Push-up', sets:4, reps:10, rest:60, muscles:'Full Body', durationSeconds:55, animation:'spiderman push-up.mp4', description:'Perform push-up while bringing knee to elbow. Alternate sides with each rep. Combines upper body strength with core stability.' },
-        { title:'Seated Abs Circles', sets:4, reps:20, rest:45, muscles:'Core', durationSeconds:40, animation:'Seated abs circles.mp4', description:'Sit with legs extended, lean back slightly. Make circular motions with torso, engaging core throughout the movement.' },
-        { title:'Reverse Crunches', sets:4, reps:20, rest:45, muscles:'Core', durationSeconds:40, animation:'Reverse Crunches.mp4', description:'Lie on back, knees bent at 90 degrees. Lift hips off floor by contracting abs, bringing knees toward chest. Lower slowly.' },
-        { title:'Flutter Kicks', sets:4, reps:30, rest:45, muscles:'Core', durationSeconds:45, animation:'Flutter Kicks.mp4', description:'Lie on back, legs extended. Alternate small kicks up and down rapidly. Keep lower back pressed to floor throughout.' }
+        { title:'Burpee and Jump Exercise', sets:4, reps:12, rest:75, muscles:'Full Body Power', durationSeconds:60, animation:'Burpee and Jump Exercise.mp4', description:'Perform a burpee with an explosive jump at the end. Focus on maximum height and power in the jump phase.',
+          mistakes: ['Not jumping high enough', 'Poor form during burpee portion', 'Landing too hard', 'Rushing through the movement'],
+          tips: ['Exhale explosively during jump', 'Inhale as you drop down', 'Quick breathing during transitions', 'Deep breath before each rep'] },
+        { title:'Spiderman Push-up', sets:4, reps:10, rest:60, muscles:'Full Body', durationSeconds:55, animation:'spiderman push-up.mp4', description:'Perform push-up while bringing knee to elbow. Alternate sides with each rep. Combines upper body strength with core stability.',
+          mistakes: ['Not bringing knee close enough to elbow', 'Losing push-up form', 'Moving too quickly', 'Not alternating sides properly'],
+          tips: ['Exhale as you push up and bring knee', 'Inhale as you lower down', 'Controlled breathing for coordination', 'Steady rhythm helps balance'] },
+        { title:'Seated Abs Circles', sets:4, reps:20, rest:45, muscles:'Core', durationSeconds:40, animation:'Seated abs circles.mp4', description:'Sit with legs extended, lean back slightly. Make circular motions with torso, engaging core throughout the movement.',
+          mistakes: ['Using arms instead of core', 'Making circles too small', 'Leaning back too far', 'Not maintaining leg position'],
+          tips: ['Exhale as you circle away from center', 'Inhale as you return to center', 'Steady breathing maintains core engagement', 'Control breath for smooth circles'] },
+        { title:'Reverse Crunches', sets:4, reps:20, rest:45, muscles:'Core', durationSeconds:40, animation:'Reverse Crunches.mp4', description:'Lie on back, knees bent at 90 degrees. Lift hips off floor by contracting abs, bringing knees toward chest. Lower slowly.',
+          mistakes: ['Using momentum to lift hips', 'Not lifting hips high enough', 'Lowering too quickly', 'Not keeping knees at 90 degrees'],
+          tips: ['Exhale as you lift hips up', 'Inhale as you lower down', 'Hold breath briefly at the top', 'Controlled breathing enhances core activation'] },
+        { title:'Flutter Kicks', sets:4, reps:30, rest:45, muscles:'Core', durationSeconds:45, animation:'Flutter Kicks.mp4', description:'Lie on back, legs extended. Alternate small kicks up and down rapidly. Keep lower back pressed to floor throughout.',
+          mistakes: ['Lifting lower back off floor', 'Making kicks too large', 'Moving legs too slowly', 'Not keeping legs straight'],
+          tips: ['Steady, rhythmic breathing', 'Exhale in short bursts', 'Don\'t hold your breath', 'Quick breathing matches leg tempo'] }
       ]
     }
   ];
@@ -628,7 +812,7 @@
     detailExList.innerHTML = '';
     wx.exercises.forEach((ex, i) => {
       const el = document.createElement('div');
-      el.className = 'p-4 bg-white dark:bg-gray-800 rounded-xl shadow-md';
+      el.className = 'p-4 bg-white dark:bg-gray-800 rounded-xl shadow-md border border-blue-200 dark:border-blue-700';
       el.innerHTML = `
         <div class="flex items-start gap-3">
           <div class="w-12 h-12 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700 overflow-hidden flex-shrink-0">
@@ -886,6 +1070,8 @@
       animationFallback.style.display = 'block';
     }
     
+    // Populate info panel
+    updateInfoPanel(ex);
     speak(`${ex.title}. ${isRepBased ? ex.reps + ' repetitions.' : ex.durationSeconds + ' seconds.'}`);
   }
 
@@ -893,6 +1079,72 @@
     const mm = Math.floor(s/60).toString().padStart(2,'0');
     const ss = (s%60).toString().padStart(2,'0');
     return mm + ':' + ss;
+  }
+
+  // Populate info panel (duration, focus chips, instructions, muscle highlights, mistakes/tips)
+  function updateInfoPanel(ex){
+    const infoDuration = document.getElementById('info-duration');
+    const infoInstructions = document.getElementById('info-instructions');
+    const focusContainer = document.getElementById('info-focus');
+    if (!infoDuration || !infoInstructions || !focusContainer) return;
+    const isRepBased = ex.reps && ex.reps > 0;
+    infoDuration.textContent = isRepBased ? `${ex.reps} reps` : formatTime(ex.durationSeconds || 0);
+    infoInstructions.textContent = ex.description || 'Perform the exercise with controlled movement and proper form.';
+    focusContainer.innerHTML = '';
+    const musclesList = (ex.muscles || '').split(',').map(s => s.trim()).filter(Boolean);
+    musclesList.forEach(m => {
+      const span = document.createElement('span');
+      span.className = 'info-chip';
+      span.textContent = m;
+      focusContainer.appendChild(span);
+    });
+    const musclesLower = musclesList.map(m => m.toLowerCase());
+    const map = {
+      'muscle-abs': ['core','abs'],
+      'muscle-glutes': ['glutes'],
+      'muscle-quadriceps': ['quadriceps','quads','legs'],
+      'muscle-calves': ['calves'],
+      'muscle-lower-back': ['lower back','back'],
+      'muscle-shoulders': ['shoulders'],
+      'muscle-arms': ['arms'],
+      'muscle-chest': ['chest']
+    };
+    // Clear highlights
+    Object.keys(map).forEach(cls => {
+      document.querySelectorAll(`.${cls}`).forEach(el => el.classList.remove('highlight'));
+    });
+    // Apply highlights
+    Object.entries(map).forEach(([cls, keys]) => {
+      const match = musclesLower.some(val => keys.some(k => val.includes(k)));
+      if (match) {
+        document.querySelectorAll(`.${cls}`).forEach(el => el.classList.add('highlight'));
+      }
+    });
+
+    // Populate common mistakes and breathing tips (if provided on exercise)
+    const mistakesEl = document.getElementById('info-mistakes');
+    const tipsEl = document.getElementById('info-tips');
+    if (mistakesEl) {
+      const defaultMistakes = [
+        'Poor posture (rounded back or collapsed shoulders)',
+        'Not engaging the core throughout the movement',
+        'Rushing reps and sacrificing form',
+        'Inadequate range of motion or locking joints',
+        'Holding your breath'
+      ];
+      const mistakes = (Array.isArray(ex.mistakes) && ex.mistakes.length > 0) ? ex.mistakes : defaultMistakes;
+      mistakesEl.innerHTML = mistakes.map(m => `<li>${m}</li>`).join('');
+    }
+    if (tipsEl) {
+      const defaultTips = [
+        'Exhale on effort; inhale on the easier phase',
+        'Maintain steady rhythm (inhale through nose, exhale through mouth)',
+        'Keep core engaged to stabilize your spine',
+        'Use slow, controlled reps; prioritize form over speed'
+      ];
+      const tips = (Array.isArray(ex.tips) && ex.tips.length > 0) ? ex.tips : defaultTips;
+      tipsEl.innerHTML = tips.map(t => `<li>${t}</li>`).join('');
+    }
   }
 
   function startPlayerTimer(){
