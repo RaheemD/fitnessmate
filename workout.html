@@ -261,76 +261,78 @@
             <div class="text-xs font-semibold text-gray-700 dark:text-gray-300">Instructions</div>
             <p id="info-instructions" class="text-xs text-gray-600 dark:text-gray-300 mt-1 leading-relaxed"></p>
             
-            <div class="mt-3 flex items-center justify-center gap-4">
-              <!-- Front View Human Figure -->
-              <svg id="muscle-front" width="100" height="130" viewBox="0 0 100 130" class="muscle-diagram">
-                <!-- Head -->
-                <circle cx="50" cy="12" r="8" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1"/>
-                
-                <!-- Torso outline -->
-                <path d="M42 20 Q50 18 58 20 L60 45 Q60 50 58 55 L55 70 Q50 72 45 70 L42 55 Q40 50 40 45 Z" 
-                      fill="#f9fafb" stroke="#d1d5db" stroke-width="1.5"/>
-                
-                <!-- Arms -->
-                <ellipse cx="35" cy="35" rx="4" ry="12" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-arms"/>
-                <ellipse cx="65" cy="35" rx="4" ry="12" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-arms"/>
-                
-                <!-- Chest -->
-                <ellipse cx="46" cy="28" rx="8" ry="6" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-chest"/>
-                <ellipse cx="54" cy="28" rx="8" ry="6" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-chest"/>
-                
-                <!-- Abs -->
-                <rect x="46" y="38" width="8" height="6" rx="2" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-abs"/>
-                <rect x="46" y="46" width="8" height="6" rx="2" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-abs"/>
-                <rect x="46" y="54" width="8" height="6" rx="2" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-abs"/>
-                
-                <!-- Legs outline -->
-                <path d="M42 70 L45 70 L47 95 L45 120 L40 120 L38 95 Z" fill="#f9fafb" stroke="#d1d5db" stroke-width="1.5"/>
-                <path d="M58 70 L55 70 L53 95 L55 120 L60 120 L62 95 Z" fill="#f9fafb" stroke="#d1d5db" stroke-width="1.5"/>
-                
-                <!-- Quadriceps -->
-                <ellipse cx="42" cy="80" rx="4" ry="10" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-quadriceps"/>
-                <ellipse cx="58" cy="80" rx="4" ry="10" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-quadriceps"/>
-                
-                <!-- Calves -->
-                <ellipse cx="42" cy="105" rx="3" ry="8" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-calves"/>
-                <ellipse cx="58" cy="105" rx="3" ry="8" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-calves"/>
+            <div class="mt-3 flex items-center justify-center gap-6">
+              <!-- Front View Human Figure - Anatomically Accurate -->
+              <svg id="muscle-front" width="110" height="150" viewBox="0 0 110 150" class="muscle-diagram">
+                <ellipse cx="55" cy="10" rx="7" ry="8" fill="#fef3c7" stroke="#d1d5db" stroke-width="0.8"/>
+                <circle cx="53" cy="9" r="1.5" fill="#374151"/><circle cx="57" cy="9" r="1.5" fill="#374151"/>
+                <path d="M50 16 L50 22 L60 22 L60 16" fill="#fef3c7" stroke="#d1d5db" stroke-width="0.8"/>
+                <path d="M42 22 Q45 20 50 20 Q55 20 60 20 Q65 20 68 22 L66 28 Q55 26 44 28 Z" class="muscle muscle-traps" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="38" cy="30" rx="6" ry="9" class="muscle muscle-shoulders" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8" transform="rotate(-15 38 30)"/>
+                <ellipse cx="72" cy="30" rx="6" ry="9" class="muscle muscle-shoulders" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8" transform="rotate(15 72 30)"/>
+                <path d="M48 24 Q50 23 55 23 Q55 28 54 32 Q50 34 48 32 Z" class="muscle muscle-chest" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <path d="M62 24 Q60 23 55 23 Q55 28 56 32 Q60 34 62 32 Z" class="muscle muscle-chest" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="35" cy="42" rx="4" ry="8" class="muscle muscle-biceps" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="75" cy="42" rx="4" ry="8" class="muscle muscle-biceps" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <path d="M33 51 L31 52 L30 66 L32 67 L34 66 L35 52 Z" class="muscle muscle-forearms" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <path d="M77 51 L79 52 L80 66 L78 67 L76 66 L75 52 Z" class="muscle muscle-forearms" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <rect x="48" y="36" width="6" height="5" rx="1.5" class="muscle muscle-abs" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <rect x="56" y="36" width="6" height="5" rx="1.5" class="muscle muscle-abs" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <rect x="48" y="42" width="6" height="5" rx="1.5" class="muscle muscle-abs" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <rect x="56" y="42" width="6" height="5" rx="1.5" class="muscle muscle-abs" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <rect x="48" y="48" width="6" height="5" rx="1.5" class="muscle muscle-abs" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <rect x="56" y="48" width="6" height="5" rx="1.5" class="muscle muscle-abs" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <path d="M44 42 L42 44 L40 50 L41 54 L44 54 L45 48 Z" class="muscle muscle-obliques" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <path d="M66 42 L68 44 L70 50 L69 54 L66 54 L65 48 Z" class="muscle muscle-obliques" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <path d="M44 54 Q48 56 55 56 Q62 56 66 54 L64 62 Q55 64 46 62 Z" fill="#f9fafb" stroke="#d1d5db" stroke-width="0.8"/>
+                <path d="M46 56 L44 58 L43 64 L45 64 L47 60 Z" class="muscle muscle-hip-flexors" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <path d="M64 56 L66 58 L67 64 L65 64 L63 60 Z" class="muscle muscle-hip-flexors" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="46" cy="75" rx="4.5" ry="13" class="muscle muscle-quadriceps" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="52" cy="75" rx="3.5" ry="12" class="muscle muscle-quadriceps" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="58" cy="75" rx="3.5" ry="12" class="muscle muscle-quadriceps" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="64" cy="75" rx="4.5" ry="13" class="muscle muscle-quadriceps" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <path d="M52 66 L54 66 L55 85 L54 86 L52 85 Z" class="muscle muscle-adductors" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <path d="M58 66 L56 66 L55 85 L56 86 L58 85 Z" class="muscle muscle-adductors" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="48" cy="92" rx="4" ry="3" fill="#fef3c7" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="62" cy="92" rx="4" ry="3" fill="#fef3c7" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="48" cy="108" rx="4" ry="10" class="muscle muscle-calves" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="62" cy="108" rx="4" ry="10" class="muscle muscle-calves" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="46" cy="125" rx="5" ry="3" fill="#fef3c7" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="64" cy="125" rx="5" ry="3" fill="#fef3c7" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="30" cy="68" rx="3" ry="4" fill="#fef3c7" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="80" cy="68" rx="3" ry="4" fill="#fef3c7" stroke="#d1d5db" stroke-width="0.8"/>
               </svg>
               
-              <!-- Back View Human Figure -->
-              <svg id="muscle-back" width="100" height="130" viewBox="0 0 100 130" class="muscle-diagram">
-                <!-- Head -->
-                <circle cx="50" cy="12" r="8" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1"/>
-                
-                <!-- Torso outline -->
-                <path d="M42 20 Q50 18 58 20 L60 45 Q60 50 58 55 L55 70 Q50 72 45 70 L42 55 Q40 50 40 45 Z" 
-                      fill="#f9fafb" stroke="#d1d5db" stroke-width="1.5"/>
-                
-                <!-- Shoulders -->
-                <ellipse cx="35" cy="30" rx="5" ry="8" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-shoulders"/>
-                <ellipse cx="65" cy="30" rx="5" ry="8" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-shoulders"/>
-                
-                <!-- Upper Back -->
-                <path d="M44 25 Q50 23 56 25 L58 40 Q50 42 42 40 Z" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-upper-back"/>
-                
-                <!-- Lower Back -->
-                <ellipse cx="50" cy="50" rx="8" ry="10" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-lower-back"/>
-                
-                <!-- Legs outline -->
-                <path d="M42 70 L45 70 L47 95 L45 120 L40 120 L38 95 Z" fill="#f9fafb" stroke="#d1d5db" stroke-width="1.5"/>
-                <path d="M58 70 L55 70 L53 95 L55 120 L60 120 L62 95 Z" fill="#f9fafb" stroke="#d1d5db" stroke-width="1.5"/>
-                
-                <!-- Glutes -->
-                <ellipse cx="42" cy="75" rx="4" ry="6" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-glutes"/>
-                <ellipse cx="58" cy="75" rx="4" ry="6" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-glutes"/>
-                
-                <!-- Hamstrings -->
-                <ellipse cx="42" cy="85" rx="3" ry="8" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-hamstrings"/>
-                <ellipse cx="58" cy="85" rx="3" ry="8" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-hamstrings"/>
-                
-                <!-- Calves -->
-                <ellipse cx="42" cy="105" rx="3" ry="8" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-calves"/>
-                <ellipse cx="58" cy="105" rx="3" ry="8" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" class="muscle muscle-calves"/>
+              <!-- Back View Human Figure - Anatomically Accurate -->
+              <svg id="muscle-back" width="110" height="150" viewBox="0 0 110 150" class="muscle-diagram">
+                <ellipse cx="55" cy="10" rx="7" ry="8" fill="#fef3c7" stroke="#d1d5db" stroke-width="0.8"/>
+                <path d="M50 16 L50 22 L60 22 L60 16" fill="#fef3c7" stroke="#d1d5db" stroke-width="0.8"/>
+                <path d="M42 22 Q45 21 50 21 Q55 20 60 21 Q65 21 68 22 L68 32 Q66 36 60 38 L50 38 Q44 36 42 32 Z" class="muscle muscle-traps" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="38" cy="30" rx="6" ry="9" class="muscle muscle-shoulders" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8" transform="rotate(-15 38 30)"/>
+                <ellipse cx="72" cy="30" rx="6" ry="9" class="muscle muscle-shoulders" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8" transform="rotate(15 72 30)"/>
+                <ellipse cx="35" cy="42" rx="4" ry="9" class="muscle muscle-triceps" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="75" cy="42" rx="4" ry="9" class="muscle muscle-triceps" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <path d="M33 51 L31 52 L30 66 L32 67 L34 66 L35 52 Z" class="muscle muscle-forearms" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <path d="M77 51 L79 52 L80 66 L78 67 L76 66 L75 52 Z" class="muscle muscle-forearms" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <path d="M46 32 Q48 34 50 38 L50 50 Q48 52 46 54 L42 48 Q40 42 42 36 Z" class="muscle muscle-lats" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <path d="M64 32 Q62 34 60 38 L60 50 Q62 52 64 54 L68 48 Q70 42 68 36 Z" class="muscle muscle-lats" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="50" cy="45" rx="3" ry="8" class="muscle muscle-lower-back" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="60" cy="45" rx="3" ry="8" class="muscle muscle-lower-back" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <path d="M47 50 Q50 52 55 52 Q60 52 63 50 L62 58 Q55 60 48 58 Z" class="muscle muscle-lower-back" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="47" cy="66" rx="6" ry="8" class="muscle muscle-glutes" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="63" cy="66" rx="6" ry="8" class="muscle muscle-glutes" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="45" cy="80" rx="4" ry="12" class="muscle muscle-hamstrings" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="51" cy="82" rx="3" ry="11" class="muscle muscle-hamstrings" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="59" cy="82" rx="3" ry="11" class="muscle muscle-hamstrings" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="65" cy="80" rx="4" ry="12" class="muscle muscle-hamstrings" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="48" cy="92" rx="4" ry="3" fill="#fef3c7" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="62" cy="92" rx="4" ry="3" fill="#fef3c7" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="47" cy="105" rx="5" ry="11" class="muscle muscle-calves" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="63" cy="105" rx="5" ry="11" class="muscle muscle-calves" fill="#f3f4f6" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="46" cy="125" rx="5" ry="3" fill="#fef3c7" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="64" cy="125" rx="5" ry="3" fill="#fef3c7" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="30" cy="68" rx="3" ry="4" fill="#fef3c7" stroke="#d1d5db" stroke-width="0.8"/>
+                <ellipse cx="80" cy="68" rx="3" ry="4" fill="#fef3c7" stroke="#d1d5db" stroke-width="0.8"/>
               </svg>
             </div>
             
@@ -392,10 +394,10 @@
       difficulty:'beginner',
       tag:'Full Body',
       exercises:[
-        { title:'Jumping Jack', sets:2, reps:15, rest:45, muscles:'Full Body', durationSeconds:25, animation:'Jumping Jack.mp4', description:'Start with feet together, arms at sides. Jump feet apart while raising arms overhead. Jump back to starting position.' },
-        { title:'Standing Side Bends', sets:2, reps:12, rest:30, muscles:'Core', durationSeconds:25, animation:'StandingSideBends.mp4', description:'Stand with feet hip-width apart, hands on hips. Lean to one side, engaging obliques. Return to center and repeat on other side.' },
-        { title:'Bridge', sets:2, reps:10, rest:45, muscles:'Glutes, Core', durationSeconds:30, animation:'Bridge.mp4', description:'Lie on back with knees bent, feet flat on floor. Squeeze glutes and lift hips up, creating straight line from knees to shoulders. Lower slowly.' },
-        { title:'Squats', sets:2, reps:8, rest:45, muscles:'Legs', durationSeconds:30, animation:'Squats.mp4', description:'Stand with feet shoulder-width apart. Lower hips back and down as if sitting in a chair. Keep chest up and knees behind toes. Return to standing.' }
+        { title:'Jumping Jack', sets:2, reps:15, rest:45, muscles:'Full Body, Cardio, Legs, Shoulders', durationSeconds:25, animation:'Jumping Jack.mp4', description:'Start with feet together, arms at sides. Jump feet apart while raising arms overhead. Jump back to starting position.' },
+        { title:'Standing Side Bends', sets:2, reps:12, rest:30, muscles:'Core, Obliques', durationSeconds:25, animation:'StandingSideBends.mp4', description:'Stand with feet hip-width apart, hands on hips. Lean to one side, engaging obliques. Return to center and repeat on other side.' },
+        { title:'Bridge', sets:2, reps:10, rest:45, muscles:'Glutes, Core, Hamstrings', durationSeconds:30, animation:'Bridge.mp4', description:'Lie on back with knees bent, feet flat on floor. Squeeze glutes and lift hips up, creating straight line from knees to shoulders. Lower slowly.' },
+        { title:'Squats', sets:2, reps:8, rest:45, muscles:'Legs, Quadriceps, Glutes', durationSeconds:30, animation:'Squats.mp4', description:'Stand with feet shoulder-width apart. Lower hips back and down as if sitting in a chair. Keep chest up and knees behind toes. Return to standing.' }
       ]
     },
 
@@ -458,13 +460,13 @@
       difficulty:'intermediate',
       tag:'Full Body',
       exercises:[
-        { title:'Burpees and Jump Exercise', sets:3, reps:8, rest:60, muscles:'Full Body', durationSeconds:45, animation:'Burpee and Jump Exercise.mp4', description:'Squat down, place hands on floor, jump feet back to plank. Do push-up, jump feet forward, then jump up with arms overhead.',
+        { title:'Burpees and Jump Exercise', sets:3, reps:8, rest:60, muscles:'Full Body, Chest, Legs, Core', durationSeconds:45, animation:'Burpee and Jump Exercise.mp4', description:'Squat down, place hands on floor, jump feet back to plank. Do push-up, jump feet forward, then jump up with arms overhead.',
           mistakes: ['Not doing full push-up in plank', 'Landing hard from jump', 'Not jumping feet close enough to hands', 'Rushing through without proper form'],
           tips: ['Exhale during push-up and jump phases', 'Inhale during transitions', 'Quick breaths between movements', 'Use breathing to pace the exercise'] },
-        { title:'Inchworm', sets:3, reps:8, rest:60, muscles:'Full Body', durationSeconds:40, animation:'Inchworm.mp4', description:'Stand tall, bend forward and place hands on floor. Walk hands forward to plank position, then walk feet toward hands. Return to standing.',
+        { title:'Inchworm', sets:3, reps:8, rest:60, muscles:'Full Body, Core, Shoulders, Hamstrings', durationSeconds:40, animation:'Inchworm.mp4', description:'Stand tall, bend forward and place hands on floor. Walk hands forward to plank position, then walk feet toward hands. Return to standing.',
           mistakes: ['Bending knees when walking hands out', 'Not reaching full plank position', 'Walking feet too close to hands', 'Moving too quickly without control'],
           tips: ['Exhale as you walk hands forward', 'Inhale as you walk feet toward hands', 'Breathe steadily during the movement', 'Control breathing helps maintain form'] },
-        { title:'Jumping Jack', sets:3, reps:20, rest:45, muscles:'Cardio, Legs', durationSeconds:35, animation:'Jumping Jack.mp4', description:'Start with feet together, arms at sides. Jump feet apart while raising arms overhead. Jump back to starting position. Maintain rhythm throughout.',
+        { title:'Jumping Jack', sets:3, reps:20, rest:45, muscles:'Full Body, Cardio, Legs, Shoulders', durationSeconds:35, animation:'Jumping Jack.mp4', description:'Start with feet together, arms at sides. Jump feet apart while raising arms overhead. Jump back to starting position. Maintain rhythm throughout.',
           mistakes: ['Not jumping feet wide enough', 'Arms not reaching overhead', 'Landing too heavily', 'Losing rhythm and coordination'],
           tips: ['Exhale as you jump feet apart', 'Inhale as you return to center', 'Maintain steady breathing rhythm', 'Breathe through nose for endurance'] },
         { title:'Reverse Crunches', sets:3, reps:15, rest:45, muscles:'Core', durationSeconds:35, animation:'Reverse Crunches.mp4', description:'Lie on back, knees bent at 90 degrees. Lift hips off floor by contracting abs, bringing knees toward chest. Lower slowly.',
@@ -537,10 +539,10 @@
       difficulty:'advanced',
       tag:'Full Body',
       exercises:[
-        { title:'Burpee and Jump Exercise', sets:4, reps:12, rest:75, muscles:'Full Body Power', durationSeconds:60, animation:'Burpee and Jump Exercise.mp4', description:'Perform a burpee with an explosive jump at the end. Focus on maximum height and power in the jump phase.',
+        { title:'Burpee and Jump Exercise', sets:4, reps:12, rest:75, muscles:'Full Body, Chest, Legs, Core, Power', durationSeconds:60, animation:'Burpee and Jump Exercise.mp4', description:'Perform a burpee with an explosive jump at the end. Focus on maximum height and power in the jump phase.',
           mistakes: ['Not jumping high enough', 'Poor form during burpee portion', 'Landing too hard', 'Rushing through the movement'],
           tips: ['Exhale explosively during jump', 'Inhale as you drop down', 'Quick breathing during transitions', 'Deep breath before each rep'] },
-        { title:'Spiderman Push-up', sets:4, reps:10, rest:60, muscles:'Full Body', durationSeconds:55, animation:'spiderman push-up.mp4', description:'Perform push-up while bringing knee to elbow. Alternate sides with each rep. Combines upper body strength with core stability.',
+        { title:'Spiderman Push-up', sets:4, reps:10, rest:60, muscles:'Full Body, Chest, Core, Triceps', durationSeconds:55, animation:'spiderman push-up.mp4', description:'Perform push-up while bringing knee to elbow. Alternate sides with each rep. Combines upper body strength with core stability.',
           mistakes: ['Not bringing knee close enough to elbow', 'Losing push-up form', 'Moving too quickly', 'Not alternating sides properly'],
           tips: ['Exhale as you push up and bring knee', 'Inhale as you lower down', 'Controlled breathing for coordination', 'Steady rhythm helps balance'] },
         { title:'Seated Abs Circles', sets:4, reps:20, rest:45, muscles:'Core', durationSeconds:40, animation:'Seated abs circles.mp4', description:'Sit with legs extended, lean back slightly. Make circular motions with torso, engaging core throughout the movement.',
@@ -1100,26 +1102,68 @@
     });
     const musclesLower = musclesList.map(m => m.toLowerCase());
     const map = {
-      'muscle-abs': ['core','abs'],
-      'muscle-glutes': ['glutes'],
-      'muscle-quadriceps': ['quadriceps','quads','legs'],
-      'muscle-calves': ['calves'],
-      'muscle-lower-back': ['lower back','back'],
-      'muscle-shoulders': ['shoulders'],
-      'muscle-arms': ['arms'],
-      'muscle-chest': ['chest']
+      'muscle-abs': ['core','abs','abdominals'],
+      'muscle-obliques': ['obliques'],
+      'muscle-glutes': ['glutes','gluteus','butt'],
+      'muscle-quadriceps': ['quadriceps','quads'],
+      'muscle-hamstrings': ['hamstrings'],
+      'muscle-calves': ['calves','calf'],
+      'muscle-adductors': ['adductors','inner thigh','groin'],
+      'muscle-hip-flexors': ['hip flexors','hip'],
+      'muscle-lower-back': ['lower back','erector'],
+      'muscle-lats': ['lats','latissimus'],
+      'muscle-traps': ['traps','trapezius'],
+      'muscle-shoulders': ['shoulders','deltoids','delts'],
+      'muscle-biceps': ['biceps'],
+      'muscle-triceps': ['triceps'],
+      'muscle-forearms': ['forearms'],
+      'muscle-chest': ['chest','pectorals','pecs']
     };
-    // Clear highlights
+    
+    // Clear all highlights first
     Object.keys(map).forEach(cls => {
       document.querySelectorAll(`.${cls}`).forEach(el => el.classList.remove('highlight'));
     });
-    // Apply highlights
-    Object.entries(map).forEach(([cls, keys]) => {
-      const match = musclesLower.some(val => keys.some(k => val.includes(k)));
-      if (match) {
+    
+    // Check for "Full Body" exercises and highlight multiple muscle groups
+    const isFullBody = musclesLower.some(m => m.includes('full body') || m.includes('fullbody'));
+    if (isFullBody) {
+      // Highlight primary muscle groups for full body workouts
+      const fullBodyMuscles = ['muscle-chest', 'muscle-abs', 'muscle-quadriceps', 'muscle-shoulders', 
+                               'muscle-glutes', 'muscle-calves', 'muscle-hamstrings', 'muscle-triceps'];
+      fullBodyMuscles.forEach(cls => {
         document.querySelectorAll(`.${cls}`).forEach(el => el.classList.add('highlight'));
+      });
+    } else {
+      // Apply specific muscle highlights based on exercise muscles
+      Object.entries(map).forEach(([cls, keys]) => {
+        const match = musclesLower.some(val => keys.some(k => val.includes(k)));
+        if (match) {
+          document.querySelectorAll(`.${cls}`).forEach(el => el.classList.add('highlight'));
+        }
+      });
+      
+      // Handle "Legs" keyword to highlight both quads and hamstrings
+      if (musclesLower.some(m => m.includes('legs') || m.includes('leg'))) {
+        document.querySelectorAll('.muscle-quadriceps, .muscle-hamstrings, .muscle-calves').forEach(el => {
+          el.classList.add('highlight');
+        });
       }
-    });
+      
+      // Handle "Arms" keyword to highlight biceps, triceps, and forearms
+      if (musclesLower.some(m => m.includes('arms') || m.includes('arm'))) {
+        document.querySelectorAll('.muscle-biceps, .muscle-triceps, .muscle-forearms').forEach(el => {
+          el.classList.add('highlight');
+        });
+      }
+      
+      // Handle "Back" keyword to highlight all back muscles
+      if (musclesLower.some(m => m === 'back' || m.includes('back'))) {
+        document.querySelectorAll('.muscle-lats, .muscle-traps, .muscle-lower-back').forEach(el => {
+          el.classList.add('highlight');
+        });
+      }
+    }
 
     // Populate common mistakes and breathing tips (if provided on exercise)
     const mistakesEl = document.getElementById('info-mistakes');
@@ -1181,6 +1225,10 @@
     playerReps.textContent = 'Take a break';
     playerPause.innerHTML = '↻';
     playerPause.title = 'Reset Rest Timer';
+    
+    // Keep showing the same exercise animation during rest between sets
+    // Animation is already displayed from the previous set, so no need to update it
+    // The animation continues playing which is good for user preview
     
     speak(`Rest for ${currentEx.rest} seconds.`);
     saveWorkoutState();
@@ -1322,6 +1370,62 @@
         
         restTime = 30; // 30 seconds rest between exercises
         playerTimer.textContent = formatTime(restTime);
+        
+        // CRITICAL FIX: Show the upcoming exercise animation during rest period
+        // This helps users mentally prepare for the next exercise
+        const animationVideo = document.getElementById('player-animation');
+        const animationLottie = document.getElementById('player-lottie');
+        const animationFallback = document.getElementById('player-animation-fallback');
+        
+        if (nextEx.animation) {
+          const isLottie = /\.json$/i.test(nextEx.animation);
+          
+          if (isLottie) {
+            // Hide and reset video
+            animationVideo.pause();
+            animationVideo.removeAttribute('src');
+            animationVideo.style.display = 'none';
+            
+            // Show lottie for upcoming exercise
+            animationLottie.style.opacity = '0';
+            animationLottie.style.display = 'block';
+            animationFallback.style.display = 'none';
+            animationLottie.setAttribute('src', `./animations/${nextEx.animation}`);
+            
+            const onLottieLoad = () => {
+              animationLottie.removeEventListener('load', onLottieLoad);
+              animationLottie.style.transition = 'opacity 250ms ease-in-out';
+              animationLottie.style.opacity = '1';
+            };
+            animationLottie.addEventListener('load', onLottieLoad);
+          } else {
+            // Use MP4 video for upcoming exercise
+            animationLottie.removeAttribute('src');
+            animationLottie.style.display = 'none';
+            animationVideo.style.opacity = '0';
+            animationVideo.style.display = 'block';
+            animationFallback.style.display = 'none';
+            animationVideo.src = `./animations/${nextEx.animation}`;
+            animationVideo.load();
+            const onCanPlay = () => {
+              animationVideo.removeEventListener('canplay', onCanPlay);
+              animationVideo.style.transition = 'opacity 250ms ease-in-out';
+              animationVideo.style.opacity = '1';
+            };
+            animationVideo.addEventListener('canplay', onCanPlay);
+          }
+        } else {
+          // No animation available: show fallback
+          animationVideo.pause();
+          animationVideo.removeAttribute('src');
+          animationVideo.style.display = 'none';
+          animationLottie.removeAttribute('src');
+          animationLottie.style.display = 'none';
+          animationFallback.style.display = 'block';
+        }
+        
+        // Update info panel with upcoming exercise details
+        updateInfoPanel(nextEx);
         
         timerInterval = setInterval(() => {
           if (!isPaused) {
