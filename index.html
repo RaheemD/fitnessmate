@@ -4770,7 +4770,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
                           </button>
                           <button 
                             className={`
-                              flex-1 py-3 rounded-lg font-small text-white
+                              flex-1 py-3 rounded-lg font-medium text-white
                               ${selectedPackage ? 'bg-pink-500 hover:bg-pink-600' : 'bg-gray-300 dark:bg-gray-700 cursor-not-allowed'}
                             `}
                             disabled={!selectedPackage} 
@@ -11188,13 +11188,6 @@ ${habits.map(habit => {
 
       const [selectedChannel, setSelectedChannel] = useState('all');
       const [shortOnly, setShortOnly] = useState(false);
-      const [videoEmbeds, setVideoEmbeds] = useState({});
-      const [videoSearches, setVideoSearches] = useState({}); // per-exercise search query
-      const [videoPlaylistIds, setVideoPlaylistIds] = useState({}); // per-exercise playlist video IDs from search
-      const [videoPlayerVisible, setVideoPlayerVisible] = useState({}); // per-exercise player visibility
-      const ytPlayersRef = useRef({}); // store YT players by exercise index
-      const ytSkipCountsRef = useRef({}); // track skip attempts per index
-      const ytStuckTimersRef = useRef({}); // timers to detect stuck playback
 
       // Helpers to generate YouTube search URLs with channel/duration preferences
       const normalizeExerciseName = (exerciseName) => {
@@ -11243,137 +11236,6 @@ ${habits.map(habit => {
         const biased = `${query} \"${ch?.label || ''}\"`;
         return `https://www.youtube.com/results?search_query=${encodeURIComponent(biased)}&hl=en`;
       };
-
-      // Convert a normal YouTube search URL to an embeddable playlist player URL
-      const toEmbedUrlFromSearchHref = (href) => {
-        try {
-          const u = new URL(href);
-          const q = u.searchParams.get('search_query') || u.searchParams.get('query') || '';
-          if (!q) return null;
-          return `https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(q)}`;
-        } catch (e) {
-          return null;
-        }
-      };
-
-      // Extract the raw search query from a YouTube search URL
-      const getQueryFromSearchHref = (href) => {
-        try {
-          const u = new URL(href);
-          return (u.searchParams.get('search_query') || u.searchParams.get('query') || '').trim();
-        } catch {
-          return '';
-        }
-      };
-
-      // Lazily load the YouTube IFrame API and resolve when ready
-      const ensureYTAPI = () => new Promise((resolve) => {
-        if (window.YT && window.YT.Player) return resolve();
-        const id = 'yt-iframe-api';
-        if (!document.getElementById(id)) {
-          const tag = document.createElement('script');
-          tag.src = 'https://www.youtube.com/iframe_api';
-          tag.id = id;
-          document.head.appendChild(tag);
-        }
-        const check = () => {
-          if (window.YT && window.YT.Player) return resolve();
-          setTimeout(check, 100);
-        };
-        check();
-      });
-
-      // Instantiate/refresh players whenever a video's search query is set
-      useEffect(() => {
-        const entries = Object.entries(videoSearches);
-        if (!entries.length) return;
-        entries.forEach(([iStr, query]) => {
-          const i = Number(iStr);
-          const containerId = `yt-search-player-${i}`;
-          if (!query || !document.getElementById(containerId)) return;
-          ensureYTAPI().then(() => {
-            const existing = ytPlayersRef.current[i];
-            const cycleNext = (target) => {
-              ytSkipCountsRef.current[i] = (ytSkipCountsRef.current[i] || 0) + 1;
-              if (ytSkipCountsRef.current[i] > 10) return; // stop after several tries
-              try { target.nextVideo(); } catch {}
-            };
-            const scheduleStuckGuard = (target) => {
-              clearTimeout(ytStuckTimersRef.current[i]);
-              ytStuckTimersRef.current[i] = setTimeout(() => {
-                // If still not playing after a moment, skip
-                try {
-                  const state = target.getPlayerState?.();
-                  const YTPS = window.YT?.PlayerState || {};
-                  if (state === YTPS.UNSTARTED || state === YTPS.CUED || state === YTPS.BUFFERING) {
-                    cycleNext(target);
-                  }
-                } catch {}
-              }, 2500);
-            };
-            const capturePlaylist = (target) => {
-              try {
-                const ids = target.getPlaylist?.() || [];
-                if (ids && ids.length) {
-                  setVideoPlaylistIds(prev => {
-                    const existingIds = prev[i] || [];
-                    if (existingIds.length === ids.length && existingIds.every((v, idx) => v === ids[idx])) return prev;
-                    return { ...prev, [i]: ids };
-                  });
-                }
-              } catch {}
-            };
-            const buildOrRefresh = (/*player*/) => {
-              // Always (re)create to reliably apply search list
-              try { existing?.destroy?.(); } catch {}
-              ytPlayersRef.current[i] = new window.YT.Player(containerId, {
-                width: '100%',
-                height: '100%',
-                playerVars: {
-                  rel: 0,
-                  modestbranding: 1,
-                  autoplay: 0,
-                  playsinline: 1,
-                  origin: window.location.origin,
-                  enablejsapi: 1
-                },
-                events: {
-                  onReady: (e) => {
-                    try {
-                      // Do not autoplay; load search results as a cued playlist
-                      e.target.cuePlaylist({ listType: 'search', list: query });
-                      setTimeout(() => capturePlaylist(e.target), 300);
-                    } catch {}
-                  },
-                  onError: (e) => {
-                    // Skip unembeddable or invalid results if user attempts to play
-                    cycleNext(e.target);
-                  },
-                  onStateChange: (e) => {
-                    const YTPS = window.YT?.PlayerState || {};
-                    if (e.data === YTPS.CUED) {
-                      capturePlaylist(e.target);
-                    }
-                    if (e.data === YTPS.PLAYING) {
-                      clearTimeout(ytStuckTimersRef.current[i]);
-                      capturePlaylist(e.target);
-                    }
-                  }
-                }
-              });
-            };
-            buildOrRefresh();
-          });
-        });
-        // Cleanup players whose container was removed
-        Object.keys(ytPlayersRef.current).forEach((k) => {
-          const idx = Number(k);
-          if (!document.getElementById(`yt-search-player-${idx}`)) {
-            try { ytPlayersRef.current[idx]?.destroy?.(); } catch {}
-            delete ytPlayersRef.current[idx];
-          }
-        });
-      }, [videoSearches]);
 
       return (
         <div className="space-y-4 sm:space-y-6">
@@ -11441,7 +11303,7 @@ ${habits.map(habit => {
                         href={getYouTubeChannelSearchUrl(exercise.name)} 
                         target="_blank" 
                         rel="noopener noreferrer"
-                        onClick={(e) => { e.preventDefault(); const href = getYouTubeChannelSearchUrl(exercise.name); const baseQ = getQueryFromSearchHref(href); setVideoPlayerVisible(v => ({ ...v, [index]: false })); if (baseQ) setVideoSearches(v => ({ ...v, [index]: baseQ })); }} className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 text-sm sm:text-base w-full sm:w-auto"
+                        className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 text-sm sm:text-base w-full sm:w-auto"
                       >
                         <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -11453,7 +11315,7 @@ ${habits.map(habit => {
                       href={getYouTubeGlobalSearchUrl(exercise.name)} 
                       target="_blank" 
                       rel="noopener noreferrer"
-                      onClick={(e) => { e.preventDefault(); const href = getYouTubeGlobalSearchUrl(exercise.name); const q = getQueryFromSearchHref(href); setVideoPlayerVisible(v => ({ ...v, [index]: false })); if (q) setVideoSearches(v => ({ ...v, [index]: q })); }} className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 text-sm sm:text-base w-full sm:w-auto"
+                      className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 text-sm sm:text-base w-full sm:w-auto"
                     >
                       <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -11463,65 +11325,6 @@ ${habits.map(habit => {
                   </div>
                 </div>
               </div>
-              {videoSearches[index] && (
-                <div className="mt-3">
-                  <div className="w-full rounded-lg overflow-hidden bg-black" style={{ position: 'relative', paddingTop: '56.25%', display: videoPlayerVisible[index] ? 'block' : 'none' }}>
-                    <div id={`yt-search-player-${index}`} className="absolute inset-0 w-full h-full"></div>
-                  </div>
-                  {Array.isArray(videoPlaylistIds[index]) && videoPlaylistIds[index].length > 0 && (
-                    <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-                      {videoPlaylistIds[index].map((vid, vIdx) => (
-                        <button
-                          key={vid + String(vIdx)}
-                          onClick={() => {
-                            setVideoPlayerVisible(v => ({ ...v, [index]: true }));
-                            try {
-                              const player = ytPlayersRef.current[index];
-                              player?.playVideoAt(vIdx);
-                              setTimeout(() => {
-                                try {
-                                  const state = player?.getPlayerState?.();
-                                  const YTPS = window.YT?.PlayerState || {};
-                                  if (state !== YTPS.PLAYING) player?.nextVideo?.();
-                                } catch {}
-                              }, 2500);
-                            } catch {}
-                          }}
-                          className="relative flex-shrink-0 w-40 h-24 rounded-md overflow-hidden bg-gray-800 group"
-                          aria-label={`Play result ${vIdx + 1}`}
-                        >
-                          <img src={`https://i.ytimg.com/vi/${vid}/mqdefault.jpg`} alt="" loading="lazy" className="w-full h-full object-cover" />
-                          <span className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity" />
-                          <span className="absolute left-1 top-1 text-[10px] px-1.5 py-0.5 rounded bg-black/60 text-white">{vIdx + 1}</span>
-                          <span className="absolute right-1 bottom-1 text-xs text-white">▶</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <div className="mt-2 flex items-center justify-between">
-                    <a
-                      href={selectedChannel !== 'all' ? getYouTubeChannelSearchUrl(exercise.name) : getYouTubeGlobalSearchUrl(exercise.name)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs sm:text-sm text-gray-600 dark:text-gray-300 hover:underline"
-                    >
-                      Open full results on YouTube
-                    </a>
-                    <button
-                      onClick={() => {
-                        try { ytPlayersRef.current[index]?.destroy?.(); } catch {}
-                        delete ytPlayersRef.current[index];
-                        setVideoPlaylistIds(v => { const nv = { ...v }; delete nv[index]; return nv; });
-                        setVideoSearches(v => { const nv = { ...v }; delete nv[index]; return nv; });
-                        setVideoPlayerVisible(v => { const nv = { ...v }; delete nv[index]; return nv; });
-                      }}
-                      className="text-xs sm:text-sm text-red-700 dark:text-red-300 hover:underline"
-                    >
-                      Close
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
           ))}
         </div>
