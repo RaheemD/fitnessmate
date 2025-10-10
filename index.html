@@ -4770,7 +4770,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
                           </button>
                           <button 
                             className={`
-                              flex-1 py-3 rounded-lg font-medium text-white
+                              flex-1 py-3 rounded-lg font-small text-white
                               ${selectedPackage ? 'bg-pink-500 hover:bg-pink-600' : 'bg-gray-300 dark:bg-gray-700 cursor-not-allowed'}
                             `}
                             disabled={!selectedPackage} 
@@ -11161,6 +11161,51 @@ ${habits.map(habit => {
       );
     };
 
+    // Video Modal Component
+    const VideoModal = ({ videoId, onClose }) => {
+      if (!videoId) return null;
+      
+      return React.createElement('div', {
+        className: 'fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4',
+        onClick: onClose
+      },
+        React.createElement('div', {
+          className: 'w-full max-w-4xl bg-black rounded-xl overflow-hidden shadow-2xl',
+          onClick: e => e.stopPropagation()
+        },
+          React.createElement('div', { className: 'relative pt-[56.25%]' },
+            React.createElement('iframe', {
+              className: 'absolute top-0 left-0 w-full h-full',
+              src: `https://www.youtube.com/embed/${videoId}?autoplay=1&modestbranding=1&rel=0`,
+              title: 'YouTube video player',
+              frameBorder: '0',
+              allow: 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture',
+              allowFullScreen: true
+            })
+          ),
+          React.createElement('button', {
+            onClick: onClose,
+            className: 'absolute top-4 right-4 bg-black/70 text-white rounded-full p-2 hover:bg-black/90 transition-colors',
+            'aria-label': 'Close video'
+          },
+            React.createElement('svg', {
+              className: 'w-6 h-6',
+              fill: 'none',
+              stroke: 'currentColor',
+              viewBox: '0 0 24 24'
+            },
+              React.createElement('path', {
+                strokeLinecap: 'round',
+                strokeLinejoin: 'round',
+                strokeWidth: 2,
+                d: 'M6 18L18 6M6 6l12 12'
+              })
+            )
+          )
+        )
+      );
+    };
+
     // Workout Plan Display Component
     const WorkoutPlanDisplay = ({ workoutPlan }) => {
       // Channel allowlist (label + YouTube handle if known). If handle missing, we fall back to general search including label.
@@ -11188,6 +11233,45 @@ ${habits.map(habit => {
 
       const [selectedChannel, setSelectedChannel] = useState('all');
       const [shortOnly, setShortOnly] = useState(false);
+      const [currentVideo, setCurrentVideo] = useState(null);
+      const [searchResults, setSearchResults] = useState({});
+
+      // Extract video ID from YouTube URL
+      const extractVideoId = (url) => {
+        if (!url) return null;
+        const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+        const match = url.match(regExp);
+        return (match && match[2].length === 11) ? match[2] : null;
+      };
+
+      // Handle video search
+      const handleVideoSearch = async (exerciseName, isChannelSearch = false) => {
+        try {
+          // In a real app, you would call your backend API to search YouTube
+          // For now, we'll just open the search URL in the modal
+          const searchUrl = isChannelSearch 
+            ? getYouTubeChannelSearchUrl(exerciseName)
+            : getYouTubeGlobalSearchUrl(exerciseName);
+          
+          // Extract video ID from the first result (simplified example)
+          // In a real implementation, you would fetch search results from your backend
+          // and let the user select a video from the results
+          const videoId = extractVideoId(searchUrl);
+          
+          if (videoId) {
+            setCurrentVideo(videoId);
+          } else {
+            // Fallback to opening in a new tab if we can't get a video ID
+            window.open(searchUrl, '_blank');
+          }
+        } catch (error) {
+          console.error('Error searching for videos:', error);
+          const searchUrl = isChannelSearch 
+            ? getYouTubeChannelSearchUrl(exerciseName)
+            : getYouTubeGlobalSearchUrl(exerciseName);
+          window.open(searchUrl, '_blank');
+        }
+      };
 
       // Helpers to generate YouTube search URLs with channel/duration preferences
       const normalizeExerciseName = (exerciseName) => {
@@ -11238,7 +11322,14 @@ ${habits.map(habit => {
       };
 
       return (
-        <div className="space-y-4 sm:space-y-6">
+        <div className="space-y-4 sm:space-y-6 relative">
+          {/* Video Modal */}
+          {currentVideo && (
+            <VideoModal 
+              videoId={currentVideo} 
+              onClose={() => setCurrentVideo(null)} 
+            />
+          )}
           {workoutPlan.exercises.map((exercise, index) => (
             <div key={index} className="bg-white dark:bg-gray-800 rounded-lg p-4 sm:p-6 shadow-md">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-2">
@@ -11299,29 +11390,25 @@ ${habits.map(habit => {
                       Prefer shorter
                     </label>
                     {selectedChannel !== 'all' && (
-                      <a 
-                        href={getYouTubeChannelSearchUrl(exercise.name)} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
+                      <button
+                        onClick={() => handleVideoSearch(exercise.name, true)}
                         className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 text-sm sm:text-base w-full sm:w-auto"
                       >
                         <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                         </svg>
                         Search This Channel
-                      </a>
+                      </button>
                     )}
-                    <a 
-                      href={getYouTubeGlobalSearchUrl(exercise.name)} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
+                    <button
+                      onClick={() => handleVideoSearch(exercise.name, false)}
                       className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 text-sm sm:text-base w-full sm:w-auto"
                     >
                       <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                       </svg>
                       Search All
-                    </a>
+                    </button>
                   </div>
                 </div>
               </div>
