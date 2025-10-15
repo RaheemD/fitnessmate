@@ -530,6 +530,7 @@ Respond ONLY with a valid JSON object in this exact format:
 
     // Initialize Supabase
     let supabase, auth, currentUser = null;
+    const USERS_REALTIME_ENABLED = false;
     try {
       const { createClient } = window.supabase;
       supabase = createClient(supabaseConfig.url, supabaseConfig.anonKey);
@@ -593,7 +594,7 @@ Respond ONLY with a valid JSON object in this exact format:
       async createUser(userId, userData) {
         const { data, error } = await supabase
           .from('users')
-          .insert([{ id: userId, ...userData }]);
+          .insert([{ id: userId, ...userData }], { returning: 'minimal' });
         if (error) throw error;
         return data;
       },
@@ -601,7 +602,7 @@ Respond ONLY with a valid JSON object in this exact format:
       async getUser(userId) {
         const { data, error } = await supabase
           .from('users')
-          .select('*')
+          .select('id, updated_at, goals, profile_picture, notifications_enabled, dark_mode, daily_intake, recent_meals, daily_history, coach_messages, habit_ai_advice, habits, meal_plan, workout_plan, scan_result, form_analysis, subscription')
           .eq('id', userId)
           .single();
         if (error && error.code !== 'PGRST116') throw error; // PGRST116 = not found
@@ -633,7 +634,7 @@ Respond ONLY with a valid JSON object in this exact format:
         
         const { data, error } = await supabase
           .from('users')
-          .update(cleanedData)
+          .update(cleanedData, { returning: 'minimal' })
           .eq('id', userId);
         if (error) {
           console.error('Supabase update error:', error);
@@ -661,7 +662,7 @@ Respond ONLY with a valid JSON object in this exact format:
         
         const { data, error } = await supabase
           .from('users')
-          .upsert([cleanedData]);
+          .upsert([cleanedData], { returning: 'minimal' });
         if (error) {
           console.error('Supabase upsert error:', error);
           throw error;
@@ -673,7 +674,7 @@ Respond ONLY with a valid JSON object in this exact format:
       async addWorkoutHistory(userId, workoutData) {
         const { data, error } = await supabase
           .from('workout_history')
-          .insert([{ user_id: userId, ...workoutData }]);
+          .insert([{ user_id: userId, ...workoutData }], { returning: 'minimal' });
         if (error) throw error;
         return data;
       },
@@ -682,7 +683,7 @@ Respond ONLY with a valid JSON object in this exact format:
       async addBooking(userId, bookingData) {
         const { data, error } = await supabase
           .from('bookings')
-          .insert([{ user_id: userId, ...bookingData }]);
+          .insert([{ user_id: userId, ...bookingData }], { returning: 'minimal' });
         if (error) throw error;
         return data;
       },
@@ -1020,11 +1021,11 @@ Respond ONLY with a valid JSON object in this exact format:
                     const todayISO = toLocalISODate(new Date());
                     const localIntakeDate = localStorage.getItem('dailyIntakeDate');
                     const lastSaved = localStorage.getItem('lastSavedDate');
-                    const rolledToToday = localIntakeDate === todayISO && lastSaved === todayISO;
+                    const dayChanged = (localIntakeDate !== todayISO || lastSaved !== todayISO);
                     const localIntake = (() => { try { return JSON.parse(localStorage.getItem('dailyIntake')||'{}'); } catch { return {}; } })();
                     const localIsZero = ['calories','protein','carbs','fat','activity','water'].every(k => Number(localIntake[k]||0) === 0);
                     const remoteHasNonZero = ['calories','protein','carbs','fat','activity','water'].some(k => Number(userData.daily_intake?.[k]||0) > 0);
-                    if (rolledToToday && localIsZero && remoteHasNonZero) {
+                    if (dayChanged && localIsZero && remoteHasNonZero) {
                       console.log('⏭️ Skipping remote daily_intake to prevent post-rollover flicker');
                     } else {
                       localStorage.setItem('dailyIntake', JSON.stringify(userData.daily_intake));
@@ -1063,6 +1064,10 @@ Respond ONLY with a valid JSON object in this exact format:
                 localStorage.setItem('habits', JSON.stringify(userData.habits));
                 console.log('✅ Habits synced to localStorage');
               }
+              if (userData.subscription) {
+                try { localStorage.setItem('subscriptionActive', JSON.stringify(!!userData.subscription.active)); } catch (_) {}
+                try { window.dispatchEvent(new CustomEvent('subscription-status-changed', { detail: { active: !!userData.subscription.active } })); } catch (_) {}
+              }
               // Skip syncing dark_mode from remote - it's a local UI preference
               // if (userData.dark_mode !== undefined) {
               //   localStorage.setItem('fitmate-dark-mode', userData.dark_mode.toString());
@@ -1085,7 +1090,7 @@ Respond ONLY with a valid JSON object in this exact format:
           // Remote-only: fetch remote history and set locally (no merge, no local upsert)
           const { data: remoteHistory, error: historyError } = await supabase
             .from('workout_history')
-            .select('*')
+            .select('id, user_id, timestamp, duration, exercises_completed, total_exercises, completion_rate, type, workout_title, workout_level, incomplete')
             .eq('user_id', effectiveUser.id)
             .order('timestamp', { ascending: false })
             .limit(100);
@@ -1152,7 +1157,7 @@ Respond ONLY with a valid JSON object in this exact format:
           // Now fetch complete history from Supabase
           const { data: remoteHistory, error: historyError } = await supabase
             .from('workout_history')
-            .select('*')
+            .select('id, user_id, timestamp, duration, exercises_completed, total_exercises, completion_rate, type, workout_title, workout_level, incomplete')
             .eq('user_id', effectiveUser.id)
             .order('timestamp', { ascending: false })
             .limit(100); // Get more history for better sync
@@ -1873,7 +1878,7 @@ Respond ONLY with a valid JSON object in this exact format:
 
       // Real-time listener for cross-device sync (using Supabase subscriptions)
       React.useEffect(() => {
-        if (!user || !supabase) return;
+        if (!user || !supabase || !USERS_REALTIME_ENABLED) return;
         
         console.log('🔗 Setting up real-time sync listener for user:', user.id);
         
@@ -1897,12 +1902,12 @@ Respond ONLY with a valid JSON object in this exact format:
                   const todayISO = toLocalISODate(new Date());
                   const localIntakeDate = localStorage.getItem('dailyIntakeDate');
                   const lastSaved = localStorage.getItem('lastSavedDate');
-                  const rolledToToday = localIntakeDate === todayISO && lastSaved === todayISO;
+                  const dayChanged = (localIntakeDate !== todayISO || lastSaved !== todayISO);
                   const localIntake = (() => { try { return JSON.parse(localStorage.getItem('dailyIntake')||'{}'); } catch { return {}; } })();
                   const localIsZero = ['calories','protein','carbs','fat','activity','water'].every(k => Number(localIntake[k]||0) === 0);
                   const remoteHasNonZero = ['calories','protein','carbs','fat','activity','water'].some(k => Number(remoteData.daily_intake?.[k]||0) > 0);
                   const isNewDevice = !localStorage.getItem('lastSyncTimestamp');
-                  if (!isNewDevice && rolledToToday && localIsZero && remoteHasNonZero) {
+                  if (!isNewDevice && dayChanged && localIsZero && remoteHasNonZero) {
                     console.log('⏭️ Skipping remote daily_intake (initial fetch) to prevent post-rollover flicker');
                   } else {
                     localStorage.setItem('dailyIntake', JSON.stringify(remoteData.daily_intake));
@@ -2109,6 +2114,76 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
     
     // Feature flag: hide manual cloud sync UI (auto-sync is active)
     const SHOW_MANUAL_CLOUD_SYNC = false;
+    (function(){const installLimiter=()=>{if(window.__aiLimiterInstalled)return;const aiUrl=getDirectGeminiConfig().url;const orig=window.fetch.bind(window);window.fetch=async (input,init={})=>{try{const reqUrl=typeof input==='string'?input:((input&&input.url)||'');const method=(init&&init.method)?String(init.method).toUpperCase():'GET';const isAI=(reqUrl===aiUrl&&method==='POST');if(!isAI){return orig(input,init);}let hdrs=(init&&init.headers)||null;let ignore=false;try{if(hdrs&&typeof hdrs.get==='function'){ignore=!!hdrs.get('X-Fitmate-Ignore-Quota');}else if(hdrs&&typeof hdrs==='object'){ignore=!!(hdrs['X-Fitmate-Ignore-Quota']||hdrs['x-fitmate-ignore-quota']);}}catch(_){}if(ignore){return orig(input,init);}let uid=null;try{if(auth&&auth.getSession){const { data:{ session } }=await auth.getSession();uid=session&&session.user?session.user.id:null;}}catch(_){}const todayISO=(typeof toLocalISODate==='function'?toLocalISODate(new Date()):new Date().toISOString().slice(0,10));let usage={};try{usage=JSON.parse(localStorage.getItem('aiUsage')||'{}')||{};}catch(_){}if(!usage[todayISO])usage[todayISO]={};const key=uid||'anon';let subscribed=false;try{subscribed=JSON.parse(localStorage.getItem('subscriptionActive')||'false');}catch(_){}const limit=subscribed?10:(uid?5:3);const count=Number(usage[todayISO][key]||0);if(count>=limit){try{if(uid){window.dispatchEvent(new Event('force-open-subscription-modal'));}else{window.dispatchEvent(new CustomEvent('ai-quota-exceeded',{detail:{key,limit}}));}}catch(_){}return new Response(JSON.stringify({error:'quota_exceeded'}),{status:429,headers:{'Content-Type':'application/json'}});}usage[todayISO][key]=count+1;try{localStorage.setItem('aiUsage',JSON.stringify(usage));}catch(_){}return orig(input,init);}catch(_){return orig(input,init);}};window.__aiLimiterInstalled=true;};installLimiter();})();
+
+    (function(){
+      if (window.__iapSetupInstalled) return;
+      window.__iapSetupInstalled = true;
+
+      const PRODUCT_ID = 'fitmate_monthly_149'; // configure in Play Console
+      const BILLING_METHOD = 'https://play.google.com/billing';
+
+      const setSubActive = (active) => {
+        try { localStorage.setItem('subscriptionActive', JSON.stringify(!!active)); } catch(_) {}
+        try { window.dispatchEvent(new CustomEvent('subscription-status-changed', { detail: { active: !!active } })); } catch(_) {}
+        try { window.dispatchEvent(new CustomEvent('ads-control', { detail: { enabled: !active } })); } catch(_) {}
+        (async () => {
+          try {
+            if (auth && db) {
+              const { data: { session } } = await auth.getSession();
+              const uid = session && session.user ? session.user.id : null;
+              if (uid) {
+                await db.updateUser(uid, { subscription: { active: !!active, platform: 'google_play', product_id: PRODUCT_ID, last_updated: new Date().toISOString() } });
+              }
+            }
+          } catch (_) {}
+        })();
+      };
+
+      const isSupported = () => typeof window.getDigitalGoodsService === 'function';
+
+      const refreshEntitlement = async () => {
+        if (!isSupported()) return false;
+        try {
+          const service = await window.getDigitalGoodsService(BILLING_METHOD);
+          const purchases = await service.listPurchases();
+          const active = Array.isArray(purchases) && purchases.some(p => (p.productId||p.sku) === PRODUCT_ID && !p.isCanceled && !p.isRefunded && !p.isExpired);
+          setSubActive(active);
+          return active;
+        } catch (e) {
+          return false;
+        }
+      };
+
+      const subscribe = async (productId = PRODUCT_ID) => {
+        if (!('PaymentRequest' in window)) {
+          alert('Purchases are not supported on this device.');
+          return false;
+        }
+        const methodData = [{ supportedMethods: BILLING_METHOD, data: { sku: productId, type: 'subs' } }];
+        const details = { total: { label: 'Subscription', amount: { currency: 'USD', value: '1.49' } } };
+        try {
+          const request = new PaymentRequest(methodData, details);
+          const resp = await request.show();
+          await resp.complete('success');
+          await refreshEntitlement();
+          return true;
+        } catch (e) {
+          try { console.warn('Subscription failed:', e); } catch(_){ }
+          return false;
+        }
+      };
+
+      const restore = async () => { return refreshEntitlement(); };
+      const isSubscribed = () => { try { return JSON.parse(localStorage.getItem('subscriptionActive')||'false')===true; } catch(_) { return false; } };
+      const onStatusChange = (cb) => { if (typeof cb !== 'function') return () => {}; const handler = (e)=>cb(!!(e&&e.detail&&e.detail.active)); window.addEventListener('subscription-status-changed', handler); return () => window.removeEventListener('subscription-status-changed', handler); };
+
+      window.fitmateIAP = { subscribe, restore, refreshEntitlement, isSubscribed, onStatusChange, PRODUCT_ID };
+
+      // Kick off entitlement check on load and when returning to the app
+      refreshEntitlement();
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshEntitlement(); });
+    })();
     
     // PDF Generation Utility
     const generatePDF = (title, content, filename) => {
@@ -2291,6 +2366,9 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       });
       const [isLoadingAdvice, setIsLoadingAdvice] = useState(false);
       const [showResetModal, setShowResetModal] = useState(false);
+      const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+      const [subActiveGlobal, setSubActiveGlobal] = useState(() => { try { return JSON.parse(localStorage.getItem('subscriptionActive')||'false'); } catch (_) { return false; } });
+      const [aiRemainingGlobal, setAiRemainingGlobal] = useState({ count: 0, limit: 0 });
 
       // Add these new AI states:
       const [scanResult, setScanResult] = useState(() => {
@@ -2418,6 +2496,63 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         window.addEventListener('supabase-password-recovery', handler);
         return () => window.removeEventListener('supabase-password-recovery', handler);
       }, []);
+
+      const computeAiRemainingGlobal = React.useCallback(() => {
+        const todayISO = typeof toLocalISODate === 'function' ? toLocalISODate(new Date()) : new Date().toISOString().slice(0,10);
+        let usage = {};
+        try { usage = JSON.parse(localStorage.getItem('aiUsage') || '{}') || {}; } catch (_) {}
+        const key = user?.id || 'anon';
+        const count = Number((usage[todayISO] && usage[todayISO][key]) || 0);
+        let subscribed = false;
+        try { subscribed = JSON.parse(localStorage.getItem('subscriptionActive') || 'false'); } catch (_) {}
+        const limit = subscribed ? 10 : (user ? 5 : 3);
+        setAiRemainingGlobal({ count, limit });
+      }, [user]);
+
+      useEffect(() => {
+        computeAiRemainingGlobal();
+        const openSub = () => {
+          computeAiRemainingGlobal();
+          if (!user) {
+            setShowSubscriptionModal(false);
+            setScreen('profile');
+            setTimeout(() => { try { window.dispatchEvent(new Event('open-account-modal')); } catch (_) {} }, 50);
+          } else {
+            try { window.dispatchEvent(new Event('close-account-modal')); } catch (_) {}
+            try { setTimeout(() => { window.dispatchEvent(new Event('close-account-modal')); }, 0); } catch (_) {}
+            try { setTimeout(() => { window.dispatchEvent(new Event('close-account-modal')); }, 150); } catch (_) {}
+            setShowSubscriptionModal(true);
+          }
+        };
+        const openOnQuota = () => {
+          computeAiRemainingGlobal();
+          if (!user) {
+            setShowSubscriptionModal(false);
+            setScreen('profile');
+            setTimeout(() => { try { window.dispatchEvent(new Event('open-account-modal')); } catch (_) {} }, 50);
+          } else {
+            try { window.dispatchEvent(new Event('close-account-modal')); } catch (_) {}
+            setShowSubscriptionModal(true);
+          }
+        };
+        const onVis = () => { if (!document.hidden) computeAiRemainingGlobal(); };
+        const forceOpenSub = () => { computeAiRemainingGlobal(); try { window.dispatchEvent(new Event('close-account-modal')); } catch (_) {} try { setTimeout(() => { window.dispatchEvent(new Event('close-account-modal')); }, 0); } catch (_) {} try { setTimeout(() => { window.dispatchEvent(new Event('close-account-modal')); }, 150); } catch (_) {} setShowSubscriptionModal(true); };
+        window.addEventListener('open-subscription-modal', openSub);
+        window.addEventListener('force-open-subscription-modal', forceOpenSub);
+        window.addEventListener('ai-quota-exceeded', openOnQuota);
+        document.addEventListener('visibilitychange', onVis);
+        let off = null;
+        if (window.fitmateIAP && typeof window.fitmateIAP.onStatusChange === 'function') {
+          off = window.fitmateIAP.onStatusChange((active) => { setSubActiveGlobal(!!active); computeAiRemainingGlobal(); });
+        }
+        return () => {
+          window.removeEventListener('open-subscription-modal', openSub);
+          window.removeEventListener('force-open-subscription-modal', forceOpenSub);
+          window.removeEventListener('ai-quota-exceeded', openOnQuota);
+          document.removeEventListener('visibilitychange', onVis);
+          if (off) off();
+        };
+      }, [computeAiRemainingGlobal, user]);
 
       // Handle Supabase auth links (email confirmation and password recovery)
       useEffect(() => {
@@ -2811,6 +2946,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
               setDailyIntake({ calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0 });
               setRecentMeals([]);
               localStorage.setItem('lastSavedDate', toLocalISODate(new Date()));
+              localStorage.setItem('dailyIntakeDate', toLocalISODate(new Date()));
             } finally {
               // schedule next midnight
               schedule();
@@ -2843,7 +2979,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
 
       // Realtime listener to reflect remote changes into UI/localStorage (Supabase)
       useEffect(() => {
-        if (!user || !supabase) return;
+        if (!user || !supabase || !USERS_REALTIME_ENABLED) return;
         
         const subscription = db.subscribe('users', (payload) => {
           if (payload.new && payload.new.id === user.id) {
@@ -3250,6 +3386,31 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
             {renderScreen()}
           </main>
           {screen !== null && <BottomNavBar screen={screen} setScreen={setScreen} />}
+          {showSubscriptionModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full">
+                <div className="flex justify-between items-center p-6 border-b border-gray-200 dark:border-gray-700">
+                  <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200">Upgrade</h2>
+                  <button onClick={() => setShowSubscriptionModal(false)} className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 text-2xl font-bold">×</button>
+                </div>
+                <div className="p-6 space-y-3">
+                  <div className="text-gray-800 dark:text-gray-200">AI quota: 5/5 today</div>
+                  <div className="text-sm text-gray-600 dark:text-gray-400">Subscribed users get 10 prompts per day and ads are removed.</div>
+                </div>
+                <div className="p-6 pt-0 flex items-center justify-between">
+                  {subActiveGlobal ? (
+                    <span className="text-xs bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 px-2 py-1 rounded-full">Subscribed</span>
+                  ) : (
+                    <div className="flex items-center gap-3">
+                      <button onClick={async ()=>{ try { if (!user) { setShowSubscriptionModal(false); setScreen('profile'); setTimeout(()=>{ try { window.dispatchEvent(new Event('open-account-modal')); } catch(_) {} }, 50); return; } const ok = await (window.fitmateIAP && window.fitmateIAP.subscribe ? window.fitmateIAP.subscribe() : Promise.resolve(false)); if (ok) { setShowSubscriptionModal(false); computeAiRemainingGlobal(); } } catch(_){} }} className="bg-blue-500 hover:bg-blue-600 text-white text-sm px-4 py-2 rounded-lg shadow">Subscribe · $1.49</button>
+                      <button onClick={async ()=>{ try { await (window.fitmateIAP && window.fitmateIAP.restore ? window.fitmateIAP.restore() : Promise.resolve(false)); computeAiRemainingGlobal(); } catch(_){} }} className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 underline">Restore</button>
+                    </div>
+                  )}
+                  <button onClick={()=> setShowSubscriptionModal(false)} className="text-sm text-gray-600 dark:text-gray-300">Not now</button>
+                </div>
+              </div>
+            </div>
+          )}
           {showResetModal && (
             <ResetPasswordModal onClose={() => setShowResetModal(false)} />
           )}
@@ -3396,7 +3557,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
 
             const response = await fetch(getDirectGeminiConfig().url, {
               method: 'POST',
-              headers: getDirectGeminiConfig().headers,
+              headers: { ...getDirectGeminiConfig().headers, 'X-Fitmate-Ignore-Quota': 'true' },
               body: JSON.stringify(payload),
               signal: AbortSignal.timeout(25000) // 25 second timeout
             });
@@ -3548,6 +3709,8 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       const [showPrivacyModal, setShowPrivacyModal] = useState(false);
       const [showSupportModal, setShowSupportModal] = useState(false);
       const [showAccountModal, setShowAccountModal] = useState(false);
+      const [subActive, setSubActive] = useState(() => { try { return JSON.parse(localStorage.getItem('subscriptionActive')||'false'); } catch (_) { return false; } });
+      const [aiRemaining, setAiRemaining] = useState({ count: 0, limit: 0 });
       const [supportForm, setSupportForm] = useState({
         fullName: '',
         email: '',
@@ -3579,6 +3742,40 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
   const [debounceTimer, setDebounceTimer] = useState(null);
   const [abortController, setAbortController] = useState(null);
 
+      const computeAiRemaining = React.useCallback(async () => {
+        const todayISO = typeof toLocalISODate === 'function' ? toLocalISODate(new Date()) : new Date().toISOString().slice(0,10);
+        let usage = {};
+        try { usage = JSON.parse(localStorage.getItem('aiUsage') || '{}') || {}; } catch (_) {}
+        const key = user?.id || 'anon';
+        const count = Number((usage[todayISO] && usage[todayISO][key]) || 0);
+        let subscribed = false;
+        try { subscribed = JSON.parse(localStorage.getItem('subscriptionActive') || 'false'); } catch (_) {}
+        const limit = subscribed ? 10 : (user ? 5 : 3);
+        setAiRemaining({ count, limit });
+      }, [user]);
+
+      useEffect(() => {
+        computeAiRemaining();
+        let off = null;
+        if (window.fitmateIAP && typeof window.fitmateIAP.onStatusChange === 'function') {
+          off = window.fitmateIAP.onStatusChange((active) => { setSubActive(!!active); computeAiRemaining(); });
+        }
+        const onQuota = () => computeAiRemaining();
+        window.addEventListener('ai-quota-exceeded', onQuota);
+        const onVis = () => { if (!document.hidden) computeAiRemaining(); };
+        document.addEventListener('visibilitychange', onVis);
+        const onOpenAccount = () => { try { setShowAccountModal(true); } catch (_) {} };
+        const onCloseAccount = () => { try { setShowAccountModal(false); } catch (_) {} };
+        window.addEventListener('open-account-modal', onOpenAccount);
+        window.addEventListener('close-account-modal', onCloseAccount);
+        return () => {
+          if (off) off();
+          window.removeEventListener('ai-quota-exceeded', onQuota);
+          document.removeEventListener('visibilitychange', onVis);
+          window.removeEventListener('open-account-modal', onOpenAccount);
+          window.removeEventListener('close-account-modal', onCloseAccount);
+        };
+      }, [computeAiRemaining]);
 
       const fileInputRef = useRef(null);
 
@@ -4825,7 +5022,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
                             <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">Free Trial Session</h4>
                             <p className="text-2xl font-bold text-pink-500 mb-3">$0</p>
                             <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-2">
-                              <li>✓ 45-minute introduction session</li>
+                              <li>✓ 25-minute introduction session</li>
                               <li>✓ Fitness assessment</li>
                               <li>✓ Goal setting consultation</li>
                             </ul>
@@ -5055,7 +5252,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
                 <div className="flex-grow">
                   <h4 className="text-2xl font-bold text-gray-800 dark:text-gray-200">Book a Personal Session</h4>
                   <p className="text-gray-600 dark:text-gray-400 mt-2">
-                    Get one-on-one guidance from a certified trainer. Your first 45-minute session is <strong>FREE</strong>!
+                    Get one-on-one guidance from a certified trainer. Your first 25-minute session is <strong>FREE</strong>!
                   </p>
                   <div className="mt-4 space-y-3">
                     <div className="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
@@ -5131,6 +5328,36 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
                   </span>
                 )}
               </button>
+
+              <div className="w-full p-3 rounded-lg flex justify-between items-center">
+                <div className="flex flex-col">
+                  <span className="text-gray-700 dark:text-gray-300">Subscription</span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">AI quota: {aiRemaining.count}/{aiRemaining.limit} today</span>
+                  <span className="text-[11px] text-gray-500 dark:text-gray-400">Subscribed users get 10 prompts per day and ads are removed</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {subActive ? (
+                    <span className="text-xs bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 px-2 py-1 rounded-full">Subscribed</span>
+                  ) : (
+                    <>
+                      <button
+                        onClick={()=>{ try { if (!user) { openAccountModal(); return; } window.dispatchEvent(new CustomEvent('force-open-subscription-modal')); } catch(_){} }}
+                        className="bg-blue-500 hover:bg-blue-600 text-white text-sm px-3 py-2 rounded-lg shadow"
+                        title="Upgrade to unlock higher daily AI limits and remove ads"
+                      >
+                        Subscribe · $1.49
+                      </button>
+                      <button
+                        onClick={async ()=>{ try { await (window.fitmateIAP && window.fitmateIAP.restore ? window.fitmateIAP.restore() : Promise.resolve(false)); } catch(_){} }}
+                        className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 underline"
+                        title="Restore your subscription"
+                      >
+                        Restore
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
               
               {/* Booking History Button - Only show when user is signed in */}
               {user && (
