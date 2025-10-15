@@ -1522,37 +1522,23 @@
           // Save to user's workout history
           const { error: workoutError } = await supabase
             .from('workout_history')
-            .insert([{ user_id: currentUser.id, ...workoutData }]);
+            .insert([{ user_id: currentUser.id, ...workoutData }], { returning: 'minimal' });
           
           if (workoutError) throw workoutError;
           
           // Update user's updated_at timestamp
           const { error: updateError } = await supabase
             .from('users')
-            .update({ updated_at: new Date().toISOString() })
+            .update({ updated_at: new Date().toISOString() }, { returning: 'minimal' })
             .eq('id', currentUser.id);
           
           if (updateError) throw updateError;
           
-          // Update user's daily intake
-          const { data: userData, error: getUserError } = await supabase
-            .from('users')
-            .select('daily_intake')
-            .eq('id', currentUser.id)
-            .single();
-          if (getUserError) throw getUserError;
-          
-          const dailyData = userData?.daily_intake || {calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0};
-          const currentActivity = dailyData.activity || 0;
-          
+          // Update user's daily intake using local value (avoid extra read)
+          const localDaily = JSON.parse(localStorage.getItem('dailyIntake') || '{"calories":0,"protein":0,"carbs":0,"fat":0,"activity":0,"water":0}');
           const { error: updateDailyError } = await supabase
             .from('users')
-            .update({ 
-              daily_intake: {
-                ...dailyData,
-                activity: currentActivity + workoutData.duration
-              }
-            })
+            .update({ daily_intake: localDaily }, { returning: 'minimal' })
             .eq('id', currentUser.id);
           
           if (updateDailyError) throw updateDailyError;
@@ -1677,50 +1663,25 @@
         // Sync to Supabase if user is logged in
         if (currentUser && supabase) {
           try {
-            const { incomplete, ...dataToInsert } = workoutData;
-            const { data, error: workoutError } = await supabase
+            // Insert with incomplete flag directly; avoid select and follow-up update
+            const { error: workoutError } = await supabase
               .from('workout_history')
-              .insert([{ user_id: currentUser.id, ...dataToInsert }])
-              .select();
-            
+              .insert([{ user_id: currentUser.id, ...workoutData }], { returning: 'minimal' });
             if (workoutError) throw workoutError;
-
-            if (incomplete && data) {
-              const workoutId = data[0].id;
-              const { error: updateError } = await supabase
-                .from('workout_history')
-                .update({ incomplete: true })
-                .eq('id', workoutId);
-              if (updateError) throw updateError;
-            }
             
             // Update user's updated_at timestamp
             const { error: updateError } = await supabase
               .from('users')
-              .update({ updated_at: new Date().toISOString() })
+              .update({ updated_at: new Date().toISOString() }, { returning: 'minimal' })
               .eq('id', currentUser.id);
             
             if (updateError) throw updateError;
             
-            const { data: userData, error: getUserError } = await supabase
-              .from('users')
-              .select('daily_intake')
-              .eq('id', currentUser.id)
-              .single();
-            
-            if (getUserError) throw getUserError;
-            
-            const dailyData = userData?.daily_intake || {calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0};
-            const currentActivity = dailyData.activity || 0;
-            
+            // Update user's daily intake using local value (avoid extra read)
+            const localDaily = JSON.parse(localStorage.getItem('dailyIntake') || '{"calories":0,"protein":0,"carbs":0,"fat":0,"activity":0,"water":0}');
             const { error: updateDailyError } = await supabase
               .from('users')
-              .update({ 
-                daily_intake: {
-                  ...dailyData,
-                  activity: currentActivity + workoutData.duration
-                }
-              })
+              .update({ daily_intake: localDaily }, { returning: 'minimal' })
               .eq('id', currentUser.id);
             
             if (updateDailyError) throw updateDailyError;
