@@ -2105,16 +2105,14 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       return {
         url: 'https://fitserver-k7r4.onrender.com/api/myapi',
         headers: {
-          'Content-Type': 'application/json',
-          'X-Title': 'Fitmate',
-          'HTTP-Referer': (typeof window !== 'undefined' && window.location ? window.location.origin : 'http://localhost')
+          'Content-Type': 'application/json'
         }
       };
     };
     
     // Feature flag: hide manual cloud sync UI (auto-sync is active)
     const SHOW_MANUAL_CLOUD_SYNC = false;
-    (function(){const installLimiter=()=>{if(window.__aiLimiterInstalled)return;const aiUrl=getDirectGeminiConfig().url;const orig=window.fetch.bind(window);window.fetch=async (input,init={})=>{try{const reqUrl=typeof input==='string'?input:((input&&input.url)||'');const method=(init&&init.method)?String(init.method).toUpperCase():'GET';const isAI=(reqUrl===aiUrl&&method==='POST');if(!isAI){return orig(input,init);}let hdrs=(init&&init.headers)||null;let ignore=false;try{if(hdrs&&typeof hdrs.get==='function'){ignore=!!hdrs.get('X-Fitmate-Ignore-Quota');}else if(hdrs&&typeof hdrs==='object'){ignore=!!(hdrs['X-Fitmate-Ignore-Quota']||hdrs['x-fitmate-ignore-quota']);}}catch(_){}if(ignore){return orig(input,init);}let uid=null;try{if(auth&&auth.getSession){const { data:{ session } }=await auth.getSession();uid=session&&session.user?session.user.id:null;}}catch(_){}const todayISO=(typeof toLocalISODate==='function'?toLocalISODate(new Date()):new Date().toISOString().slice(0,10));let usage={};try{usage=JSON.parse(localStorage.getItem('aiUsage')||'{}')||{};}catch(_){}if(!usage[todayISO])usage[todayISO]={};const key=uid||'anon';let subscribed=false;try{subscribed=JSON.parse(localStorage.getItem('subscriptionActive')||'false');}catch(_){}const limit=subscribed?10:(uid?5:3);const count=Number(usage[todayISO][key]||0);if(count>=limit){try{if(uid){window.dispatchEvent(new Event('force-open-subscription-modal'));}else{window.dispatchEvent(new CustomEvent('ai-quota-exceeded',{detail:{key,limit}}));}}catch(_){}return new Response(JSON.stringify({error:'quota_exceeded'}),{status:429,headers:{'Content-Type':'application/json'}});}usage[todayISO][key]=count+1;try{localStorage.setItem('aiUsage',JSON.stringify(usage));}catch(_){}return orig(input,init);}catch(_){return orig(input,init);}};window.__aiLimiterInstalled=true;};installLimiter();})();
+    (function(){const installLimiter=()=>{if(window.__aiLimiterInstalled)return;const aiUrl=getDirectGeminiConfig().url;const orig=window.fetch.bind(window);window.fetch=async (input,init={})=>{try{const reqUrl=typeof input==='string'?input:((input&&input.url)||'');const method=(init&&init.method)?String(init.method).toUpperCase():'GET';const isAI=(reqUrl===aiUrl&&method==='POST');if(!isAI){return orig(input,init);}let hdrs=(init&&init.headers)||null;let ignore=false;try{if(hdrs&&typeof hdrs.get==='function'){ignore=!!hdrs.get('X-Fitmate-Ignore-Quota');}else if(hdrs&&typeof hdrs==='object'){ignore=!!(hdrs['X-Fitmate-Ignore-Quota']||hdrs['x-fitmate-ignore-quota']);}}catch(_){}if(!ignore){try{ignore=typeof reqUrl==='string' && reqUrl.indexOf('skipQuota=1')!==-1;}catch(_){} }if(ignore){try{if(hdrs&&typeof hdrs.delete==='function'){hdrs.delete('X-Fitmate-Ignore-Quota');hdrs.delete('x-fitmate-ignore-quota');}else if(hdrs&&typeof hdrs==='object'){delete hdrs['X-Fitmate-Ignore-Quota'];delete hdrs['x-fitmate-ignore-quota'];}}catch(_){}return orig(input,init);}let uid=null;try{if(auth&&auth.getSession){const { data:{ session } }=await auth.getSession();uid=session&&session.user?session.user.id:null;}}catch(_){}const todayISO=(typeof toLocalISODate==='function'?toLocalISODate(new Date()):new Date().toISOString().slice(0,10));let usage={};try{usage=JSON.parse(localStorage.getItem('aiUsage')||'{}')||{};}catch(_){}if(!usage[todayISO])usage[todayISO]={};const key=uid||'anon';let subscribed=false;try{subscribed=JSON.parse(localStorage.getItem('subscriptionActive')||'false');}catch(_){}const limit=subscribed?10:(uid?5:3);const count=Number(usage[todayISO][key]||0);if(count>=limit){try{if(uid){window.dispatchEvent(new Event('force-open-subscription-modal'));}else{window.dispatchEvent(new CustomEvent('ai-quota-exceeded',{detail:{key,limit}}));}}catch(_){}return new Response(JSON.stringify({error:'quota_exceeded'}),{status:429,headers:{'Content-Type':'application/json'}});}usage[todayISO][key]=count+1;try{localStorage.setItem('aiUsage',JSON.stringify(usage));}catch(_){}return orig(input,init);}catch(_){return orig(input,init);}};window.__aiLimiterInstalled=true;};installLimiter();})();
 
     (function(){
       if (window.__iapSetupInstalled) return;
@@ -2369,6 +2367,89 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
       const [subActiveGlobal, setSubActiveGlobal] = useState(() => { try { return JSON.parse(localStorage.getItem('subscriptionActive')||'false'); } catch (_) { return false; } });
       const [aiRemainingGlobal, setAiRemainingGlobal] = useState({ count: 0, limit: 0 });
+      // Platform detection and Stripe integration (must be BEFORE JSX uses it)
+      const isAndroidUA = (typeof navigator !== 'undefined') && /Android/i.test(navigator.userAgent || '');
+
+      useEffect(() => {
+        try {
+          const src = 'https://js.stripe.com/v3/pricing-table.js';
+          if (!document.querySelector(`script[src="${src}"]`)) {
+            const s = document.createElement('script');
+            s.src = src;
+            s.async = true;
+            document.head.appendChild(s);
+          }
+        } catch(_) {}
+      }, []);
+
+      const STRIPE_PRICING_TABLE_ID = 'prctbl_1SIvLCJRFG3zIhTKhJSKc5jk';
+      const STRIPE_PUBLISHABLE_KEY = 'pk_live_51SIu0RJRFG3zIhTKZkkXcQZdRbWXshYT78KWQqpsRfDPIhuxYh9Ngtz5HbqcIMBioEXrpk9rp6dJtHLp0IQ106f900MI4zPe2M';
+      const STRIPE_PORTAL_URL = 'https://billing.stripe.com/p/login/28E14o3tE3dP9Uhfnc3sI00';
+
+      const handleUpgrade = async () => {
+        try {
+          if (!user) {
+            try { setShowSubscriptionModal(false); } catch(_) {}
+            try { window.dispatchEvent(new Event('open-account-modal')); } catch(_) {}
+            return;
+          }
+          if (!isAndroidUA) {
+            setShowSubscriptionModal(true);
+            return;
+          }
+          const hasPlayBilling = (typeof window !== 'undefined') && ('PaymentRequest' in window);
+          if (hasPlayBilling && window.fitmateIAP && typeof window.fitmateIAP.subscribe === 'function') {
+            const ok = await window.fitmateIAP.subscribe();
+            if (ok) {
+              try { setShowSubscriptionModal(false); } catch(_) {}
+              try { computeAiRemainingGlobal && computeAiRemainingGlobal(); } catch(_) {}
+              return;
+            }
+          }
+          const url = STRIPE_PORTAL_URL;
+          try { window.open(url, '_blank', 'noopener,noreferrer'); } catch(_) { window.location.href = url; }
+          try {
+            const onReturn = async () => {
+              if (!document.hidden && user && db && typeof db.getUser === 'function') {
+                try {
+                  const remote = await db.getUser(user.id);
+                  if (remote && remote.subscription) {
+                    try { localStorage.setItem('subscriptionActive', JSON.stringify(!!remote.subscription.active)); } catch(_) {}
+                    try { window.dispatchEvent(new CustomEvent('subscription-status-changed', { detail: { active: !!remote.subscription.active } })); } catch(_) {}
+                  }
+                } catch(_) {}
+              }
+            };
+            document.addEventListener('visibilitychange', onReturn, { once: true });
+          } catch(_) {}
+        } catch(_) {}
+      };
+
+      const handleRestore = async () => {
+        try {
+          const hasPlayBilling = (typeof window !== 'undefined') && ('PaymentRequest' in window);
+          if (isAndroidUA && hasPlayBilling && window.fitmateIAP && typeof window.fitmateIAP.restore === 'function') {
+            const ok = await window.fitmateIAP.restore();
+            if (ok) { try { computeAiRemainingGlobal && computeAiRemainingGlobal(); } catch(_) {} return; }
+          }
+          const url = STRIPE_PORTAL_URL;
+          try { window.open(url, '_blank', 'noopener,noreferrer'); } catch(_) { window.location.href = url; }
+          try {
+            const onReturn = async () => {
+              if (!document.hidden && user && db && typeof db.getUser === 'function') {
+                try {
+                  const remote = await db.getUser(user.id);
+                  if (remote && remote.subscription) {
+                    try { localStorage.setItem('subscriptionActive', JSON.stringify(!!remote.subscription.active)); } catch(_) {}
+                    try { window.dispatchEvent(new CustomEvent('subscription-status-changed', { detail: { active: !!remote.subscription.active } })); } catch(_) {}
+                  }
+                } catch(_) {}
+              }
+            };
+            document.addEventListener('visibilitychange', onReturn, { once: true });
+          } catch(_) {}
+        } catch(_) {}
+      };
 
       // Add these new AI states:
       const [scanResult, setScanResult] = useState(() => {
@@ -2537,9 +2618,11 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         };
         const onVis = () => { if (!document.hidden) computeAiRemainingGlobal(); };
         const forceOpenSub = () => { computeAiRemainingGlobal(); try { window.dispatchEvent(new Event('close-account-modal')); } catch (_) {} try { setTimeout(() => { window.dispatchEvent(new Event('close-account-modal')); }, 0); } catch (_) {} try { setTimeout(() => { window.dispatchEvent(new Event('close-account-modal')); }, 150); } catch (_) {} setShowSubscriptionModal(true); };
+        const onRestoreEvt = () => { try { handleRestore(); } catch (_) {} };
         window.addEventListener('open-subscription-modal', openSub);
         window.addEventListener('force-open-subscription-modal', forceOpenSub);
         window.addEventListener('ai-quota-exceeded', openOnQuota);
+        window.addEventListener('restore-subscription', onRestoreEvt);
         document.addEventListener('visibilitychange', onVis);
         let off = null;
         if (window.fitmateIAP && typeof window.fitmateIAP.onStatusChange === 'function') {
@@ -2549,6 +2632,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
           window.removeEventListener('open-subscription-modal', openSub);
           window.removeEventListener('force-open-subscription-modal', forceOpenSub);
           window.removeEventListener('ai-quota-exceeded', openOnQuota);
+          window.removeEventListener('restore-subscription', onRestoreEvt);
           document.removeEventListener('visibilitychange', onVis);
           if (off) off();
         };
@@ -3397,14 +3481,25 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
                   <div className="text-gray-800 dark:text-gray-200">AI quota: 5/5 today</div>
                   <div className="text-sm text-gray-600 dark:text-gray-400">Subscribed users get 10 prompts per day and ads are removed.</div>
                 </div>
+                {!isAndroidUA && !subActiveGlobal && (
+                  <div className="px-6 pb-2">
+                    <stripe-pricing-table pricing-table-id={STRIPE_PRICING_TABLE_ID} publishable-key={STRIPE_PUBLISHABLE_KEY} customer-email={user && user.email ? user.email : undefined}></stripe-pricing-table>
+                  </div>
+                )}
                 <div className="p-6 pt-0 flex items-center justify-between">
                   {subActiveGlobal ? (
                     <span className="text-xs bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 px-2 py-1 rounded-full">Subscribed</span>
                   ) : (
-                    <div className="flex items-center gap-3">
-                      <button onClick={async ()=>{ try { if (!user) { setShowSubscriptionModal(false); setScreen('profile'); setTimeout(()=>{ try { window.dispatchEvent(new Event('open-account-modal')); } catch(_) {} }, 50); return; } const ok = await (window.fitmateIAP && window.fitmateIAP.subscribe ? window.fitmateIAP.subscribe() : Promise.resolve(false)); if (ok) { setShowSubscriptionModal(false); computeAiRemainingGlobal(); } } catch(_){} }} className="bg-blue-500 hover:bg-blue-600 text-white text-sm px-4 py-2 rounded-lg shadow">Subscribe · $1.49</button>
-                      <button onClick={async ()=>{ try { await (window.fitmateIAP && window.fitmateIAP.restore ? window.fitmateIAP.restore() : Promise.resolve(false)); computeAiRemainingGlobal(); } catch(_){} }} className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 underline">Restore</button>
-                    </div>
+                    isAndroidUA ? (
+                      <div className="flex items-center gap-3">
+                        <button onClick={handleUpgrade} className="bg-blue-500 hover:bg-blue-600 text-white text-sm px-4 py-2 rounded-lg shadow">Upgrade</button>
+                        <button onClick={()=>{ try { window.dispatchEvent(new CustomEvent('restore-subscription')); } catch(_){} }} className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 underline">Restore</button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-3">
+                        <button onClick={()=>{ try { window.dispatchEvent(new CustomEvent('restore-subscription')); } catch(_){} }} className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 underline">Restore</button>
+                      </div>
+                    )
                   )}
                   <button onClick={()=> setShowSubscriptionModal(false)} className="text-sm text-gray-600 dark:text-gray-300">Not now</button>
                 </div>
@@ -5329,27 +5424,28 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
                 )}
               </button>
 
-              <div className="w-full p-3 rounded-lg flex justify-between items-center">
+              <div className="w-full p-3 rounded-lg flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-col">
                   <span className="text-gray-700 dark:text-gray-300">Subscription</span>
                   <span className="text-xs text-gray-500 dark:text-gray-400">AI quota: {aiRemaining.count}/{aiRemaining.limit} today</span>
                   <span className="text-[11px] text-gray-500 dark:text-gray-400">Subscribed users get 10 prompts per day and ads are removed</span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
                   {subActive ? (
                     <span className="text-xs bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 px-2 py-1 rounded-full">Subscribed</span>
                   ) : (
                     <>
                       <button
                         onClick={()=>{ try { if (!user) { openAccountModal(); return; } window.dispatchEvent(new CustomEvent('force-open-subscription-modal')); } catch(_){} }}
-                        className="bg-blue-500 hover:bg-blue-600 text-white text-sm px-3 py-2 rounded-lg shadow"
+                        className="bg-blue-500 hover:bg-blue-600 text-white text-xs px-3 py-2 rounded-lg shadow"
                         title="Upgrade to unlock higher daily AI limits and remove ads"
                       >
-                        Subscribe · $1.49
+                        Upgrade
                       </button>
+                      <span className="text-[11px] text-gray-500">$1.49/mo</span>
                       <button
-                        onClick={async ()=>{ try { await (window.fitmateIAP && window.fitmateIAP.restore ? window.fitmateIAP.restore() : Promise.resolve(false)); } catch(_){} }}
-                        className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 underline"
+                        onClick={()=>{ try { window.dispatchEvent(new CustomEvent('restore-subscription')); } catch(_){} }}
+                        className="text-[11px] text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 underline"
                         title="Restore your subscription"
                       >
                         Restore
