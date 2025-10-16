@@ -3,8 +3,9 @@
     "relation": ["delegate_permission/common.handle_all_urls"],
     "target": {
       "namespace": "android_app",
-      "package_name": "xyz.appmaker.uguxff",
-      "sha256_cert_fingerprints": ["D2:32:13:3A:FB:9A:C8:E9:E4:58:4F:50:70:F4:1C:DE:F9:A4:FF:18:9D:9F:37:C9:16:19:2E:89:A1:4F:12:9A"]
+      "package_name": "app.netlify.fitnessmate.twa",
+      "sha256_cert_fingerprints": ["4C:0C:60:D2:40:F2:22:F7:55:0A:78:82:72:CF:76:10:76:08:99:F9:3D:0E:01:75:C3:81:01:9E:4C:65:9D:14"]
     }
   }
 ]
+
