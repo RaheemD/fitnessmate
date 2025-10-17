@@ -1021,12 +1021,15 @@ Respond ONLY with a valid JSON object in this exact format:
                     const todayISO = toLocalISODate(new Date());
                     const localIntakeDate = localStorage.getItem('dailyIntakeDate');
                     const lastSaved = localStorage.getItem('lastSavedDate');
+                    const rolledOverDate = localStorage.getItem('rolledOverDate');
+                    const justRolledOver = (rolledOverDate === todayISO);
                     const dayChanged = (localIntakeDate !== todayISO || lastSaved !== todayISO);
                     const localIntake = (() => { try { return JSON.parse(localStorage.getItem('dailyIntake')||'{}'); } catch { return {}; } })();
                     const localIsZero = ['calories','protein','carbs','fat','activity','water'].every(k => Number(localIntake[k]||0) === 0);
                     const remoteHasNonZero = ['calories','protein','carbs','fat','activity','water'].some(k => Number(userData.daily_intake?.[k]||0) > 0);
-                    if (dayChanged && localIsZero && remoteHasNonZero) {
-                      console.log('⏭️ Skipping remote daily_intake to prevent post-rollover flicker');
+                    const shouldSkip = (dayChanged && localIsZero && remoteHasNonZero) || justRolledOver;
+                    if (shouldSkip) {
+                      console.log('⏭️ Skipping remote daily_intake (new day just rolled over)');
                     } else {
                       localStorage.setItem('dailyIntake', JSON.stringify(userData.daily_intake));
                       console.log('✅ Daily intake synced to localStorage');
@@ -2939,66 +2942,81 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         if (intakeDate && intakeDate !== today) startISO = startISO ? (startISO < intakeDate ? startISO : intakeDate) : intakeDate;
 
         if (startISO) {
-          // Archive every missing day between startISO (inclusive) and yesterday (inclusive)
-          const toDate = (iso) => {
-            const [y, m, d] = iso.split('-').map(Number);
-            return new Date(y, m - 1, d);
-          };
-          const zeroIntake = { calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0 };
-          const savedGoals = JSON.parse(localStorage.getItem('goals') || 'null') || defaultGoals;
-          const oldIntake = JSON.parse(localStorage.getItem('dailyIntake') || JSON.stringify(zeroIntake));
-          const oldMeals = JSON.parse(localStorage.getItem('recentMeals') || '[]');
+          (async () => {
+            // Archive every missing day between startISO (inclusive) and yesterday (inclusive)
+            const toDate = (iso) => {
+              const [y, m, d] = iso.split('-').map(Number);
+              return new Date(y, m - 1, d);
+            };
+            const zeroIntake = { calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0 };
+            const savedGoals = JSON.parse(localStorage.getItem('goals') || 'null') || defaultGoals;
+            const oldIntake = JSON.parse(localStorage.getItem('dailyIntake') || JSON.stringify(zeroIntake));
+            const oldMeals = JSON.parse(localStorage.getItem('recentMeals') || '[]');
 
-          const updates = {};
-          let cursor = toDate(startISO);
-          while (true) {
-            const key = toLocalISODate(cursor);
-            if (key === today) break; // stop before today
+            // Preload workouts for the first day we're archiving
+            let preloadedWorkouts = [];
+            try { preloadedWorkouts = await mergeLocalAndRemoteWorkoutsForDay(startISO); } catch (_) {}
 
-            // First missed day equal to intakeDate uses oldIntake/oldMeals; others use zeros
-            const isFirst = key === intakeDate;
-            const intakeForDay = isFirst ? oldIntake : zeroIntake;
-            const mealsForDay = isFirst ? oldMeals : [];
-            const { score, components } = computeHealthScoreForDate(intakeForDay, savedGoals, key);
-            updates[key] = { intake: intakeForDay, meals: mealsForDay, score, components };
+            const updates = {};
+            let cursor = toDate(startISO);
+            while (true) {
+              const key = toLocalISODate(cursor);
+              if (key === today) break; // stop before today
 
-            cursor.setDate(cursor.getDate() + 1);
-          }
+              // First missed day equal to intakeDate uses oldIntake/oldMeals; others use zeros
+              const isFirst = key === intakeDate;
+              const intakeForDay = isFirst ? oldIntake : zeroIntake;
+              const mealsForDay = isFirst ? oldMeals : [];
+              const workoutsForKey = isFirst ? preloadedWorkouts : undefined;
+              const { score, components } = computeHealthScoreForDate(intakeForDay, savedGoals, key, workoutsForKey);
+              updates[key] = { intake: intakeForDay, meals: mealsForDay, score, components };
 
-          if (Object.keys(updates).length > 0) {
-            setDailyHistory(prev => ({
-              ...prev,
-              // do not overwrite days that may already exist
-              ...Object.fromEntries(Object.entries(updates).filter(([k]) => !prev[k]))
-            }));
-          }
-
-          // Reset for the new day
-          setDailyIntake(zeroIntake);
-          setRecentMeals([]);
-          localStorage.setItem('dailyIntakeDate', today);
-          // Proactively sync zero to remote to avoid backfill flicker from old remote value, but prevent overwriting during sign-in
-          try { 
-            if (user && !forceNextRemoteOnlyRef?.current && authInitialRemoteAppliedRef.current) {
-              syncDailyIntake(zeroIntake); 
+              cursor.setDate(cursor.getDate() + 1);
             }
-          } catch (_) {}
+
+            if (Object.keys(updates).length > 0) {
+              setDailyHistory(prev => ({
+                ...prev,
+                // do not overwrite days that may already exist
+                ...Object.fromEntries(Object.entries(updates).filter(([k]) => !prev[k]))
+              }));
+            }
+
+            // Reset for the new day
+            setDailyIntake(zeroIntake);
+            setRecentMeals([]);
+            localStorage.setItem('dailyIntakeDate', today);
+            try { localStorage.setItem('rolledOverDate', today); } catch (_) {}
+            // Proactively sync zero to remote to avoid backfill flicker from old remote value, but prevent overwriting during sign-in
+            try { 
+              if (user && !forceNextRemoteOnlyRef?.current && authInitialRemoteAppliedRef.current) {
+                syncDailyIntake(zeroIntake); 
+              }
+            } catch (_) {}
+          })();
         } else {
           // Fallback: ensure yesterday exists with a zero placeholder if missing
-          try {
-            const zeroIntake = { calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0 };
-            const yesterday = new Date();
-            yesterday.setDate(yesterday.getDate() - 1);
-            const yISO = toLocalISODate(yesterday);
-            const hasEntry = (() => { try { return !!(JSON.parse(localStorage.getItem('dailyHistory') || '{}') || {})[yISO]; } catch { return false; } })();
-            if (!hasEntry && yISO !== today) {
-              setDailyHistory(prev => ({ 
-                ...prev, 
-                [yISO]: { intake: zeroIntake, meals: [], score: 0, components: { nutrition: 0, activity: 0, workout: 0, hydration: 0 } } 
-              }));
-              console.log('🛠️ Added zero placeholder for yesterday', yISO);
-            }
-          } catch (_) { /* no-op */ }
+          (async () => {
+            try {
+              const zeroIntake = { calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0 };
+              const yesterday = new Date();
+              yesterday.setDate(yesterday.getDate() - 1);
+              const yISO = toLocalISODate(yesterday);
+              const hasEntry = (() => { try { return !!(JSON.parse(localStorage.getItem('dailyHistory') || '{}') || {})[yISO]; } catch { return false; } })();
+              if (!hasEntry && yISO !== today) {
+                // Use workouts to compute a better placeholder instead of 0
+                let w = [];
+                try { w = await mergeLocalAndRemoteWorkoutsForDay(yISO); } catch (_) {}
+                const savedGoals = JSON.parse(localStorage.getItem('goals') || 'null') || defaultGoals;
+                const { score, components } = computeHealthScoreForDate(zeroIntake, savedGoals, yISO, w);
+                setDailyHistory(prev => ({ 
+                  ...prev, 
+                  [yISO]: { intake: zeroIntake, meals: [], score, components } 
+                }));
+                console.log('🛠️ Added computed placeholder for yesterday', yISO);
+              }
+            } catch (_) { /* no-op */ }
+          })();
         }
 
         localStorage.setItem('lastSavedDate', today);
@@ -3011,7 +3029,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
           const now = new Date();
           const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
           const ms = midnight.getTime() - now.getTime();
-          eodTimerRef.current = setTimeout(() => {
+          eodTimerRef.current = setTimeout(async () => {
             try {
               const yesterday = new Date();
               yesterday.setDate(yesterday.getDate() - 1);
@@ -3019,7 +3037,10 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
               const oldIntake = JSON.parse(localStorage.getItem('dailyIntake') || '{"calories":0,"protein":0,"carbs":0,"fat":0,"activity":0,"water":0}');
               const oldMeals = JSON.parse(localStorage.getItem('recentMeals') || '[]');
               const savedGoals = JSON.parse(localStorage.getItem('goals') || 'null') || defaultGoals;
-              const { score, components } = computeHealthScoreForDate(oldIntake, savedGoals, archiveDate);
+              // Pre-rollover workout sync: merge local+remote workouts for yesterday
+              let yWorkouts = [];
+              try { yWorkouts = await mergeLocalAndRemoteWorkoutsForDay(archiveDate); } catch (_) {}
+              const { score, components } = computeHealthScoreForDate(oldIntake, savedGoals, archiveDate, yWorkouts);
 
               setDailyHistory(prev => ({
                 ...prev,
@@ -3031,6 +3052,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
               setRecentMeals([]);
               localStorage.setItem('lastSavedDate', toLocalISODate(new Date()));
               localStorage.setItem('dailyIntakeDate', toLocalISODate(new Date()));
+              try { localStorage.setItem('rolledOverDate', toLocalISODate(new Date())); } catch (_) {}
             } finally {
               // schedule next midnight
               schedule();
@@ -3060,6 +3082,63 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         Number(di.activity) === 0 &&
         Number(di.water) === 0
       );
+
+      // --- Helpers: fetch/merge workouts for a specific local day (pre-rollover sync) ---
+      const dayRangeLocalToUTC = (iso) => {
+        try {
+          const [y,m,d] = iso.split('-').map(Number);
+          const from = new Date(y, m-1, d, 0,0,0,0); // local midnight
+          const to   = new Date(y, m-1, d+1, 0,0,0,0); // next local midnight
+          return { fromISO: from.toISOString(), toISO: to.toISOString() };
+        } catch (_) { return { fromISO: null, toISO: null }; }
+      };
+      const getLocalWorkoutHistory = () => {
+        try { const arr = JSON.parse(localStorage.getItem('workoutHistory') || '[]'); return Array.isArray(arr) ? arr : []; } catch { return []; }
+      };
+      const setLocalWorkoutHistory = (arr) => {
+        try { localStorage.setItem('workoutHistory', JSON.stringify(arr || [])); } catch (_) {}
+      };
+      const localWorkoutsForDay = (dateISO) => {
+        const all = getLocalWorkoutHistory();
+        return all.filter(w => { try { return toLocalISODate(new Date(w.timestamp)) === dateISO; } catch { return false; } });
+      };
+      const mergeByTimestamp = (a, b) => {
+        const map = new Map();
+        [...a, ...b].forEach(w => { if (w && w.timestamp) map.set(w.timestamp, w); });
+        return Array.from(map.values()).sort((x,y)=> new Date(y.timestamp) - new Date(x.timestamp));
+      };
+      const mergeLocalAndRemoteWorkoutsForDay = async (dateISO) => {
+        try {
+          if (!user || !supabase) return localWorkoutsForDay(dateISO);
+          const { fromISO, toISO } = dayRangeLocalToUTC(dateISO);
+          if (!fromISO || !toISO) return localWorkoutsForDay(dateISO);
+          const { data: remote, error } = await supabase
+            .from('workout_history')
+            .select('timestamp, duration, exercises_completed, total_exercises, completion_rate, type, workout_title, workout_level, incomplete')
+            .eq('user_id', user.id)
+            .gte('timestamp', fromISO)
+            .lt('timestamp', toISO)
+            .order('timestamp', { ascending: false });
+          if (error) throw error;
+          // Map remote snake_case to local camelCase fields used by computeHealthScoreForDate
+          const remoteMapped = (remote || []).map(w => ({
+            ...w,
+            completionRate: w.completionRate ?? w.completion_rate ?? 0,
+            workoutTitle: w.workoutTitle ?? w.workout_title,
+            workoutLevel: w.workoutLevel ?? w.workout_level,
+          }));
+          const localDay = localWorkoutsForDay(dateISO);
+          // Update the full local store with the merged set for that day
+          const all = getLocalWorkoutHistory();
+          const rest = all.filter(w => { try { return toLocalISODate(new Date(w.timestamp)) !== dateISO; } catch { return true; } });
+          const mergedDay = mergeByTimestamp(remoteMapped, localDay);
+          const nextAll = mergeByTimestamp(rest, mergedDay);
+          setLocalWorkoutHistory(nextAll);
+          return mergedDay;
+        } catch (_) {
+          return localWorkoutsForDay(dateISO);
+        }
+      };
 
       // Realtime listener to reflect remote changes into UI/localStorage (Supabase)
       useEffect(() => {
