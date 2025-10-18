@@ -279,7 +279,7 @@
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
   <script type="text/babel">
-    const { useState, useRef, useEffect } = React;
+    const { useState, useRef, useEffect, useCallback } = React;
 
     // Global safe stub to avoid ReferenceError before the real helper is defined
     if (typeof window !== 'undefined' && typeof window.setLocalStorageWithSync === 'undefined') {
@@ -2534,6 +2534,7 @@ Respond ONLY with a valid JSON object in this exact format:
               // Start fresh day
               setDailyIntake(zero);
               setRecentMeals([]);
+              setHealthScore(0); // Force score to 0 immediately on day change
               localStorage.setItem('lastSavedDate', todayISO);
               localStorage.setItem('dailyIntakeDate', todayISO);
               // Do not push zeros during initial remote-only sign-in window AND prevent overwriting remote data
@@ -3006,6 +3007,7 @@ Respond ONLY with a valid JSON object in this exact format:
           // Reset for the new day
           setDailyIntake(zeroIntake);
           setRecentMeals([]);
+          setHealthScore(0); // Force score to 0 immediately on day change
           localStorage.setItem('dailyIntakeDate', today);
           // Proactively sync zero to remote to avoid backfill flicker from old remote value, but prevent overwriting during sign-in
           try { 
@@ -3059,6 +3061,7 @@ Respond ONLY with a valid JSON object in this exact format:
               // Reset for the new day
               setDailyIntake({ calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0 });
               setRecentMeals([]);
+              setHealthScore(0); // Force score to 0 immediately at midnight
               localStorage.setItem('lastSavedDate', toLocalISODate(new Date()));
               localStorage.setItem('dailyIntakeDate', toLocalISODate(new Date()));
             } finally {
@@ -11543,8 +11546,8 @@ ${habits.map(habit => {
       const [startedAt, setStartedAt] = useState(null); // epoch ms
       const timerRef = useRef(null);
 
-      // Hydrate from storage on mount
-      useEffect(() => {
+      // Recalculate timer state from startedAt (used on mount and when returning from background)
+      const recalculateTimer = useCallback(() => {
         try {
           const raw = localStorage.getItem(STORAGE_KEY);
           if (!raw) return;
@@ -11581,9 +11584,26 @@ ${habits.map(habit => {
             } else {
               localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...st, isActive: false }));
             }
+            setIsActive(false);
           }
         } catch (_) {}
       }, [onLogActivity]);
+
+      // Hydrate from storage on mount
+      useEffect(() => {
+        recalculateTimer();
+      }, [recalculateTimer]);
+
+      // Recalculate when returning from background/sleep
+      useEffect(() => {
+        const handleVisibilityChange = () => {
+          if (!document.hidden) {
+            recalculateTimer();
+          }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }, [recalculateTimer]);
 
       // Tick effect
       useEffect(() => {
