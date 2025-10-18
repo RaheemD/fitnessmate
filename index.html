@@ -3609,7 +3609,15 @@ Respond ONLY with a valid JSON object in this exact format:
                 </div>
                 <div className="p-6 pt-0 flex items-center justify-between">
                   {subActiveGlobal ? (
-                    <span className="text-xs bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 px-2 py-1 rounded-full">Subscribed</span>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={async ()=>{ const openPlay=()=>{ const sku=(window.fitmateIAP&&window.fitmateIAP.PRODUCT_ID)?window.fitmateIAP.PRODUCT_ID:'fitmate_monthly_149'; const manageUrl=`https://play.google.com/store/account/subscriptions?sku=${encodeURIComponent(sku)}`; try{window.open(manageUrl,'_blank');}catch(_){} }; const openStripeLogin=()=>{ try{ window.open('https://billing.stripe.com/p/login/28E14o3tE3dP9Uhfnc3sI00','_blank'); }catch(_){} }; try { if (supabase && supabase.functions) { const { data, error } = await supabase.functions.invoke('stripe-webhook', { body: { action: 'create_portal_session' } }); if (!error && data && data.url) { window.location.assign(data.url); return; } } } catch(_){} if (typeof window.getDigitalGoodsService === 'function' || /Android/i.test(navigator.userAgent)) { openPlay(); } else { openStripeLogin(); } }}
+                        className="bg-gray-800 hover:bg-gray-900 text-white text-sm px-4 py-2 rounded-lg shadow"
+                      >
+                        Manage
+                      </button>
+                      <span className="text-xs bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 px-2 py-1 rounded-full">Subscribed</span>
+                    </div>
                   ) : (
                     <div className="flex items-center gap-3">
                       <button onClick={async ()=>{ try { if (!user) { setShowSubscriptionModal(false); setScreen('profile'); setTimeout(()=>{ try { window.dispatchEvent(new Event('open-account-modal')); } catch(_) {} }, 50); return; } const ok = await (window.fitmateIAP && window.fitmateIAP.subscribe ? window.fitmateIAP.subscribe() : Promise.resolve(false)); if (ok) { setShowSubscriptionModal(false); computeAiRemainingGlobal(); } } catch(_){} }} className="bg-blue-500 hover:bg-blue-600 text-white text-sm px-4 py-2 rounded-lg shadow">Subscribe · €1.49</button>
@@ -5660,7 +5668,16 @@ Respond ONLY with a valid JSON object in this exact format:
                     </span>
                   )}
                 </div>
-                {!subActive && (
+                {subActive ? (
+                  <div className="flex flex-col gap-2 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+                    <button
+                      onClick={async ()=>{ const openPlay=()=>{ const sku=(window.fitmateIAP&&window.fitmateIAP.PRODUCT_ID)?window.fitmateIAP.PRODUCT_ID:'fitmate_monthly_149'; const manageUrl=`https://play.google.com/store/account/subscriptions?sku=${encodeURIComponent(sku)}`; try{window.open(manageUrl,'_blank');}catch(_){} }; const openStripeLogin=()=>{ try{ window.open('https://billing.stripe.com/p/login/28E14o3tE3dP9Uhfnc3sI00','_blank'); }catch(_){} }; try { if (supabase && supabase.functions) { const { data, error } = await supabase.functions.invoke('stripe-webhook', { body: { action: 'create_portal_session' } }); if (!error && data && data.url) { window.location.assign(data.url); return; } } } catch(_){} if (typeof window.getDigitalGoodsService === 'function' || /Android/i.test(navigator.userAgent)) { openPlay(); } else { openStripeLogin(); } }}
+                      className="w-full bg-gray-800 hover:bg-gray-900 text-white text-sm font-medium px-4 py-2.5 rounded-lg shadow-sm transition-colors"
+                    >
+                      Manage subscription
+                    </button>
+                  </div>
+                ) : (
                   <div className="flex flex-col gap-2 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
                     <button
                       onClick={()=>{ try { if (!user) { openAccountModal(); return; } window.dispatchEvent(new CustomEvent('force-open-subscription-modal')); } catch(_){} }}
