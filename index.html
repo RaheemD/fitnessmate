@@ -530,11 +530,19 @@ Respond ONLY with a valid JSON object in this exact format:
 
     // Initialize Supabase
     let supabase, auth, currentUser = null;
-    const USERS_REALTIME_ENABLED = false;
+    const USERS_REALTIME_ENABLED = true;
     try {
       const { createClient } = window.supabase;
       supabase = createClient(supabaseConfig.url, supabaseConfig.anonKey);
       auth = supabase.auth;
+      
+      // Join a single realtime channel for AI-usage broadcasts
+      try {
+        if (!window.__aiUsageChannel) {
+          window.__aiUsageChannel = supabase.channel('ai-usage');
+          window.__aiUsageChannel.subscribe();
+        }
+      } catch(_) {}
       
       // Auth state change listener will be set up inside React component
     } catch (error) {
@@ -542,6 +550,7 @@ Respond ONLY with a valid JSON object in this exact format:
       // Show user-friendly error message
       setTimeout(() => {
         const errorDiv = document.createElement('div');
+        errorDiv.className = 'supabase-error';
         errorDiv.innerHTML = `
           <div style="position: fixed; top: 20px; left: 20px; right: 20px; background: #fee; border: 1px solid #fcc; color: #c33; padding: 15px; border-radius: 8px; z-index: 9999; font-family: Arial, sans-serif;">
             <strong>⚠️ Supabase Connection Issue:</strong><br>
@@ -602,7 +611,7 @@ Respond ONLY with a valid JSON object in this exact format:
       async getUser(userId) {
         const { data, error } = await supabase
           .from('users')
-          .select('id, updated_at, goals, profile_picture, notifications_enabled, dark_mode, daily_intake, recent_meals, daily_history, coach_messages, habit_ai_advice, habits, meal_plan, workout_plan, scan_result, form_analysis, subscription')
+          .select('id, updated_at, goals, profile_picture, notifications_enabled, dark_mode, daily_intake, recent_meals, daily_history, coach_messages, habit_ai_advice, habits, meal_plan, workout_plan, scan_result, form_analysis, subscription, ai_usage')
           .eq('id', userId)
           .single();
         if (error && error.code !== 'PGRST116') throw error; // PGRST116 = not found
@@ -794,11 +803,18 @@ Respond ONLY with a valid JSON object in this exact format:
               forceNextRemoteOnlyRef.current = true;
               // Purge local profile so we only accept remote
               try { clearLocalProfileForRemoteOnly(); } catch (_) {}
+              // DO NOT clear aiUsage on sign-in - use handshake to sync MAX value across devices
             }
             // Sync user data when authenticated
             syncUserData(currentUser);
           } else {
             console.log('User signed out');
+            // Force UI to reflect signed-out state immediately
+            try { localStorage.setItem('subscriptionActive', JSON.stringify(false)); } catch (_) {}
+            try { window.dispatchEvent(new CustomEvent('subscription-status-changed', { detail: { active: false } })); } catch (_) {}
+            try { window.dispatchEvent(new CustomEvent('ads-control', { detail: { enabled: true } })); } catch (_) {}
+            try { localStorage.removeItem('aiUsage'); } catch (_) {}
+            try { window.dispatchEvent(new Event('userDataSynced')); } catch (_) {}
           }
           // Surface password recovery flow even if URL lacks type=recovery
           if (event === 'PASSWORD_RECOVERY') {
@@ -853,7 +869,9 @@ Respond ONLY with a valid JSON object in this exact format:
             workout_plan: JSON.parse(localStorage.getItem('workoutPlan') || 'null'),
             // workout_history: JSON.parse(localStorage.getItem('workoutHistory') || '[]'), // Removed - using separate table
             scan_result: JSON.parse(localStorage.getItem('scanResult') || 'null'),
-            form_analysis: JSON.parse(localStorage.getItem('formAnalysis') || 'null')
+            form_analysis: JSON.parse(localStorage.getItem('formAnalysis') || 'null'),
+            
+            // AI usage tracking removed - using localStorage only for quota sync
           });
           console.log('✅ Comprehensive user document created in Supabase Database');
         } catch (error) {
@@ -1068,6 +1086,52 @@ Respond ONLY with a valid JSON object in this exact format:
                 try { localStorage.setItem('subscriptionActive', JSON.stringify(!!userData.subscription.active)); } catch (_) {}
                 try { window.dispatchEvent(new CustomEvent('subscription-status-changed', { detail: { active: !!userData.subscription.active } })); } catch (_) {}
               }
+              
+              // AI usage: remote-authoritative merge with local using MAX across all dates
+              try {
+                const remoteUsage = (userData && userData.ai_usage) ? userData.ai_usage : {};
+                const localUsage = (() => { try { return JSON.parse(localStorage.getItem('aiUsage') || '{}') || {}; } catch { return {}; } })();
+                const merged = {};
+
+                // First, copy remote into merged
+                Object.keys(remoteUsage || {}).forEach(date => {
+                  merged[date] = { ...(remoteUsage[date] || {}) };
+                });
+
+                // Re-key 'anon' to user across all dates in local, then MAX against remote
+                const uid = effectiveUser.id;
+                Object.keys(localUsage || {}).forEach(date => {
+                  if (!merged[date]) merged[date] = {};
+                  const l = localUsage[date] || {};
+                  const localAnon = Number(l['anon'] || 0);
+                  const localUser = Number(l[uid] || 0);
+                  const localMaxForUser = Math.max(localAnon, localUser);
+                  const remoteUser = Number((merged[date] && merged[date][uid]) || 0);
+                  const maxForUser = Math.max(remoteUser, localMaxForUser);
+                  if (maxForUser > 0) merged[date][uid] = maxForUser;
+
+                  // Also take MAX for any other keys present (future-proofing shared devices)
+                  Object.keys(l).forEach(k => {
+                    const lc = Number(l[k] || 0);
+                    const rc = Number((merged[date] && merged[date][k]) || 0);
+                    if (lc > rc) merged[date][k] = lc;
+                  });
+                });
+
+                // Persist merged to local
+                localStorage.setItem('aiUsage', JSON.stringify(merged));
+
+                // If remote differs, write merged back to DB to make it authoritative
+                const remoteStr = JSON.stringify(remoteUsage || {});
+                const mergedStr = JSON.stringify(merged);
+                if (remoteStr !== mergedStr) {
+                  try { await db.updateUser(uid, { ai_usage: merged }); } catch (e) { console.warn('AI usage: failed to persist merged to DB', e); }
+                }
+                console.log('✅ AI usage merged (remote-first MAX) and persisted');
+              } catch (err) {
+                console.error('Error syncing AI usage:', err);
+              }
+              
               // Skip syncing dark_mode from remote - it's a local UI preference
               // if (userData.dark_mode !== undefined) {
               //   localStorage.setItem('fitmate-dark-mode', userData.dark_mode.toString());
@@ -1080,143 +1144,142 @@ Respond ONLY with a valid JSON object in this exact format:
                 console.log('✅ Meal plan synced to localStorage');
               }
               if (userData.workout_plan) {
-          localStorage.setItem('workoutPlan', JSON.stringify(userData.workout_plan));
-          console.log('✅ Workout plan synced to localStorage');
-        }
-        
-        // Special handling for workout_history
-        if (remoteOnly) {
-        try {
-          // Remote-only: fetch remote history and set locally (no merge, no local upsert)
-          const { data: remoteHistory, error: historyError } = await supabase
-            .from('workout_history')
-            .select('id, user_id, timestamp, duration, exercises_completed, total_exercises, completion_rate, type, workout_title, workout_level, incomplete')
-            .eq('user_id', effectiveUser.id)
-            .order('timestamp', { ascending: false })
-            .limit(100);
-
-          if (historyError) throw historyError;
-
-          localStorage.setItem('workoutHistory', JSON.stringify(remoteHistory || []));
-          setWorkoutHistory(remoteHistory || []);
-          console.log('🔒 Remote-only: set workout history from remote without merging');
-
-        } catch (error) {
-          console.error('Remote-only workout history fetch failed:', error);
-        }
-        } else {
-        try {
-          // First, get local history that hasn't been synced to Supabase
-          const localHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
-          
-          // If we have local history, sync it to Supabase first
-          if (localHistory.length > 0) {
-            try {
-              // Get the most recent local workout timestamp
-              const mostRecentLocal = localHistory[0]?.timestamp;
-              
-              // Find workouts that don't exist in Supabase yet
-              const { data: recentRemoteWorkouts, error: fetchError } = await supabase
-                .from('workout_history')
-                .select('timestamp')
-                .eq('user_id', effectiveUser.id)
-                .gte('timestamp', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()) // Last 30 days
-                .order('timestamp', { ascending: false });
-                
-              if (fetchError) throw fetchError;
-              
-              const remoteTimestamps = new Set(recentRemoteWorkouts?.map(w => w.timestamp) || []);
-              const workoutsToSync = localHistory.filter(w => w.timestamp && !remoteTimestamps.has(w.timestamp));
-              
-              // Sync any missing workouts to Supabase
-              if (workoutsToSync.length > 0) {
-                const { error: syncError } = await supabase
-                  .from('workout_history')
-                  .upsert(
-                    workoutsToSync.map(workout => ({
-                      ...workout,
-                      user_id: effectiveUser.id,
-                      // Ensure all required fields have default values
-                      duration: workout.duration || 0,
-                      calories_burned: workout.calories_burned || 0,
-                      exercises_completed: workout.exercises_completed || 0,
-                      workout_title: workout.workout_title || 'Custom Workout',
-                      created_at: workout.timestamp || new Date().toISOString()
-                    })),
-                    { onConflict: 'user_id,timestamp' }
-                  );
-                  
-                if (syncError) throw syncError;
-                console.log(`✅ Synced ${workoutsToSync.length} local workouts to Supabase`);
+                localStorage.setItem('workoutPlan', JSON.stringify(userData.workout_plan));
+                console.log('✅ Workout plan synced to localStorage');
               }
-            } catch (syncError) {
-              console.error('Error syncing local workouts to Supabase:', syncError);
-            }
-          }
-          
-          // Now fetch complete history from Supabase
-          const { data: remoteHistory, error: historyError } = await supabase
-            .from('workout_history')
-            .select('id, user_id, timestamp, duration, exercises_completed, total_exercises, completion_rate, type, workout_title, workout_level, incomplete')
-            .eq('user_id', effectiveUser.id)
-            .order('timestamp', { ascending: false })
-            .limit(100); // Get more history for better sync
+              // Special handling for workout_history
+              if (remoteOnly) {
+                try {
+                  // Remote-only: fetch remote history and set locally (no merge, no local upsert)
+                  const { data: remoteHistory, error: historyError } = await supabase
+                    .from('workout_history')
+                    .select('id, user_id, timestamp, duration, exercises_completed, total_exercises, completion_rate, type, workout_title, workout_level, incomplete')
+                    .eq('user_id', effectiveUser.id)
+                    .order('timestamp', { ascending: false })
+                    .limit(100);
 
-          if (historyError) throw historyError;
-          
-          // If no remote history, keep local history
-          if (!remoteHistory || remoteHistory.length === 0) {
-            if (localHistory.length > 0) {
-              localStorage.setItem('workoutHistory', JSON.stringify(localHistory));
-              console.log('Using local workout history (no remote data)');
-            }
-            return;
-          }
-          
-          // If no local history, use remote
-          if (localHistory.length === 0) {
-            localStorage.setItem('workoutHistory', JSON.stringify(remoteHistory));
-            setWorkoutHistory(remoteHistory);
-            console.log('Using remote workout history (no local data)');
-            return;
-          }
-          
-          // Merge both histories, preferring remote data in case of conflicts
-          const historyMap = new Map();
-          
-          // Add remote workouts to map first (lower priority)
-          remoteHistory.forEach(workout => {
-            if (workout.timestamp) {
-              historyMap.set(workout.timestamp, workout);
-            }
-          });
-          
-          // Add local workouts (will only add if timestamp doesn't exist in remote)
-          localHistory.forEach(workout => {
-            if (workout.timestamp && !historyMap.has(workout.timestamp)) {
-              historyMap.set(workout.timestamp, workout);
-            }
-          });
+                  if (historyError) throw historyError;
 
-          // Convert map back to array and sort by timestamp
-          let mergedHistory = Array.from(historyMap.values())
-            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-            .slice(0, 100); // Keep most recent 100 workouts
+                  localStorage.setItem('workoutHistory', JSON.stringify(remoteHistory || []));
+                  setWorkoutHistory(remoteHistory || []);
+                  console.log('🔒 Remote-only: set workout history from remote without merging');
 
-          // Save merged history
-          localStorage.setItem('workoutHistory', JSON.stringify(mergedHistory));
-          setWorkoutHistory(mergedHistory);
-          console.log(`✅ Workout history synced: ${mergedHistory.length} workouts`);
-          
-        } catch (error) {
-          console.error('Error syncing workout history:', error);
-          // If sync fails, keep using local history
-          const localHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
-          setWorkoutHistory(localHistory);
-        }
-        }
+                } catch (error) {
+                  console.error('Remote-only workout history fetch failed:', error);
+                }
+              } else {
+                try {
+                  // First, get local history that hasn't been synced to Supabase
+                  const localHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+                  
+                  // If we have local history, sync it to Supabase first
+                  if (localHistory.length > 0) {
+                    try {
+                      // Get the most recent local workout timestamp
+                      const mostRecentLocal = localHistory[0]?.timestamp;
+                      
+                      // Find workouts that don't exist in Supabase yet
+                      const { data: recentRemoteWorkouts, error: fetchError } = await supabase
+                        .from('workout_history')
+                        .select('timestamp')
+                        .eq('user_id', effectiveUser.id)
+                        .gte('timestamp', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()) // Last 30 days
+                        .order('timestamp', { ascending: false });
+                        
+                      if (fetchError) throw fetchError;
+                      
+                      const remoteTimestamps = new Set(recentRemoteWorkouts?.map(w => w.timestamp) || []);
+                      const workoutsToSync = localHistory.filter(w => w.timestamp && !remoteTimestamps.has(w.timestamp));
+                      
+                      // Sync any missing workouts to Supabase
+                      if (workoutsToSync.length > 0) {
+                        const { error: syncError } = await supabase
+                          .from('workout_history')
+                          .upsert(
+                            workoutsToSync.map(workout => ({
+                              ...workout,
+                              user_id: effectiveUser.id,
+                              // Ensure all required fields have default values
+                              duration: workout.duration || 0,
+                              calories_burned: workout.calories_burned || 0,
+                              exercises_completed: workout.exercises_completed || 0,
+                              workout_title: workout.workout_title || 'Custom Workout',
+                              created_at: workout.timestamp || new Date().toISOString()
+                            })),
+                            { onConflict: 'user_id,timestamp' }
+                          );
+                          
+                        if (syncError) throw syncError;
+                        console.log(`✅ Synced ${workoutsToSync.length} local workouts to Supabase`);
+                      }
+                    } catch (syncError) {
+                      console.error('Error syncing local workouts to Supabase:', syncError);
+                    }
+                  }
+                  
+                  // Now fetch complete history from Supabase
+                  const { data: remoteHistory, error: historyError } = await supabase
+                    .from('workout_history')
+                    .select('id, user_id, timestamp, duration, exercises_completed, total_exercises, completion_rate, type, workout_title, workout_level, incomplete')
+                    .eq('user_id', effectiveUser.id)
+                    .order('timestamp', { ascending: false })
+                    .limit(100); // Get more history for better sync
 
-        if (userData.scan_result) {
+                  if (historyError) throw historyError;
+                  
+                  // If no remote history, keep local history
+                  if (!remoteHistory || remoteHistory.length === 0) {
+                    if (localHistory.length > 0) {
+                      localStorage.setItem('workoutHistory', JSON.stringify(localHistory));
+                      console.log('Using local workout history (no remote data)');
+                    }
+                    return;
+                  }
+                  
+                  // If no local history, use remote
+                  if (localHistory.length === 0) {
+                    localStorage.setItem('workoutHistory', JSON.stringify(remoteHistory));
+                    setWorkoutHistory(remoteHistory);
+                    console.log('Using remote workout history (no local data)');
+                    return;
+                  }
+                  
+                  // Merge both histories, preferring remote data in case of conflicts
+                  const historyMap = new Map();
+                  
+                  // Add remote workouts to map first (lower priority)
+                  remoteHistory.forEach(workout => {
+                    if (workout.timestamp) {
+                      historyMap.set(workout.timestamp, workout);
+                    }
+                  });
+                  
+                  // Add local workouts (will only add if timestamp doesn't exist in remote)
+                  localHistory.forEach(workout => {
+                    if (workout.timestamp && !historyMap.has(workout.timestamp)) {
+                      historyMap.set(workout.timestamp, workout);
+                    }
+                  });
+
+                  // Convert map back to array and sort by timestamp
+                  let mergedHistory = Array.from(historyMap.values())
+                    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                    .slice(0, 100); // Keep most recent 100 workouts
+
+                  // Save merged history
+                  localStorage.setItem('workoutHistory', JSON.stringify(mergedHistory));
+                  setWorkoutHistory(mergedHistory);
+                  console.log(`✅ Workout history synced: ${mergedHistory.length} workouts`);
+                  
+                } catch (error) {
+                  console.error('Error syncing workout history:', error);
+                  // If sync fails, keep using local history
+                  const localHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+                  setWorkoutHistory(localHistory);
+                }
+              }
+
+              if (userData.scan_result) {
                 localStorage.setItem('scanResult', JSON.stringify(userData.scan_result));
                 console.log('✅ Scan result synced to localStorage');
               }
@@ -1378,6 +1441,7 @@ Respond ONLY with a valid JSON object in this exact format:
           // Enforce remote-only fetch for this sign-in so local data cannot overwrite remote
           try { localStorage.removeItem('lastSyncTimestamp'); } catch (_) {}
           try { forceNextRemoteOnlyRef.current = true; } catch (_) {}
+          // DO NOT clear aiUsage on sign-in - use handshake to sync MAX value across devices
           // Trigger immediate remote fetch (onAuthStateChange will also call this, this is safe)
           try { await syncUserData(data.user); } catch (_) {}
           return data.user;
@@ -1429,6 +1493,13 @@ Respond ONLY with a valid JSON object in this exact format:
           } catch (_) {
             // ignore
           }
+
+          // Reset subscription and quota local flags on sign-out so UI reflects anon state
+          try { localStorage.setItem('subscriptionActive', JSON.stringify(false)); } catch (_) {}
+          try { window.dispatchEvent(new CustomEvent('subscription-status-changed', { detail: { active: false } })); } catch (_) {}
+          try { window.dispatchEvent(new CustomEvent('ads-control', { detail: { enabled: true } })); } catch (_) {}
+          try { localStorage.removeItem('aiUsage'); } catch (_) {}
+          try { window.dispatchEvent(new Event('userDataSynced')); } catch (_) {}
 
           // Clear Supabase v2 auth cache keys (sb-<projectRef>-auth-token) plus legacy key
           try {
@@ -1775,100 +1846,25 @@ Respond ONLY with a valid JSON object in this exact format:
         });
       };
 
-      // Function to compress image for mobile compatibility - Safe mobile approach
-      const compressImageForMobile = (base64Image, maxWidth = 200, quality = 0.7) => {
-        return new Promise((resolve) => {
-          if (!base64Image || !base64Image.startsWith('data:image/')) {
-            resolve(base64Image);
-            return;
-          }
-          
-          try {
-            // First, check if the image is already small enough (under 500KB)
-            const base64Length = base64Image.length;
-            const estimatedSizeKB = Math.ceil((base64Length * 3) / 4096); // Rough estimate
-            
-            if (estimatedSizeKB < 500) {
-              console.log('📏 Image already small enough:', estimatedSizeKB + 'KB, skipping compression');
-              resolve(base64Image);
-              return;
-            }
-            
-            console.log('📏 Compressing large image:', estimatedSizeKB + 'KB');
-            
-            const img = new Image();
-            img.onload = () => {
-              try {
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                
-                // Calculate new dimensions
-                let { width, height } = img;
-                if (width > maxWidth) {
-                  height = (height * maxWidth) / width;
-                  width = maxWidth;
-                }
-                
-                canvas.width = width;
-                canvas.height = height;
-                
-                // Draw and compress
-                ctx.drawImage(img, 0, 0, width, height);
-                const compressedImage = canvas.toDataURL('image/jpeg', quality);
-                
-                // Log compression results
-                const compressedSizeKB = Math.ceil((compressedImage.length * 3) / 4096);
-                console.log('✅ Image compressed:', estimatedSizeKB + 'KB → ' + compressedSizeKB + 'KB');
-                
-                resolve(compressedImage);
-              } catch (canvasError) {
-                console.warn('Canvas compression failed:', canvasError);
-                resolve(base64Image);
-              }
-            };
-            
-            img.onerror = () => {
-              console.warn('Image load failed for compression');
-              resolve(base64Image);
-            };
-            
-            img.src = base64Image;
-            
-          } catch (error) {
-            console.warn('Image compression failed, using original:', error);
-            resolve(base64Image);
-          }
-        });
-      };
-
-      // Monitor localStorage usage
       const checkLocalStorageUsage = () => {
         let totalSize = 0;
         const usage = {};
-        
-        for (let key in localStorage) {
-          if (localStorage.hasOwnProperty(key)) {
-            const size = localStorage[key].length;
+        try {
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (!key) continue;
+            const size = (localStorage.getItem(key) || '').length;
             totalSize += size;
             usage[key] = size;
           }
-        }
-        
-        const totalSizeMB = (totalSize / (1024 * 1024)).toFixed(2);
-        if (window.__FITMATE_DEBUG_LS) {
-          console.log(`localStorage usage: ${totalSizeMB}MB`);
-        }
-        
-        // If approaching 5MB limit, auto-clean once to avoid quota errors
+        } catch (_) {}
         if (totalSize > 4 * 1024 * 1024) {
           if (!window.__fitmateAutoCleaned) {
-            console.warn('⚠️ localStorage near quota — auto-cleaning large/ephemeral items...');
-            cleanupLocalStorage();
-            window.__fitmateAutoCleaned = true; // prevent repeated warnings/cleans this session
+            try { cleanupLocalStorage(); } catch (_) {}
+            window.__fitmateAutoCleaned = true;
           }
         }
-        
-        return { totalSize, totalSizeMB, usage };
+        return { totalSize, usage };
       };
 
       // Check usage periodically (once) at a lower frequency to reduce console noise
@@ -1896,6 +1892,11 @@ Respond ONLY with a valid JSON object in this exact format:
               if (remoteData.goals) localStorage.setItem('goals', JSON.stringify(remoteData.goals));
               if (remoteData.profile_picture) localStorage.setItem('profilePicture', remoteData.profile_picture);
               if (remoteData.notifications_enabled !== undefined) localStorage.setItem('notificationsEnabled', JSON.stringify(remoteData.notifications_enabled));
+              // Subscription status from backend (Stripe/Play)
+              if (remoteData.subscription) {
+                try { localStorage.setItem('subscriptionActive', JSON.stringify(!!remoteData.subscription.active)); } catch (_) {}
+                try { window.dispatchEvent(new CustomEvent('subscription-status-changed', { detail: { active: !!remoteData.subscription.active } })); } catch (_) {}
+              }
               // Skip syncing dark_mode from remote - it's a local UI preference
               if (remoteData.daily_intake) {
                 try {
@@ -1934,6 +1935,27 @@ Respond ONLY with a valid JSON object in this exact format:
               // workout_history is handled by separate table, not synced here
               if (remoteData.scan_result) localStorage.setItem('scanResult', JSON.stringify(remoteData.scan_result));
               if (remoteData.form_analysis) localStorage.setItem('formAnalysis', JSON.stringify(remoteData.form_analysis));
+              // AI usage: merge remote with local using MAX to prevent overwrites
+              if (remoteData.ai_usage) {
+                try {
+                  const remoteUsage = remoteData.ai_usage || {};
+                  const localUsage = JSON.parse(localStorage.getItem('aiUsage') || '{}') || {};
+                  const merged = { ...localUsage };
+                  Object.keys(remoteUsage).forEach(date => {
+                    if (!merged[date]) merged[date] = {};
+                    Object.keys(remoteUsage[date]).forEach(uid => {
+                      const remoteCount = Number(remoteUsage[date][uid] || 0);
+                      const localCount = Number(merged[date][uid] || 0);
+                      merged[date][uid] = Math.max(remoteCount, localCount);
+                    });
+                  });
+                  localStorage.setItem('aiUsage', JSON.stringify(merged));
+                  window.dispatchEvent(new CustomEvent('userDataSynced'));
+                  console.log('✅ Real-time: AI usage merged from remote (MAX)');
+                } catch (e) {
+                  console.warn('Realtime AI usage merge failed:', e);
+                }
+              }
               
               // Update local sync timestamp
               localStorage.setItem('lastSyncTimestamp', remoteTimestamp.toString());
@@ -2100,7 +2122,7 @@ Respond ONLY with a valid JSON object in this exact format:
     
     // Direct OpenRouter API (ChatGPT 4 Mini) with obfuscated key
     const OPENROUTER_QWEN_MODEL = 'google/gemini-2.5-flash'; // text-only
-const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
+    const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
     const getDirectGeminiConfig = () => {
       return {
         url: 'https://fitserver-k7r4.onrender.com/api/myapi',
@@ -2114,7 +2136,27 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
     
     // Feature flag: hide manual cloud sync UI (auto-sync is active)
     const SHOW_MANUAL_CLOUD_SYNC = false;
-    (function(){const installLimiter=()=>{if(window.__aiLimiterInstalled)return;const aiUrl=getDirectGeminiConfig().url;const orig=window.fetch.bind(window);window.fetch=async (input,init={})=>{try{const reqUrl=typeof input==='string'?input:((input&&input.url)||'');const method=(init&&init.method)?String(init.method).toUpperCase():'GET';const isAI=(reqUrl===aiUrl&&method==='POST');if(!isAI){return orig(input,init);}let hdrs=(init&&init.headers)||null;let ignore=false;try{if(hdrs&&typeof hdrs.get==='function'){ignore=!!hdrs.get('X-Fitmate-Ignore-Quota');}else if(hdrs&&typeof hdrs==='object'){ignore=!!(hdrs['X-Fitmate-Ignore-Quota']||hdrs['x-fitmate-ignore-quota']);}}catch(_){}if(ignore){return orig(input,init);}let uid=null;try{if(auth&&auth.getSession){const { data:{ session } }=await auth.getSession();uid=session&&session.user?session.user.id:null;}}catch(_){}const todayISO=(typeof toLocalISODate==='function'?toLocalISODate(new Date()):new Date().toISOString().slice(0,10));let usage={};try{usage=JSON.parse(localStorage.getItem('aiUsage')||'{}')||{};}catch(_){}if(!usage[todayISO])usage[todayISO]={};const key=uid||'anon';let subscribed=false;try{subscribed=JSON.parse(localStorage.getItem('subscriptionActive')||'false');}catch(_){}const limit=subscribed?10:(uid?5:3);const count=Number(usage[todayISO][key]||0);if(count>=limit){try{if(uid){window.dispatchEvent(new Event('force-open-subscription-modal'));}else{window.dispatchEvent(new CustomEvent('ai-quota-exceeded',{detail:{key,limit}}));}}catch(_){}return new Response(JSON.stringify({error:'quota_exceeded'}),{status:429,headers:{'Content-Type':'application/json'}});}usage[todayISO][key]=count+1;try{localStorage.setItem('aiUsage',JSON.stringify(usage));}catch(_){}return orig(input,init);}catch(_){return orig(input,init);}};window.__aiLimiterInstalled=true;};installLimiter();})();
+    (function(){const installLimiter=()=>{if(window.__aiLimiterInstalled)return;const aiUrl=getDirectGeminiConfig().url;const orig=window.fetch.bind(window);window.fetch=async (input,init={})=>{try{const reqUrl=typeof input==='string'?input:((input&&input.url)||'');const method=(init&&init.method)?String(init.method).toUpperCase():'GET';const isAI=(reqUrl===aiUrl&&method==='POST');if(!isAI){return orig(input,init);}let hdrs=(init&&init.headers)||null;let ignore=false;try{if(hdrs&&typeof hdrs.get==='function'){ignore=!!hdrs.get('X-Fitmate-Ignore-Quota');}else if(hdrs&&typeof hdrs==='object'){ignore=!!(hdrs['X-Fitmate-Ignore-Quota']||hdrs['x-fitmate-ignore-quota']);}}catch(_){}if(ignore){return orig(input,init);}let uid=null;try{if(auth&&auth.getSession){const { data:{ session } }=await auth.getSession();uid=session&&session.user?session.user.id:null;}}catch(_){}const todayISO=(typeof toLocalISODate==='function'?toLocalISODate(new Date()):new Date().toISOString().slice(0,10));let usage={};try{usage=JSON.parse(localStorage.getItem('aiUsage')||'{}')||{};}catch(_){}if(!usage[todayISO])usage[todayISO]={};const key=uid||'anon';let subscribed=false;try{subscribed=JSON.parse(localStorage.getItem('subscriptionActive')||'false');}catch(_){}const limit=subscribed?10:(uid?5:3);const count=Number(usage[todayISO][key]||0);if(count>=limit){try{if(uid){window.dispatchEvent(new Event('force-open-subscription-modal'));}else{window.dispatchEvent(new CustomEvent('ai-quota-exceeded',{detail:{key,limit}}));}}catch(_){}return new Response(JSON.stringify({error:'quota_exceeded'}),{status:429,headers:{'Content-Type':'application/json'}});}usage[todayISO][key]=count+1;try{localStorage.setItem('aiUsage',JSON.stringify(usage));
+            try {
+              // Sync AI usage to database immediately after incrementing
+              if (uid && typeof supabase !== 'undefined' && typeof db !== 'undefined' && db.updateUser) {
+                try {
+                  // Debounce updates to avoid hammering the database
+                  if (window.__aiUsageSyncTimeout) clearTimeout(window.__aiUsageSyncTimeout);
+                  window.__aiUsageSyncTimeout = setTimeout(async () => {
+                    try {
+                      await db.updateUser(uid, { ai_usage: usage });
+                      console.log('✅ AI usage synced to database:', usage[todayISO]);
+                    } catch (err) {
+                      console.error('Failed to sync AI usage to database:', err);
+                    }
+                  }, 500);
+                } catch(e) { 
+                  console.error('AI limiter: Failed to schedule database sync:', e);
+                }
+              }
+            } catch(e) { console.error('AI limiter: Database sync error:', e); }}
+            catch(_){}return orig(input,init);}catch(_){return orig(input,init);}};window.__aiLimiterInstalled=true;};installLimiter();})();
 
     (function(){
       if (window.__iapSetupInstalled) return;
@@ -2133,7 +2175,19 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
               const { data: { session } } = await auth.getSession();
               const uid = session && session.user ? session.user.id : null;
               if (uid) {
-                await db.updateUser(uid, { subscription: { active: !!active, platform: 'google_play', product_id: PRODUCT_ID, last_updated: new Date().toISOString() } });
+                // Read current subscription platform; do not overwrite Stripe-managed subscriptions
+                let currentPlatform = null;
+                try {
+                  const existing = await db.getUser(uid);
+                  currentPlatform = existing && existing.subscription ? existing.subscription.platform : null;
+                } catch(_) {}
+                if (currentPlatform && currentPlatform !== 'google_play') {
+                  return; // Don't touch Stripe or other platforms
+                }
+                // Never push a false from Play to the backend; only persist true activations
+                if (active) {
+                  await db.updateUser(uid, { subscription: { active: true, platform: 'google_play', product_id: PRODUCT_ID, last_updated: new Date().toISOString() } });
+                }
               }
             }
           } catch (_) {}
@@ -2148,7 +2202,12 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
           const service = await window.getDigitalGoodsService(BILLING_METHOD);
           const purchases = await service.listPurchases();
           const active = Array.isArray(purchases) && purchases.some(p => (p.productId||p.sku) === PRODUCT_ID && !p.isCanceled && !p.isRefunded && !p.isExpired);
-          setSubActive(active);
+          // Only update state if Play Billing actually returned purchases. This avoids overwriting
+          // Stripe-based subscriptions to false on platforms where Digital Goods API is available
+          // but the user subscribed via Stripe.
+          if (Array.isArray(purchases) && purchases.length > 0) {
+            if (active) setSubActive(true); // only set true; avoid overwriting Stripe users to false
+          }
           return active;
         } catch (e) {
           return false;
@@ -2157,11 +2216,11 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
 
       const subscribe = async (productId = PRODUCT_ID) => {
         if (!('PaymentRequest' in window)) {
-          alert('Purchases are not supported on this device.');
+          try { if (window.openStripePricingModal) window.openStripePricingModal(); } catch(_) {}
           return false;
         }
         const methodData = [{ supportedMethods: BILLING_METHOD, data: { sku: productId, type: 'subs' } }];
-        const details = { total: { label: 'Subscription', amount: { currency: 'USD', value: '1.49' } } };
+        const details = { total: { label: 'Subscription', amount: { currency: 'EUR', value: '1.49' } } };
         try {
           const request = new PaymentRequest(methodData, details);
           const resp = await request.show();
@@ -2169,7 +2228,8 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
           await refreshEntitlement();
           return true;
         } catch (e) {
-          try { console.warn('Subscription failed:', e); } catch(_){ }
+          try { console.warn('Subscription failed:', e); } catch(_) { }
+          try { if (window.openStripePricingModal) window.openStripePricingModal(); } catch(_) {}
           return false;
         }
       };
@@ -2497,22 +2557,31 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         return () => window.removeEventListener('supabase-password-recovery', handler);
       }, []);
 
-      const computeAiRemainingGlobal = React.useCallback(() => {
+      const computeAiRemainingGlobal = React.useCallback(async () => {
+        // Get user from auth session directly to avoid stale React state
+        let uid = null;
+        try {
+          if (auth && auth.getSession) {
+            const { data: { session } } = await auth.getSession();
+            uid = session && session.user ? session.user.id : null;
+          }
+        } catch (_) {}
+        
         const todayISO = typeof toLocalISODate === 'function' ? toLocalISODate(new Date()) : new Date().toISOString().slice(0,10);
         let usage = {};
         try { usage = JSON.parse(localStorage.getItem('aiUsage') || '{}') || {}; } catch (_) {}
-        const key = user?.id || 'anon';
+        const key = uid || 'anon';
         const count = Number((usage[todayISO] && usage[todayISO][key]) || 0);
         let subscribed = false;
         try { subscribed = JSON.parse(localStorage.getItem('subscriptionActive') || 'false'); } catch (_) {}
-        const limit = subscribed ? 10 : (user ? 5 : 3);
+        const limit = subscribed ? 10 : (uid ? 5 : 3);
         setAiRemainingGlobal({ count, limit });
-      }, [user]);
+      }, []);
 
       useEffect(() => {
         computeAiRemainingGlobal();
-        const openSub = () => {
-          computeAiRemainingGlobal();
+        const openSub = async () => {
+          await computeAiRemainingGlobal();
           if (!user) {
             setShowSubscriptionModal(false);
             setScreen('profile');
@@ -2524,8 +2593,26 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
             setShowSubscriptionModal(true);
           }
         };
-        const openOnQuota = () => {
-          computeAiRemainingGlobal();
+        const openOnQuota = async () => {
+          // Same logic as forceOpenSub for consistency
+          let uid = null;
+          try {
+            if (auth && auth.getSession) {
+              const { data: { session } } = await auth.getSession();
+              uid = session && session.user ? session.user.id : null;
+            }
+          } catch (_) {}
+          
+          const todayISO = typeof toLocalISODate === 'function' ? toLocalISODate(new Date()) : new Date().toISOString().slice(0,10);
+          let usage = {};
+          try { usage = JSON.parse(localStorage.getItem('aiUsage') || '{}') || {}; } catch (_) {}
+          const key = uid || 'anon';
+          const count = Number((usage[todayISO] && usage[todayISO][key]) || 0);
+          let subscribed = false;
+          try { subscribed = JSON.parse(localStorage.getItem('subscriptionActive') || 'false'); } catch (_) {}
+          const limit = subscribed ? 10 : (uid ? 5 : 3);
+          setAiRemainingGlobal({ count, limit });
+          
           if (!user) {
             setShowSubscriptionModal(false);
             setScreen('profile');
@@ -2535,15 +2622,42 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
             setShowSubscriptionModal(true);
           }
         };
-        const onVis = () => { if (!document.hidden) computeAiRemainingGlobal(); };
-        const forceOpenSub = () => { computeAiRemainingGlobal(); try { window.dispatchEvent(new Event('close-account-modal')); } catch (_) {} try { setTimeout(() => { window.dispatchEvent(new Event('close-account-modal')); }, 0); } catch (_) {} try { setTimeout(() => { window.dispatchEvent(new Event('close-account-modal')); }, 150); } catch (_) {} setShowSubscriptionModal(true); };
+        const onVis = () => { if (!document.hidden) computeAiRemainingGlobal().catch(() => {}); };
+        const forceOpenSub = async () => { 
+          // Force immediate recompute before opening modal - must match AI limiter logic exactly
+          let uid = null;
+          try {
+            if (auth && auth.getSession) {
+              const { data: { session } } = await auth.getSession();
+              uid = session && session.user ? session.user.id : null;
+            }
+          } catch (_) {}
+          
+          const todayISO = typeof toLocalISODate === 'function' ? toLocalISODate(new Date()) : new Date().toISOString().slice(0,10);
+          let usage = {};
+          try { usage = JSON.parse(localStorage.getItem('aiUsage') || '{}') || {}; } catch (_) {}
+          const key = uid || 'anon';
+          const count = Number((usage[todayISO] && usage[todayISO][key]) || 0);
+          let subscribed = false;
+          try { subscribed = JSON.parse(localStorage.getItem('subscriptionActive') || 'false'); } catch (_) {}
+          const limit = subscribed ? 10 : (uid ? 5 : 3);
+          
+          console.log('🔍 Force-open modal debug:', { uid, key, todayISO, count, limit, subscribed, usage: usage[todayISO] });
+          
+          setAiRemainingGlobal({ count, limit });
+          try { window.dispatchEvent(new Event('close-account-modal')); } catch (_) {} try { setTimeout(() => { window.dispatchEvent(new Event('close-account-modal')); }, 0); } catch (_) {} try { setTimeout(() => { window.dispatchEvent(new Event('close-account-modal')); }, 150); } catch (_) {} setShowSubscriptionModal(true); 
+        };
         window.addEventListener('open-subscription-modal', openSub);
         window.addEventListener('force-open-subscription-modal', forceOpenSub);
         window.addEventListener('ai-quota-exceeded', openOnQuota);
         document.addEventListener('visibilitychange', onVis);
         let off = null;
         if (window.fitmateIAP && typeof window.fitmateIAP.onStatusChange === 'function') {
-          off = window.fitmateIAP.onStatusChange((active) => { setSubActiveGlobal(!!active); computeAiRemainingGlobal(); });
+          off = window.fitmateIAP.onStatusChange((active) => { 
+            setSubActiveGlobal(!!active); 
+            // Fire and forget - don't block the event handler
+            computeAiRemainingGlobal().catch(() => {}); 
+          });
         }
         return () => {
           window.removeEventListener('open-subscription-modal', openSub);
@@ -2552,7 +2666,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
           document.removeEventListener('visibilitychange', onVis);
           if (off) off();
         };
-      }, [computeAiRemainingGlobal, user]);
+      }, [computeAiRemainingGlobal]);
 
       // Handle Supabase auth links (email confirmation and password recovery)
       useEffect(() => {
@@ -3022,16 +3136,43 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
                 localStorage.setItem('dailyHistory', JSON.stringify(userData.daily_history));
               }
             }
+            // Subscription status from backend (Stripe/Play)
+            if (userData.subscription) {
+              try { localStorage.setItem('subscriptionActive', JSON.stringify(!!userData.subscription.active)); } catch (_) {}
+              try { window.dispatchEvent(new CustomEvent('subscription-status-changed', { detail: { active: !!userData.subscription.active } })); } catch (_) {}
+            }
             if (userData.coach_messages) localStorage.setItem('coachMessages', JSON.stringify(userData.coach_messages));
             if (userData.habit_ai_advice) localStorage.setItem('habitAIAdvice', userData.habit_ai_advice);
             if (userData.habits) localStorage.setItem('habits', JSON.stringify(userData.habits));
             if (userData.meal_plan) localStorage.setItem('mealPlan', JSON.stringify(userData.meal_plan));
             if (userData.workout_plan) localStorage.setItem('workoutPlan', JSON.stringify(userData.workout_plan));
+            // AI usage: merge remote with local using MAX to prevent overwrites
+            if (userData.ai_usage) {
+              try {
+                const remoteUsage = userData.ai_usage || {};
+                const localUsage = JSON.parse(localStorage.getItem('aiUsage') || '{}') || {};
+                const merged = { ...localUsage };
+                // For each date in remote, take MAX of counts
+                Object.keys(remoteUsage).forEach(date => {
+                  if (!merged[date]) merged[date] = {};
+                  Object.keys(remoteUsage[date]).forEach(uid => {
+                    const remoteCount = Number(remoteUsage[date][uid] || 0);
+                    const localCount = Number(merged[date][uid] || 0);
+                    merged[date][uid] = Math.max(remoteCount, localCount);
+                  });
+                });
+                localStorage.setItem('aiUsage', JSON.stringify(merged));
+                console.log('✅ AI usage synced from remote (MAX logic applied)');
+              } catch (err) {
+                console.error('Error syncing AI usage:', err);
+              }
+            }
             if (userData.scan_result) localStorage.setItem('scanResult', JSON.stringify(userData.scan_result));
             if (userData.form_analysis) localStorage.setItem('formAnalysis', JSON.stringify(userData.form_analysis));
 
             // Prevent feedback loop: mark update as remote, then refresh UI
             // Also directly notify UI with latest payload
+            try { window.dispatchEvent(new CustomEvent('subscription-status-changed', { detail: { active: !!userData.subscription.active } })); } catch (_) {}
             try {
               localStorage.setItem('pendingHydratePayload', JSON.stringify(remoteData));
               if (window.fitmateHydrateFromRemote) window.fitmateHydrateFromRemote(remoteData);
@@ -3050,6 +3191,71 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         }, { filter: `id=eq.${user.id}` });
 
         return () => subscription.unsubscribe();
+      }, [user]);
+
+      // Real-time listener for workout_history table to sync workouts across devices
+      useEffect(() => {
+        if (!user || !supabase || !USERS_REALTIME_ENABLED) return;
+        
+        console.log('🏋️ Setting up real-time workout history listener for user:', user.id);
+        
+        const workoutSubscription = supabase
+          .channel(`workout-history-${user.id}`)
+          .on('postgres_changes', {
+            event: '*',
+            schema: 'public',
+            table: 'workout_history',
+            filter: `user_id=eq.${user.id}`
+          }, async (payload) => {
+            console.log('🏋️ Workout history change detected:', payload);
+            
+            try {
+              // Fetch fresh workout history from database
+              const { data: workouts, error } = await supabase
+                .from('workout_history')
+                .select('*')
+                .eq('user_id', user.id)
+                .order('timestamp', { ascending: false })
+                .limit(100);
+              
+              if (error) throw error;
+              
+              if (workouts) {
+                // Update localStorage with fresh workout data
+                localStorage.setItem('workoutHistory', JSON.stringify(workouts));
+                console.log(`✅ Workout history synced: ${workouts.length} workouts`);
+                
+                // Trigger health score recalculation
+                window.dispatchEvent(new Event('workout-history-updated'));
+              }
+            } catch (error) {
+              console.error('Error syncing workout history:', error);
+            }
+          })
+          .subscribe();
+        
+        // Initial fetch of workout history
+        (async () => {
+          try {
+            const { data: workouts, error } = await supabase
+              .from('workout_history')
+              .select('*')
+              .eq('user_id', user.id)
+              .order('timestamp', { ascending: false })
+              .limit(100);
+            
+            if (!error && workouts) {
+              localStorage.setItem('workoutHistory', JSON.stringify(workouts));
+              console.log(`✅ Initial workout history loaded: ${workouts.length} workouts`);
+            }
+          } catch (error) {
+            console.error('Error loading initial workout history:', error);
+          }
+        })();
+        
+        return () => {
+          workoutSubscription.unsubscribe();
+        };
       }, [user]);
       
       useEffect(() => { 
@@ -3390,19 +3596,23 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
               <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full">
                 <div className="flex justify-between items-center p-6 border-b border-gray-200 dark:border-gray-700">
-                  <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200">Upgrade</h2>
+                  <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200">{subActiveGlobal ? 'Subscribed' : 'Upgrade'}</h2>
                   <button onClick={() => setShowSubscriptionModal(false)} className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 text-2xl font-bold">×</button>
                 </div>
                 <div className="p-6 space-y-3">
-                  <div className="text-gray-800 dark:text-gray-200">AI quota: 5/5 today</div>
-                  <div className="text-sm text-gray-600 dark:text-gray-400">Subscribed users get 10 prompts per day and ads are removed.</div>
+                  <div className="text-gray-800 dark:text-gray-200">AI quota: {aiRemainingGlobal.count}/{aiRemainingGlobal.limit} today</div>
+                  {subActiveGlobal ? (
+                    <div className="text-sm text-gray-600 dark:text-gray-400">You've used your daily AI quota. It resets at midnight.</div>
+                  ) : (
+                    <div className="text-sm text-gray-600 dark:text-gray-400">Subscribed users get 10 prompts per day and ads are removed.</div>
+                  )}
                 </div>
                 <div className="p-6 pt-0 flex items-center justify-between">
                   {subActiveGlobal ? (
                     <span className="text-xs bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 px-2 py-1 rounded-full">Subscribed</span>
                   ) : (
                     <div className="flex items-center gap-3">
-                      <button onClick={async ()=>{ try { if (!user) { setShowSubscriptionModal(false); setScreen('profile'); setTimeout(()=>{ try { window.dispatchEvent(new Event('open-account-modal')); } catch(_) {} }, 50); return; } const ok = await (window.fitmateIAP && window.fitmateIAP.subscribe ? window.fitmateIAP.subscribe() : Promise.resolve(false)); if (ok) { setShowSubscriptionModal(false); computeAiRemainingGlobal(); } } catch(_){} }} className="bg-blue-500 hover:bg-blue-600 text-white text-sm px-4 py-2 rounded-lg shadow">Subscribe · $1.49</button>
+                      <button onClick={async ()=>{ try { if (!user) { setShowSubscriptionModal(false); setScreen('profile'); setTimeout(()=>{ try { window.dispatchEvent(new Event('open-account-modal')); } catch(_) {} }, 50); return; } const ok = await (window.fitmateIAP && window.fitmateIAP.subscribe ? window.fitmateIAP.subscribe() : Promise.resolve(false)); if (ok) { setShowSubscriptionModal(false); computeAiRemainingGlobal(); } } catch(_){} }} className="bg-blue-500 hover:bg-blue-600 text-white text-sm px-4 py-2 rounded-lg shadow">Subscribe · €1.49</button>
                       <button onClick={async ()=>{ try { await (window.fitmateIAP && window.fitmateIAP.restore ? window.fitmateIAP.restore() : Promise.resolve(false)); computeAiRemainingGlobal(); } catch(_){} }} className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 underline">Restore</button>
                     </div>
                   )}
@@ -3535,19 +3745,19 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
 
       // Fetch daily motivational quote
       useEffect(() => {
+        const today = new Date().toISOString().split('T')[0];
+        const lastFetchDate = localStorage.getItem('lastQuoteFetchDate');
+        const cachedQuote = localStorage.getItem('dailyQuote');
+
+        if (lastFetchDate === today && cachedQuote) {
+          setQuote(cachedQuote);
+          return;
+        }
+
         const fetchQuote = async () => {
-          const today = new Date().toISOString().split('T')[0];
-          const lastFetchDate = localStorage.getItem('lastQuoteFetchDate');
-          const savedQuote = localStorage.getItem('dailyQuote');
-
-          if (lastFetchDate === today && savedQuote) {
-            setQuote(savedQuote);
-            return;
-          }
-
-          const prompt = "Give me a short, powerful motivational quote for fitness. Respond with only the quote itself, no extra text or quotation marks.";
-
           try {
+            const prompt = "Generate a short, motivational fitness quote (max 15 words). Just return the quote, nothing else.";
+            
             const payload = {
               model: OPENROUTER_QWEN_MODEL,
               messages: [
@@ -3559,19 +3769,38 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
               method: 'POST',
               headers: { ...getDirectGeminiConfig().headers, 'X-Fitmate-Ignore-Quota': 'true' },
               body: JSON.stringify(payload),
-              signal: AbortSignal.timeout(25000) // 25 second timeout
+              signal: AbortSignal.timeout(10000)
             });
 
-            if (!response.ok) throw new Error('Failed to fetch quote');
+            if (!response.ok) {
+              throw new Error('API request failed');
+            }
+
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+              throw new Error('Invalid response format');
+            }
 
             const result = await response.json();
             const newQuote = (result.choices?.[0]?.message?.content || '').trim();
-            setQuote(newQuote);
-            setLocalStorageWithSync('dailyQuote', newQuote);
-            setLocalStorageWithSync('lastQuoteFetchDate', today);
+            if (newQuote) {
+              setQuote(newQuote);
+              setLocalStorageWithSync('dailyQuote', newQuote);
+              setLocalStorageWithSync('lastQuoteFetchDate', today);
+            } else {
+              throw new Error('Empty quote received');
+            }
           } catch (error) {
-            console.error("Failed to fetch daily quote:", error);
-            setQuote("The only bad workout is the one that didn't happen."); // Fallback quote
+            // Silently use fallback quote - don't spam console with CORS/network errors
+            const fallbackQuotes = [
+              "The only bad workout is the one that didn't happen.",
+              "Progress, not perfection.",
+              "Your body can do it. It's your mind you need to convince.",
+              "Stronger every day.",
+              "Fitness is not about being better than someone else. It's about being better than you used to be."
+            ];
+            const randomQuote = fallbackQuotes[Math.floor(Math.random() * fallbackQuotes.length)];
+            setQuote(randomQuote);
           }
         };
 
@@ -3579,12 +3808,30 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
       }, []);
 
       // Calculate Health Score using shared utility (for today)
-      const calculateHealthScore = () => {
+      const [healthScore, setHealthScore] = useState(() => {
         const todayStr = toLocalISODate(new Date());
         return computeHealthScoreForDate(dailyIntake, goals, todayStr).score;
-      };
+      });
 
-      const healthScore = calculateHealthScore();
+      // Recalculate health score when dailyIntake, goals, or workout history changes
+      useEffect(() => {
+        const todayStr = toLocalISODate(new Date());
+        const newScore = computeHealthScoreForDate(dailyIntake, goals, todayStr).score;
+        setHealthScore(newScore);
+      }, [dailyIntake, goals]);
+
+      // Listen for workout history updates from real-time sync
+      useEffect(() => {
+        const handleWorkoutUpdate = () => {
+          const todayStr = toLocalISODate(new Date());
+          const newScore = computeHealthScoreForDate(dailyIntake, goals, todayStr).score;
+          setHealthScore(newScore);
+          console.log('🏋️ Health score recalculated after workout update:', newScore);
+        };
+
+        window.addEventListener('workout-history-updated', handleWorkoutUpdate);
+        return () => window.removeEventListener('workout-history-updated', handleWorkoutUpdate);
+      }, [dailyIntake, goals]);
 
       return (
         <div className="p-6 pb-24">
@@ -3742,27 +3989,96 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
   const [debounceTimer, setDebounceTimer] = useState(null);
   const [abortController, setAbortController] = useState(null);
 
+  // Track if we've already fetched remote AI usage for today in this session
+  const aiUsageFetchedForDateRef = useRef(null);
+
       const computeAiRemaining = React.useCallback(async () => {
+        // Get user from auth session directly to avoid stale React state
+        let uid = null;
+        try {
+          if (auth && auth.getSession) {
+            const { data: { session } } = await auth.getSession();
+            uid = session && session.user ? session.user.id : null;
+          }
+        } catch (_) {}
+        
         const todayISO = typeof toLocalISODate === 'function' ? toLocalISODate(new Date()) : new Date().toISOString().slice(0,10);
+        
+        // Start from localStorage
         let usage = {};
         try { usage = JSON.parse(localStorage.getItem('aiUsage') || '{}') || {}; } catch (_) {}
-        const key = user?.id || 'anon';
-        const count = Number((usage[todayISO] && usage[todayISO][key]) || 0);
-        let subscribed = false;
-        try { subscribed = JSON.parse(localStorage.getItem('subscriptionActive') || 'false'); } catch (_) {}
-        const limit = subscribed ? 10 : (user ? 5 : 3);
+        if (!usage[todayISO]) usage[todayISO] = {};
+        
+        const key = uid || 'anon';
+        let count = Number(usage[todayISO][key] || 0);
+
+        // If signed in and we have an 'anon' entry, re-key it to the user and persist (MAX logic)
+        if (uid) {
+          const anonCount = Number(usage[todayISO]['anon'] || 0);
+          const userCount = Number(usage[todayISO][uid] || 0);
+          const maxLocal = Math.max(userCount, anonCount);
+          if (anonCount > 0 && maxLocal !== userCount) {
+            usage[todayISO][uid] = maxLocal;
+            try { localStorage.setItem('aiUsage', JSON.stringify(usage)); } catch (_) {}
+            // Persist this reconciliation to the backend once
+            try { if (typeof db !== 'undefined' && db.updateUser) await db.updateUser(uid, { ai_usage: usage }); } catch (_) {}
+            count = maxLocal;
+          }
+        }
+
+        // Remote fetch once per day when signed in (remote-first; uses MAX with local)
+        if (uid && supabase && aiUsageFetchedForDateRef.current !== todayISO) {
+          try {
+            const { data, error } = await supabase
+              .from('users')
+              .select('ai_usage')
+              .eq('id', uid)
+              .single();
+            if (!error && data && data.ai_usage) {
+              const remote = data.ai_usage || {};
+              const dayObj = remote[todayISO] || {};
+              let remoteCount = 0;
+              if (dayObj && typeof dayObj === 'object') {
+                remoteCount = Number(dayObj[uid] || 0);
+                if (!remoteCount) {
+                  // Fallback to max across keys (handles older 'anon' writes)
+                  remoteCount = Math.max(0, ...Object.values(dayObj).map(v => Number(v || 0)));
+                }
+              }
+              const maxCount = Math.max(count, remoteCount);
+              if (maxCount !== count) {
+                usage[todayISO][uid] = maxCount;
+                try { localStorage.setItem('aiUsage', JSON.stringify(usage)); } catch (_) {}
+                // Persist authoritative merged value back to DB
+                try { if (uid && typeof db !== 'undefined' && db.updateUser) await db.updateUser(uid, { ai_usage: usage }); } catch (_) {}
+                count = maxCount;
+              }
+            }
+          } catch (_) { /* ignore network errors */ }
+          aiUsageFetchedForDateRef.current = todayISO;
+        }
+
+        let isSub = false;
+        try { isSub = !!uid && JSON.parse(localStorage.getItem('subscriptionActive') || 'false') === true; } catch (_) { isSub = false; }
+        const limit = isSub ? 10 : (uid ? 5 : 3);
         setAiRemaining({ count, limit });
-      }, [user]);
+      }, []);
 
       useEffect(() => {
         computeAiRemaining();
         let off = null;
         if (window.fitmateIAP && typeof window.fitmateIAP.onStatusChange === 'function') {
-          off = window.fitmateIAP.onStatusChange((active) => { setSubActive(!!active); computeAiRemaining(); });
+          off = window.fitmateIAP.onStatusChange((active) => { setSubActive(!!active); computeAiRemaining().catch(() => {}); });
         }
-        const onQuota = () => computeAiRemaining();
+        const onQuota = () => computeAiRemaining().catch(() => {});
         window.addEventListener('ai-quota-exceeded', onQuota);
-        const onVis = () => { if (!document.hidden) computeAiRemaining(); };
+        const onRemoteSync = () => {
+          console.log('🔄 AI quota: userDataSynced event received, recomputing...');
+          computeAiRemaining().catch(() => {});
+        };
+        window.addEventListener('userDataSynced', onRemoteSync);
+        // AI usage now syncs via database (realtime listener handles remote updates)
+        const onVis = () => { if (!document.hidden) computeAiRemaining().catch(() => {}); };
         document.addEventListener('visibilitychange', onVis);
         const onOpenAccount = () => { try { setShowAccountModal(true); } catch (_) {} };
         const onCloseAccount = () => { try { setShowAccountModal(false); } catch (_) {} };
@@ -3771,6 +4087,7 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
         return () => {
           if (off) off();
           window.removeEventListener('ai-quota-exceeded', onQuota);
+          window.removeEventListener('userDataSynced', onRemoteSync);
           document.removeEventListener('visibilitychange', onVis);
           window.removeEventListener('open-account-modal', onOpenAccount);
           window.removeEventListener('close-account-modal', onCloseAccount);
@@ -5329,34 +5646,36 @@ const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
                 )}
               </button>
 
-              <div className="w-full p-3 rounded-lg flex justify-between items-center">
-                <div className="flex flex-col">
-                  <span className="text-gray-700 dark:text-gray-300">Subscription</span>
-                  <span className="text-xs text-gray-500 dark:text-gray-400">AI quota: {aiRemaining.count}/{aiRemaining.limit} today</span>
-                  <span className="text-[11px] text-gray-500 dark:text-gray-400">Subscribed users get 10 prompts per day and ads are removed</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {subActive ? (
-                    <span className="text-xs bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 px-2 py-1 rounded-full">Subscribed</span>
-                  ) : (
-                    <>
-                      <button
-                        onClick={()=>{ try { if (!user) { openAccountModal(); return; } window.dispatchEvent(new CustomEvent('force-open-subscription-modal')); } catch(_){} }}
-                        className="bg-blue-500 hover:bg-blue-600 text-white text-sm px-3 py-2 rounded-lg shadow"
-                        title="Upgrade to unlock higher daily AI limits and remove ads"
-                      >
-                        Subscribe · $1.49
-                      </button>
-                      <button
-                        onClick={async ()=>{ try { await (window.fitmateIAP && window.fitmateIAP.restore ? window.fitmateIAP.restore() : Promise.resolve(false)); } catch(_){} }}
-                        className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 underline"
-                        title="Restore your subscription"
-                      >
-                        Restore
-                      </button>
-                    </>
+              <div className="w-full p-3 rounded-lg border border-gray-200 dark:border-gray-700">
+                <div className="flex justify-between items-start mb-2">
+                  <div>
+                    <div className="text-gray-700 dark:text-gray-300 font-medium">Subscription</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      {aiRemaining.count}/{aiRemaining.limit} prompts today
+                    </div>
+                  </div>
+                  {subActive && (
+                    <span className="text-xs bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 px-2 py-1 rounded-full whitespace-nowrap">
+                      ✓ Active
+                    </span>
                   )}
                 </div>
+                {!subActive && (
+                  <div className="flex flex-col gap-2 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+                    <button
+                      onClick={()=>{ try { if (!user) { openAccountModal(); return; } window.dispatchEvent(new CustomEvent('force-open-subscription-modal')); } catch(_){} }}
+                      className="w-full bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2.5 rounded-lg shadow-sm transition-colors"
+                    >
+                      Subscribe · €1.49/mo
+                    </button>
+                    <button
+                      onClick={async ()=>{ try { await (window.fitmateIAP && window.fitmateIAP.restore ? window.fitmateIAP.restore() : Promise.resolve(false)); } catch(_){} }}
+                      className="text-xs text-center text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                    >
+                      Already subscribed? Restore
+                    </button>
+                  </div>
+                )}
               </div>
               
               {/* Booking History Button - Only show when user is signed in */}
@@ -11847,5 +12166,21 @@ ${habits.map(habit => {
       if (bannerIOS) bannerIOS.classList.remove('show');
     });
   </script>
+<!-- Stripe Pricing Table modal -->
+<script async src="https://js.stripe.com/v3/pricing-table.js"></script>
+<div id="stripePricingModal" style="display:none; position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,0.6); align-items:center; justify-content:center; overflow:auto;">
+  <div style="background:#fff; max-width:480px; width:100%; margin:40px; padding:20px; border-radius:8px; position:relative;">
+    <button onclick="window.closeStripePricingModal()" style="position:absolute; top:8px; right:12px; font-size:24px; border:none; background:transparent; cursor:pointer;">×</button>
+    <stripe-pricing-table pricing-table-id="prctbl_1SIvLCJRFG3zIhTKhJSKc5jk"
+      publishable-key="pk_live_51SIu0RJRFG3zIhTKZkkXcQZdRbWXshYT78KWQqpsRfDPIhuxYh9Ngtz5HbqcIMBioEXrpk9rp6dJtHLp0IQ106f900MI4zPe2M">
+    </stripe-pricing-table>
+  </div>
+</div>
+<script>
+(function(){
+  window.openStripePricingModal = function(){ var m=document.getElementById('stripePricingModal'); if(m) m.style.display='flex'; };
+  window.closeStripePricingModal = function(){ var m=document.getElementById('stripePricingModal'); if(m) m.style.display='none'; };
+})();
+</script>
 </body>
 </html>
