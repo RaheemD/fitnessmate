@@ -5,31 +5,48 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Privacy Policy - FitnessMate</title>
   <link rel="icon" href="/icon.png">
-  <style>
-    body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; line-height: 1.6; color: #222; padding: 0 20px; }
-    h1, h2 { color: #ec4899; }
-    .box { background: #f9f9f9; border-radius: 12px; padding: 20px; box-shadow: 0 2px 6px rgba(0,0,0,0.05); }
-  </style>
+  <meta name="theme-color" content="#ec4899">
+  <meta name="color-scheme" content="light dark">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://cdn.tailwindcss.com">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' }
+  </script>
 </head>
-<body>
-  <h1>Privacy Policy</h1>
-  <div class="box">
-    <h2>Local Storage & Minimal Cloud Sync</h2>
+<body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white">
+  <div class="min-h-screen max-w-3xl mx-auto px-4 py-8">
+    <header class="mb-6 bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-md">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <svg class="w-8 h-8 text-pink-500" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M4 9h2V7a2 2 0 1 1 4 0v10a2 2 0 1 1-4 0v-2H4V9zm14 0h2v6h-2v2a2 2 0 1 1-4 0V7a2 2 0 1 1 4 0v2zM9 11h6v2H9v-2z" fill="currentColor"/>
+          </svg>
+          <h1 class="text-2xl font-bold text-gray-800 dark:text-gray-200">Privacy Policy</h1>
+        </div>
+        <button type="button" onclick="(function(){if(history.length>1){history.back();}else{location.href='/'}})()" class="text-blue-600 dark:text-blue-400 hover:underline text-sm font-medium">
+          ← Back
+        </button>
+      </div>
+    </header>
+    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-md p-6 space-y-6">
+    <h2 class="text-lg sm:text-xl font-semibold text-pink-500">Local Storage & Minimal Cloud Sync</h2>
     <p>By default, your data is stored locally on your device. When you sign in, FitnessMate uses Supabase to securely sync a minimal set of data required for core functionality (such as your profile, goals, and workout history). We do not sell or share your data with third parties.</p>
 
-    <h2>Data Security</h2>
+    <h2 class="text-lg sm:text-xl font-semibold text-pink-500">Data Security</h2>
     <p>Your information remains on your device and, if signed in, is transmitted securely over HTTPS and stored in Supabase with access limited to your account. We only retain the minimum data necessary to operate the app.</p>
 
-    <h2>Data Control</h2>
+    <h2 class="text-lg sm:text-xl font-semibold text-pink-500">Data Control</h2>
     <p>You have full control of your data. Clearing your browser data removes local information. If signed in, you may stop syncing by signing out and request deletion of synced data associated with your account at any time.</p>
 
-    <h2>AI Interactions</h2>
+    <h2 class="text-lg sm:text-xl font-semibold text-pink-500">AI Interactions</h2>
     <p>AI coaching features may send anonymized queries to external services for workout guidance, but no personal information is retained or shared.</p>
 
-    <h2>Image Processing</h2>
+    <h2 class="text-lg sm:text-xl font-semibold text-pink-500">Image Processing</h2>
     <p>Images (for example, food or workout snapshots) are processed temporarily and never stored permanently.</p>
 
-    <h2>Advertising and Cookies</h2>
+    <h2 class="text-lg sm:text-xl font-semibold text-pink-500">Advertising and Cookies</h2>
     <p>We use Google AdSense to serve relevant ads. Google and its partners may use cookies and similar technologies to personalize and measure ad performance based on your prior visits or app activity.</p>
     <ul>
       <li>You can opt out of personalized ads in <a href="https://adssettings.google.com/" target="_blank" rel="noopener">Google Ads Settings</a>.</li>
@@ -37,18 +54,20 @@
       <li>Learn more about how Google uses data: <a href="https://policies.google.com/technologies/ads" target="_blank" rel="noopener">Google Advertising Policies</a> and <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google Privacy Policy</a>.</li>
     </ul>
 
-    <h2>Regional Consent</h2>
+    <h2 class="text-lg sm:text-xl font-semibold text-pink-500">Regional Consent</h2>
     <p>Where required by local law (for example, in the EEA/UK), we display a consent prompt to manage choices for cookies and personalized advertising.</p>
 
-    <h2>Effective Date</h2>
+    <h2 class="text-lg sm:text-xl font-semibold text-pink-500">Effective Date</h2>
     <p>This policy is effective as of <strong>October 19, 2025</strong> and may be updated from time to time. Substantial changes will be reflected on this page.</p>
 
-    <h2>Contact</h2>
+    <h2 class="text-lg sm:text-xl font-semibold text-pink-500">Contact</h2>
     <p>For privacy questions or requests, please use the in‑app Support form (Profile → Account → Support). We will respond as soon as possible.</p>
 
-    <h2>Terms of Service (Summary)</h2>
+    <h2 class="text-lg sm:text-xl font-semibold text-pink-500">Terms of Service (Summary)</h2>
     <p>By using FitnessMate you agree to use the app for personal, lawful purposes and to our limitations of liability. FitnessMate is provided “as is” without warranties of any kind. Fitness and nutrition guidance is informational only and not a substitute for professional medical advice. We may update or discontinue features at any time.</p>
+
+    <p class="text-sm text-gray-600 dark:text-gray-300"><strong>Your privacy is our priority.</strong> FitnessMate is designed using privacy-first principles and complies with GDPR and other global privacy standards.</p>
+    </div>
   </div>
-  <p><strong>Your privacy is our priority.</strong> FitnessMate is designed using privacy-first principles and complies with GDPR and other global privacy standards.</p>
 </body>
 </html>
