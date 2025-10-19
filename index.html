@@ -270,9 +270,63 @@
   <!-- icons (ensure these files exist at repo root) -->
   <link rel="icon" href="/icon.png">
   <link rel="apple-touch-icon" href="/icon-192.png">
+  
+  <script>
+    // Conditionally load AdSense: iOS (iPhone/iPad/iPod) and desktop only. Never on Android.
+    // Also disable for subscribed users (Stripe/Play), and react to runtime subscription changes.
+    (function(){
+      try {
+        var ua = navigator.userAgent || '';
+        var plat = (navigator.userAgentData && navigator.userAgentData.platform) || '';
+        var isAndroid = /Android/i.test(ua) || /Android/i.test(plat);
+        var isIPhone = /iPhone/i.test(ua);
+        var isIPadUA = /iPad/i.test(ua);
+        var isIPadLikeMac = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1; // iPadOS 13+ masquerades as Mac
+        var isIPad = isIPadUA || isIPadLikeMac;
+        var isIPod = /iPod/i.test(ua);
+        var isIOS = isIPhone || isIPad || isIPod;
+        // Desktop: anything not mobile (exclude Android/iOS)
+        var isDesktop = !(isAndroid || isIOS || /Mobile/i.test(ua));
+        var subscribed = false; try { subscribed = JSON.parse(localStorage.getItem('subscriptionActive') || 'false') === true; } catch(_) {}
 
-  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4496629998193729"
-     crossorigin="anonymous"></script>
+        function qualifiesForAdsense(){ return (isIOS || isDesktop) && !subscribed; }
+        function injectAdsense(){
+          if (!window.__adsenseLoaded) {
+            var s = document.createElement('script');
+            s.async = true;
+            s.src = 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4496629998193729';
+            s.crossOrigin = 'anonymous';
+            document.head.appendChild(s);
+            window.__adsenseLoaded = true;
+          }
+        }
+        function hideAdsenseUnits(){
+          try {
+            document.querySelectorAll('ins.adsbygoogle, iframe[id^="google_ads_iframe"], .google-auto-placed').forEach(function(el){ el.style.display = 'none'; });
+          } catch(_) {}
+        }
+
+        var shouldLoadAdsense = qualifiesForAdsense();
+        if (shouldLoadAdsense) injectAdsense(); else hideAdsenseUnits();
+
+        window.__fitmateAds = { android: isAndroid, iphone: isIPhone, ipad: isIPad, ipod: isIPod, ios: isIOS, desktop: isDesktop, subscribed: subscribed, adsense: shouldLoadAdsense };
+
+        // React to runtime subscription changes
+        window.addEventListener('subscription-status-changed', function(e){
+          try {
+            subscribed = !!(e && e.detail && e.detail.active);
+            window.__fitmateAds.subscribed = subscribed;
+            window.__fitmateAds.adsense = qualifiesForAdsense();
+            if (window.__fitmateAds.adsense) {
+              injectAdsense();
+            } else {
+              hideAdsenseUnits();
+            }
+          } catch(_) {}
+        });
+      } catch (e) { /* no-op */ }
+    })();
+  </script>
 </head>
 <body class="bg-gray-50 dark:bg-gray-900">
   <!-- Hidden Netlify Form for Support -->
@@ -1039,8 +1093,25 @@ Respond ONLY with a valid JSON object in this exact format:
               if (remoteOnly) {
                 // Remote-only: overwrite local completely, no merge
                 if (userData.daily_intake) {
-                  localStorage.setItem('dailyIntake', JSON.stringify(userData.daily_intake));
-                  console.log('🔒 Remote-only: set daily_intake from remote');
+                  try {
+                    const todayISO = toLocalISODate(new Date());
+                    const localIntakeDate = localStorage.getItem('dailyIntakeDate');
+                    const lastSaved = localStorage.getItem('lastSavedDate');
+                    const rolledToToday = (localIntakeDate === todayISO && lastSaved === todayISO);
+                    const currentLocal = (() => { try { return JSON.parse(localStorage.getItem('dailyIntake') || '{}') || {}; } catch { return {}; } })();
+                    const localIsZero = ['calories','protein','carbs','fat','activity','water'].every(k => Number(currentLocal[k]||0) === 0);
+                    const remoteHasNonZero = ['calories','protein','carbs','fat','activity','water'].some(k => Number(userData.daily_intake?.[k]||0) > 0);
+                    const isNewDevice = !localStorage.getItem('lastSyncTimestamp');
+                    if (rolledToToday && localIsZero && remoteHasNonZero && !isNewDevice) {
+                      console.log('⏭️ Remote-only: skipping daily_intake overwrite after local midnight reset');
+                    } else {
+                      localStorage.setItem('dailyIntake', JSON.stringify(userData.daily_intake));
+                      console.log('🔒 Remote-only: set daily_intake from remote');
+                    }
+                  } catch (_) {
+                    localStorage.setItem('dailyIntake', JSON.stringify(userData.daily_intake));
+                    console.log('🔒 Remote-only: set daily_intake from remote');
+                  }
                 }
                 if (userData.recent_meals) {
                   localStorage.setItem('recentMeals', JSON.stringify(userData.recent_meals));
@@ -2536,67 +2607,9 @@ Respond ONLY with a valid JSON object in this exact format:
         }
       }, []);
 
-      // Timezone-aware rollover guard: checks every 60s if day changed in selected timezone
-      useEffect(() => {
-        const interval = setInterval(() => {
-          try {
-            const todayISO = toLocalISODate(new Date());
-            const lastSaved = localStorage.getItem('lastSavedDate');
-            const intakeDate = localStorage.getItem('dailyIntakeDate');
-
-            // Determine earliest start date among lastSaved and intakeDate
-            let startISO = null;
-            if (lastSaved && lastSaved !== todayISO) startISO = lastSaved;
-            if (intakeDate && intakeDate !== todayISO) startISO = startISO ? (startISO < intakeDate ? startISO : intakeDate) : intakeDate;
-
-            if (startISO) {
-              const zero = { calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0 };
-              const savedGoals = JSON.parse(localStorage.getItem('goals') || 'null') || defaultGoals;
-              const oldIntake = JSON.parse(localStorage.getItem('dailyIntake') || JSON.stringify(zero));
-              const oldMeals = JSON.parse(localStorage.getItem('recentMeals') || '[]');
-
-              // Archive all missing days inclusively from startISO to yesterday
-              const toDate = (iso) => { const [y,m,d] = (iso||'').split('-').map(Number); return new Date(y||0,(m||1)-1,d||1); };
-              const updates = {};
-              let cursor = toDate(startISO);
-              while (true) {
-                const key = toLocalISODate(cursor);
-                if (key === todayISO) break;
-                const isFirst = key === intakeDate;
-                const intake = isFirst ? oldIntake : zero;
-                const meals = isFirst ? oldMeals : [];
-                const { score, components } = computeHealthScoreForDate(intake, savedGoals, key);
-                updates[key] = { intake, meals, score, components };
-                cursor.setDate(cursor.getDate() + 1);
-              }
-
-              if (Object.keys(updates).length > 0) {
-                setDailyHistory(prev => ({
-                  ...prev,
-                  ...Object.fromEntries(Object.entries(updates).filter(([k]) => !prev[k]))
-                }));
-              }
-
-              // Start fresh day
-              setDailyIntake(zero);
-              setRecentMeals([]);
-              // Safe guard: setHealthScore exists only in Dashboard scope; rely on Dashboard recalculation
-              if (typeof setHealthScore === 'function') { setHealthScore(0); }
-              localStorage.setItem('lastSavedDate', todayISO);
-              localStorage.setItem('dailyIntakeDate', todayISO);
-              // Do not push zeros during initial remote-only sign-in window AND prevent overwriting remote data
-              try {
-                if (user && initialSyncCompletedRef.current && !isRemoteSyncRef.current && !forceNextRemoteOnlyRef?.current && authInitialRemoteAppliedRef.current) {
-                  syncDailyIntake(zero);
-                } else {
-                  console.log('⏸️ Skipping EOD zero sync until initial remote data is applied');
-                }
-              } catch (_) {}
-            }
-          } catch (_) { /* no-op */ }
-        }, 60000);
-        return () => clearInterval(interval);
-      }, []);
+      // Simplified: no periodic rollover. Midnight reset is handled by the scheduled timer,
+      // and if the app opens the next day, on-mount archiving will finalize the prior day.
+      useEffect(() => { return () => {}; }, []);
 
       // Open reset modal if Supabase notifies PASSWORD_RECOVERY (fallback to event)
       useEffect(() => {
@@ -2850,25 +2863,6 @@ Respond ONLY with a valid JSON object in this exact format:
           const savedHistory = localStorage.getItem('dailyHistory');
           if (savedHistory) {
             let historyData = JSON.parse(savedHistory);
-            // Ensure yesterday placeholder (0) exists if missing
-            try {
-              const todayISO = toLocalISODate(new Date());
-              const y = new Date(); y.setDate(y.getDate() - 1);
-              const yISO = toLocalISODate(y);
-              if (!historyData[yISO] && yISO !== todayISO) {
-                historyData = {
-                  ...historyData,
-                  [yISO]: {
-                    intake: { calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0 },
-                    meals: [],
-                    score: 0,
-                    components: { nutrition: 0, activity: 0, workout: 0, hydration: 0 }
-                  }
-                };
-                localStorage.setItem('dailyHistory', JSON.stringify(historyData));
-                console.log('🛠️ Added zero placeholder for yesterday in userDataSynced:', yISO);
-              }
-            } catch (_) {}
             setDailyHistory(historyData);
             console.log('✅ Daily history synced:', historyData);
           }
@@ -3013,129 +3007,64 @@ Respond ONLY with a valid JSON object in this exact format:
         return () => { try { delete window.fitmateHydrateFromRemote; } catch (_) {} };
       }, []);
       // --- Data Archiving Logic (on mount) ---
+      // Simplified rule: If app opens on a new day, archive ONLY the saved intake for the previous day,
+      // then reset to zero. No multi-day backfill, no zero placeholders.
       useEffect(() => {
         const today = toLocalISODate(new Date());
-        const lastSavedDate = localStorage.getItem('lastSavedDate');
         const intakeDate = localStorage.getItem('dailyIntakeDate');
-
-        // First run: initialize and exit
-        if (!lastSavedDate) {
-          localStorage.setItem('lastSavedDate', today);
-          localStorage.setItem('dailyIntakeDate', today);
-          return;
-        }
-
-        // Determine earliest date we may need to archive from
-        let startISO = null;
-        if (lastSavedDate && lastSavedDate !== today) startISO = lastSavedDate;
-        if (intakeDate && intakeDate !== today) startISO = startISO ? (startISO < intakeDate ? startISO : intakeDate) : intakeDate;
-
-        if (startISO) {
-          // Archive every missing day between startISO (inclusive) and yesterday (inclusive)
-          const toDate = (iso) => {
-            const [y, m, d] = iso.split('-').map(Number);
-            return new Date(y, m - 1, d);
-          };
-          const zeroIntake = { calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0 };
-          const savedGoals = JSON.parse(localStorage.getItem('goals') || 'null') || defaultGoals;
-          const oldIntake = JSON.parse(localStorage.getItem('dailyIntake') || JSON.stringify(zeroIntake));
-          const oldMeals = JSON.parse(localStorage.getItem('recentMeals') || '[]');
-
-          const updates = {};
-          let cursor = toDate(startISO);
-          while (true) {
-            const key = toLocalISODate(cursor);
-            if (key === today) break; // stop before today
-
-            // First missed day equal to intakeDate uses oldIntake/oldMeals; others use zeros
-            const isFirst = key === intakeDate;
-            const intakeForDay = isFirst ? oldIntake : zeroIntake;
-            const mealsForDay = isFirst ? oldMeals : [];
-            const { score, components } = computeHealthScoreForDate(intakeForDay, savedGoals, key);
-            updates[key] = { intake: intakeForDay, meals: mealsForDay, score, components };
-
-            cursor.setDate(cursor.getDate() + 1);
-          }
-
-          if (Object.keys(updates).length > 0) {
-            setDailyHistory(prev => ({
-              ...prev,
-              // do not overwrite days that may already exist
-              ...Object.fromEntries(Object.entries(updates).filter(([k]) => !prev[k]))
-            }));
-          }
-
+        const zeroIntake = { calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0 };
+        if (intakeDate && intakeDate !== today) {
+          try {
+            const oldIntake = JSON.parse(localStorage.getItem('dailyIntake') || JSON.stringify(zeroIntake));
+            const oldMeals = JSON.parse(localStorage.getItem('recentMeals') || '[]');
+            const savedGoals = JSON.parse(localStorage.getItem('goals') || 'null') || defaultGoals;
+            const { score, components } = computeHealthScoreForDate(oldIntake, savedGoals, intakeDate);
+            setDailyHistory(prev => ({ ...prev, [intakeDate]: { intake: oldIntake, meals: oldMeals, score, components } }));
+          } catch (_) { /* no-op */ }
           // Reset for the new day
           setDailyIntake(zeroIntake);
           setRecentMeals([]);
-          // Safe guard: setHealthScore exists only in Dashboard scope; rely on Dashboard recalculation
           if (typeof setHealthScore === 'function') { setHealthScore(0); }
           localStorage.setItem('dailyIntakeDate', today);
-          // Proactively sync zero to remote to avoid backfill flicker from old remote value, but prevent overwriting during sign-in
-          try { 
-            if (user && !forceNextRemoteOnlyRef?.current && authInitialRemoteAppliedRef.current) {
-              syncDailyIntake(zeroIntake); 
-            }
-          } catch (_) {}
+          localStorage.setItem('lastSavedDate', today);
+          try { if (user && !forceNextRemoteOnlyRef?.current && authInitialRemoteAppliedRef.current) { syncDailyIntake(zeroIntake); } } catch (_) {}
         } else {
-          // Fallback: ensure yesterday exists with a zero placeholder if missing
-          try {
-            const zeroIntake = { calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0 };
-            const yesterday = new Date();
-            yesterday.setDate(yesterday.getDate() - 1);
-            const yISO = toLocalISODate(yesterday);
-            const hasEntry = (() => { try { return !!(JSON.parse(localStorage.getItem('dailyHistory') || '{}') || {})[yISO]; } catch { return false; } })();
-            if (!hasEntry && yISO !== today) {
-              setDailyHistory(prev => ({ 
-                ...prev, 
-                [yISO]: { intake: zeroIntake, meals: [], score: 0, components: { nutrition: 0, activity: 0, workout: 0, hydration: 0 } } 
-              }));
-              console.log('🛠️ Added zero placeholder for yesterday', yISO);
-            }
-          } catch (_) { /* no-op */ }
+          localStorage.setItem('lastSavedDate', today);
+          localStorage.setItem('dailyIntakeDate', today);
         }
-
-        localStorage.setItem('lastSavedDate', today);
-        localStorage.setItem('dailyIntakeDate', today);
       }, []);
 
-      // Schedule end-of-day archiving at local midnight while app is open
+      // Minimal midnight finalizer: if the app is open at local midnight, archive yesterday's saved intake
+      // and reset to zero. No placeholders, no multi-day backfill.
       useEffect(() => {
         const schedule = () => {
           const now = new Date();
           const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
           const ms = midnight.getTime() - now.getTime();
-          eodTimerRef.current = setTimeout(() => {
+          return setTimeout(() => {
             try {
-              const yesterday = new Date();
-              yesterday.setDate(yesterday.getDate() - 1);
-              const archiveDate = toLocalISODate(yesterday);
-              const oldIntake = JSON.parse(localStorage.getItem('dailyIntake') || '{"calories":0,"protein":0,"carbs":0,"fat":0,"activity":0,"water":0}');
+              const y = new Date();
+              y.setDate(y.getDate() - 1);
+              const archiveDate = toLocalISODate(y);
+              const zeroIntake = { calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0 };
+              const oldIntake = JSON.parse(localStorage.getItem('dailyIntake') || JSON.stringify(zeroIntake));
               const oldMeals = JSON.parse(localStorage.getItem('recentMeals') || '[]');
               const savedGoals = JSON.parse(localStorage.getItem('goals') || 'null') || defaultGoals;
               const { score, components } = computeHealthScoreForDate(oldIntake, savedGoals, archiveDate);
-
-              setDailyHistory(prev => ({
-                ...prev,
-                [archiveDate]: { intake: oldIntake, meals: oldMeals, score, components }
-              }));
-
-              // Reset for the new day
-              setDailyIntake({ calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0 });
+              setDailyHistory(prev => ({ ...prev, [archiveDate]: { intake: oldIntake, meals: oldMeals, score, components } }));
+              setDailyIntake(zeroIntake);
               setRecentMeals([]);
-              // Safe guard: setHealthScore exists only in Dashboard scope; rely on Dashboard recalculation
               if (typeof setHealthScore === 'function') { setHealthScore(0); }
-              localStorage.setItem('lastSavedDate', toLocalISODate(new Date()));
               localStorage.setItem('dailyIntakeDate', toLocalISODate(new Date()));
+              localStorage.setItem('lastSavedDate', toLocalISODate(new Date()));
+              try { if (user) { syncDailyIntake(zeroIntake); } } catch (_) {}
             } finally {
-              // schedule next midnight
-              schedule();
+              timer = schedule();
             }
-          }, Math.max(1000, ms));
+          }, Math.max(500, ms));
         };
-
-        schedule();
-        return () => { if (eodTimerRef.current) clearTimeout(eodTimerRef.current); };
+        let timer = schedule();
+        return () => { if (timer) clearTimeout(timer); };
       }, []);
 
       // --- Enhanced Data Persistence with Supabase Sync ---
@@ -3147,7 +3076,6 @@ Respond ONLY with a valid JSON object in this exact format:
       const hadMealsAtStartRef = useRef((() => { try { return (JSON.parse(localStorage.getItem('recentMeals') || '[]') || []).length > 0; } catch { return false; } })());
       const hadHistoryAtStartRef = useRef((() => { try { return Object.keys(JSON.parse(localStorage.getItem('dailyHistory') || '{}') || {}).length > 0; } catch { return false; } })());
       const initialSyncCompletedRef = useRef(false);
-      const eodTimerRef = useRef(null);
       const isDefaultIntake = (di) => !di || (
         Number(di.calories) === 0 &&
         Number(di.protein) === 0 &&
