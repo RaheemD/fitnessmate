@@ -3,7 +3,22 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>FitnessMate</title>
+  <title>FitnessMate - AI Workout Hub</title>
+ 
+ <meta name="description" content="FitnessMate — AI workout plans and guided sessions. Personalized home & gym workouts, bodyweight routines, and progress tracking.">
+<meta property="og:title" content="FitnessMate - AI Workout Hub">
+<meta property="og:description" content="Personalized AI workout plans for home and gym.">
+<meta property="og:image" content="https://fitnessmate.netlify.app/og-image.png">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://fitnessmate.netlify.app/">
+<meta name="keywords" content="AI workout app, fitness planner, gym tracker, home workouts, FitnessMate">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="author" content="FitnessMate Team">
+<meta name="robots" content="index, follow">
+
+
+<link rel="canonical" href="https://fitnessmate.netlify.app/">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -255,6 +270,9 @@
   <!-- icons (ensure these files exist at repo root) -->
   <link rel="icon" href="/icon.png">
   <link rel="apple-touch-icon" href="/icon-192.png">
+
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4496629998193729"
+     crossorigin="anonymous"></script>
 </head>
 <body class="bg-gray-50 dark:bg-gray-900">
   <!-- Hidden Netlify Form for Support -->
@@ -1706,10 +1724,14 @@ Respond ONLY with a valid JSON object in this exact format:
               const remote = await db.getUser(user.id);
               const remoteIntake = remote?.daily_intake || {};
               const remoteHasNonZero = Object.values(remoteIntake).some(v => Number(v) > 0);
-                if (localSyncTs === 0 && isLocalDefault && remoteHasNonZero) {
-                  // Skip overwriting remote with zeros
-                  delete payload.daily_intake;
-                }
+              if (localSyncTs === 0 && isLocalDefault && remoteHasNonZero) {
+                // Skip overwriting remote with zeros
+                delete payload.daily_intake;
+              } else {
+                // Monotonic merge for activity minutes to avoid cross-device decreases
+                const mergedActivity = Math.max(Number(localIntake.activity || 0), Number(remoteIntake.activity || 0));
+                payload.daily_intake = { ...localIntake, activity: mergedActivity };
+              }
             } catch (cmpErr) {
               console.warn('Safe-guard compare failed, proceeding:', cmpErr);
             }
@@ -1911,10 +1933,34 @@ Respond ONLY with a valid JSON object in this exact format:
                   if (!isNewDevice && dayChanged && localIsZero && remoteHasNonZero) {
                     console.log('⏭️ Skipping remote daily_intake (initial fetch) to prevent post-rollover flicker');
                   } else {
-                    localStorage.setItem('dailyIntake', JSON.stringify(remoteData.daily_intake));
+                    try {
+                      const currentLocal = JSON.parse(localStorage.getItem('dailyIntake') || '{}') || {};
+                      const merged = {
+                        ...remoteData.daily_intake,
+                        activity: Math.max(
+                          Number(remoteData.daily_intake?.activity || 0),
+                          Number(currentLocal.activity || 0)
+                        )
+                      };
+                      localStorage.setItem('dailyIntake', JSON.stringify(merged));
+                    } catch (_) {
+                      localStorage.setItem('dailyIntake', JSON.stringify(remoteData.daily_intake));
+                    }
                   }
                 } catch (_) {
-                  localStorage.setItem('dailyIntake', JSON.stringify(remoteData.daily_intake));
+                  try {
+                    const currentLocal = JSON.parse(localStorage.getItem('dailyIntake') || '{}') || {};
+                    const merged = {
+                      ...remoteData.daily_intake,
+                      activity: Math.max(
+                        Number(remoteData.daily_intake?.activity || 0),
+                        Number(currentLocal.activity || 0)
+                      )
+                    };
+                    localStorage.setItem('dailyIntake', JSON.stringify(merged));
+                  } catch (__e) {
+                    localStorage.setItem('dailyIntake', JSON.stringify(remoteData.daily_intake));
+                  }
                 }
               }
               if (remoteData.recent_meals) localStorage.setItem('recentMeals', JSON.stringify(remoteData.recent_meals));
@@ -2534,7 +2580,8 @@ Respond ONLY with a valid JSON object in this exact format:
               // Start fresh day
               setDailyIntake(zero);
               setRecentMeals([]);
-              setHealthScore(0); // Force score to 0 immediately on day change
+              // Safe guard: setHealthScore exists only in Dashboard scope; rely on Dashboard recalculation
+              if (typeof setHealthScore === 'function') { setHealthScore(0); }
               localStorage.setItem('lastSavedDate', todayISO);
               localStorage.setItem('dailyIntakeDate', todayISO);
               // Do not push zeros during initial remote-only sign-in window AND prevent overwriting remote data
@@ -2740,9 +2787,23 @@ Respond ONLY with a valid JSON object in this exact format:
           }
           
           if (payload && payload.daily_intake) {
-            setDailyIntake(payload.daily_intake);
-            try { localStorage.setItem('dailyIntake', JSON.stringify(payload.daily_intake)); } catch (_) {}
-            console.log('✅ Daily intake applied from event payload');
+            try {
+              const currentLocal = JSON.parse(localStorage.getItem('dailyIntake') || '{}') || {};
+              const merged = {
+                ...payload.daily_intake,
+                activity: Math.max(
+                  Number(payload.daily_intake?.activity || 0),
+                  Number(currentLocal.activity || 0)
+                )
+              };
+              setDailyIntake(merged);
+              try { localStorage.setItem('dailyIntake', JSON.stringify(merged)); } catch (_) {}
+              console.log('✅ Daily intake (with activity monotonic merge) applied from event payload');
+            } catch (_) {
+              setDailyIntake(payload.daily_intake);
+              try { localStorage.setItem('dailyIntake', JSON.stringify(payload.daily_intake)); } catch (__e) {}
+              console.log('✅ Daily intake applied from event payload');
+            }
           } else {
             const savedIntake = localStorage.getItem('dailyIntake');
             if (savedIntake) {
@@ -3007,7 +3068,8 @@ Respond ONLY with a valid JSON object in this exact format:
           // Reset for the new day
           setDailyIntake(zeroIntake);
           setRecentMeals([]);
-          setHealthScore(0); // Force score to 0 immediately on day change
+          // Safe guard: setHealthScore exists only in Dashboard scope; rely on Dashboard recalculation
+          if (typeof setHealthScore === 'function') { setHealthScore(0); }
           localStorage.setItem('dailyIntakeDate', today);
           // Proactively sync zero to remote to avoid backfill flicker from old remote value, but prevent overwriting during sign-in
           try { 
@@ -3061,7 +3123,8 @@ Respond ONLY with a valid JSON object in this exact format:
               // Reset for the new day
               setDailyIntake({ calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0 });
               setRecentMeals([]);
-              setHealthScore(0); // Force score to 0 immediately at midnight
+              // Safe guard: setHealthScore exists only in Dashboard scope; rely on Dashboard recalculation
+              if (typeof setHealthScore === 'function') { setHealthScore(0); }
               localStorage.setItem('lastSavedDate', toLocalISODate(new Date()));
               localStorage.setItem('dailyIntakeDate', toLocalISODate(new Date()));
             } finally {
@@ -3122,10 +3185,34 @@ Respond ONLY with a valid JSON object in this exact format:
                 if (rolledToToday && localIsZero && remoteHasNonZero) {
                   console.log('⏭️ Realtime: skipping remote daily_intake to avoid post-rollover flicker');
                 } else {
-                  localStorage.setItem('dailyIntake', JSON.stringify(userData.daily_intake));
+                  try {
+                    const currentLocal = JSON.parse(localStorage.getItem('dailyIntake') || '{}') || {};
+                    const merged = {
+                      ...userData.daily_intake,
+                      activity: Math.max(
+                        Number(userData.daily_intake?.activity || 0),
+                        Number(currentLocal.activity || 0)
+                      )
+                    };
+                    localStorage.setItem('dailyIntake', JSON.stringify(merged));
+                  } catch (_) {
+                    localStorage.setItem('dailyIntake', JSON.stringify(userData.daily_intake));
+                  }
                 }
               } catch (_) {
-                localStorage.setItem('dailyIntake', JSON.stringify(userData.daily_intake));
+                try {
+                  const currentLocal = JSON.parse(localStorage.getItem('dailyIntake') || '{}') || {};
+                  const merged = {
+                    ...userData.daily_intake,
+                    activity: Math.max(
+                      Number(userData.daily_intake?.activity || 0),
+                      Number(currentLocal.activity || 0)
+                    )
+                  };
+                  localStorage.setItem('dailyIntake', JSON.stringify(merged));
+                } catch (__e) {
+                  localStorage.setItem('dailyIntake', JSON.stringify(userData.daily_intake));
+                }
               }
             }
             if (userData.recent_meals) localStorage.setItem('recentMeals', JSON.stringify(userData.recent_meals));
@@ -3844,21 +3931,36 @@ Respond ONLY with a valid JSON object in this exact format:
         return () => window.removeEventListener('workout-history-updated', handleWorkoutUpdate);
       }, [dailyIntake, goals]);
 
+      // Recalculate score when returning from background/screen lock
+      useEffect(() => {
+        const handleVisibilityChange = () => {
+          if (!document.hidden) {
+            const todayStr = toLocalISODate(new Date());
+            const newScore = computeHealthScoreForDate(dailyIntake, goals, todayStr).score;
+            setHealthScore(newScore);
+            console.log('👁️ Health score recalculated after returning from background:', newScore);
+          }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }, [dailyIntake, goals]);
+
       return (
         <div className="p-6 pb-24">
           <header className="mb-6 bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-md">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center flex-shrink-0">
-              <svg className="w-10 h-10 mr-3 text-pink-500" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <svg className="w-8 h-8 sm:w-9 sm:h-9 md:w-10 md:h-10 mr-3 text-pink-500" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M4 9h2V7a2 2 0 1 1 4 0v10a2 2 0 1 1-4 0v-2H4V9zm14 0h2v6h-2v2a2 2 0 1 1-4 0V7a2 2 0 1 1 4 0v2zM9 11h6v2H9v-2z" fill="currentColor"/>
               </svg>
               <div>
-                <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-200">FitnessMate</h1>
-                <p className="text-gray-500 dark:text-gray-400">AI That Fuels Your Health Journey</p>
+                <h1 className="truncate text-lg sm:text-2xl md:text-3xl font-bold leading-tight text-gray-800 dark:text-gray-200">FitnessMate - AI Workout Hub</h1>
+                <p className="truncate text-xs sm:text-base text-gray-500 dark:text-gray-400">Personalized AI workout plans for home and gym</p>
               </div>
               </div>
               <div className="merch-teaser starry blink text-gray-900 dark:text-white text-xs sm:text-sm md:text-base text-center sm:text-right w-full sm:w-auto sm:max-w-[60%] md:max-w-[50%] whitespace-normal md:whitespace-nowrap leading-tight mt-1 sm:mt-0 mx-auto sm:mx-0 self-center sm:self-auto">
-                Train hard. Look sharp. Merch drops soon
+                Look sharp. Merch drops soon
               </div>
             </div>
             {quote && <p className="text-gray-600 dark:text-gray-300 italic mt-2 text-center bg-gray-100 dark:bg-gray-700 p-2 rounded-lg">"{quote}"</p>}
