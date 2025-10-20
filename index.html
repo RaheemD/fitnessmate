@@ -608,6 +608,9 @@ Respond ONLY with a valid JSON object in this exact format:
       supabase = createClient(supabaseConfig.url, supabaseConfig.anonKey);
       auth = supabase.auth;
       
+      // Expose for console access (e.g., repair scripts)
+      window.__fitmateSupabase = supabase;
+      
       // Join a single realtime channel for AI-usage broadcasts
       try {
         if (!window.__aiUsageChannel) {
@@ -837,6 +840,11 @@ Respond ONLY with a valid JSON object in this exact format:
       const forceNextRemoteOnlyRef = useRef(false);
       // Track when remote data has been applied at least once on this device
       const authInitialRemoteAppliedRef = useRef(false);
+
+      // Expose current user on window for console access (e.g., repair scripts)
+      useEffect(() => {
+        window.__fitmateUser = user;
+      }, [user]);
 
       useEffect(() => {
         if (!auth) {
@@ -2928,10 +2936,20 @@ Respond ONLY with a valid JSON object in this exact format:
         try {
           const zero = { calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0 };
           
-          // For signed-in users, start with zero and let remote data load via useEffect
+          // For signed-in users, start with zero and let remote data load via useEffect.
+          // CRITICAL: Ensure dates exist in localStorage so guards work before on-mount finalize runs.
+          // We only SET them if they're missing; we don't overwrite, so finalize can still detect day changes.
           if (user) {
             const today = toLocalISODate(new Date());
-            try { localStorage.setItem('dailyIntakeDate', today); } catch (_) {}
+            const intakeDate = localStorage.getItem('dailyIntakeDate');
+            const lastSaved = localStorage.getItem('lastSavedDate');
+            // Only set if missing (e.g., first launch or after repair)
+            if (!intakeDate) {
+              try { localStorage.setItem('dailyIntakeDate', today); } catch (_) {}
+            }
+            if (!lastSaved) {
+              try { localStorage.setItem('lastSavedDate', today); } catch (_) {}
+            }
             return zero;
           }
           
@@ -2948,9 +2966,8 @@ Respond ONLY with a valid JSON object in this exact format:
           }
 
           // If day changed in selected timezone, show zero immediately to avoid flicker,
-          // but DO NOT mutate dailyIntake here (archiving effect needs the old values).
+          // but DO NOT set dailyIntakeDate here - on-mount finalize will handle it after archiving.
           if ((lastSaved && lastSaved !== today) || (intakeDate && intakeDate !== today)) {
-            try { localStorage.setItem('dailyIntakeDate', today); } catch (_) {}
             return zero;
           }
 
@@ -3145,10 +3162,11 @@ Respond ONLY with a valid JSON object in this exact format:
             }
             if (userData.recent_meals) localStorage.setItem('recentMeals', JSON.stringify(userData.recent_meals));
             if (userData.daily_history) {
-              // Merge remote history with local to preserve locally archived/missed days
+              // Merge remote history with local, but PREFER LOCAL for conflicting dates
+              // to prevent remote from overwriting freshly archived local data.
               try {
                 const localDH = JSON.parse(localStorage.getItem('dailyHistory') || '{}') || {};
-                const mergedDH = { ...localDH, ...userData.daily_history };
+                const mergedDH = { ...userData.daily_history, ...localDH };
                 localStorage.setItem('dailyHistory', JSON.stringify(mergedDH));
               } catch (_) {
                 localStorage.setItem('dailyHistory', JSON.stringify(userData.daily_history));
@@ -3289,8 +3307,8 @@ Respond ONLY with a valid JSON object in this exact format:
       
       useEffect(() => { 
         localStorage.setItem('dailyIntake', JSON.stringify(dailyIntake));
-        // Track which day this intake belongs to (timezone-aware)
-        try { localStorage.setItem('dailyIntakeDate', toLocalISODate(new Date())); } catch (_) {}
+        // DO NOT set dailyIntakeDate here - only finalize logic (on-mount & midnight) should set it.
+        // Setting it on every change breaks the "intakeDate !== today" guard in finalize.
         // Defer pushing intake until initial remote sync completes AND prevent overwriting remote data
         if (user && !isRemoteSyncRef.current && !forceNextRemoteOnlyRef?.current) {
           if (!initialSyncCompletedRef.current) return;
