@@ -1,7 +1,7 @@
 {
-  "name": "FitnessMate - Workout Hub",
+  "name": "FitnessMate – AI Workout Hub",
   "short_name": "FitnessMate",
-  "description": "Your personal fitness companion with guided workouts and exercise tracking.",
+  "description": "Your AI-powered personal fitness companion with workouts, nutrition tracking, and smart health insights.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
@@ -9,7 +9,7 @@
   "dir": "ltr",
   "lang": "en",
 
- "background_color": "#2563EB",
+ "background_color": "#5B6CF0",
  "theme_color": "#2563EB",
 
   "theme_color_scheme": {
@@ -52,4 +52,5 @@
   "prefer_related_applications": false,
   "related_applications": []
 }
+
 
