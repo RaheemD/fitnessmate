@@ -2004,13 +2004,14 @@ Respond ONLY with a valid JSON object in this exact format:
                   const todayISO = toLocalISODate(new Date());
                   const localIntakeDate = localStorage.getItem('dailyIntakeDate');
                   const lastSaved = localStorage.getItem('lastSavedDate');
-                  const dayChanged = (localIntakeDate !== todayISO || lastSaved !== todayISO);
+                  // Use the same rolled-to-today guard as other realtime handlers
+                  const rolledToToday = (localIntakeDate === todayISO && lastSaved === todayISO);
                   const localIntake = (() => { try { return JSON.parse(localStorage.getItem('dailyIntake')||'{}'); } catch { return {}; } })();
                   const localIsZero = ['calories','protein','carbs','fat','activity','water'].every(k => Number(localIntake[k]||0) === 0);
                   const remoteHasNonZero = ['calories','protein','carbs','fat','activity','water'].some(k => Number(remoteData.daily_intake?.[k]||0) > 0);
                   const isNewDevice = !localStorage.getItem('lastSyncTimestamp');
-                  if (!isNewDevice && dayChanged && localIsZero && remoteHasNonZero) {
-                    console.log('⏭️ Skipping remote daily_intake (initial fetch) to prevent post-rollover flicker');
+                  if (rolledToToday && localIsZero && remoteHasNonZero && !isNewDevice) {
+                    console.log('⏭️ Realtime(sub): skipping remote daily_intake to avoid post-rollover flicker');
                   } else {
                     try {
                       const currentLocal = JSON.parse(localStorage.getItem('dailyIntake') || '{}') || {};
@@ -11598,6 +11599,7 @@ ${habits.map(habit => {
       const [isActive, setIsActive] = useState(false);
       const [duration, setDuration] = useState(0); // in minutes
       const [startedAt, setStartedAt] = useState(null); // epoch ms
+      const [pendingMins, setPendingMins] = useState(0);
       const timerRef = useRef(null);
 
       // Recalculate timer state from startedAt (used on mount and when returning from background)
@@ -11625,19 +11627,18 @@ ${habits.map(habit => {
             setStartedAt(Number(st.startedAt));
             setTimeLeft(remaining);
           } else {
-            // Completed while away — ensure we log only once
-            if (!st.logged) {
-              const mins = Math.round((st.durationSec || 0) / 60);
-              onLogActivity({ minutes: mins });
-              localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...st, isActive: false, logged: true, completedAt: now }));
-              try {
-                if ('Notification' in window && Notification.permission === 'granted') {
-                  new Notification('Activity Complete!', { body: `Great job! You've logged ${mins} minutes.` });
-                }
-              } catch (_) {}
-            } else {
-              localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...st, isActive: false }));
-            }
+            // Completed while away — require user confirmation to log
+            const mins = Math.round((st.durationSec || 0) / 60);
+            localStorage.setItem(
+              STORAGE_KEY,
+              JSON.stringify({ ...st, isActive: false, logged: false, pendingMinutes: mins, pendingDate: todayISO, completedAt: now })
+            );
+            setPendingMins(mins);
+            try {
+              if ('Notification' in window && Notification.permission === 'granted') {
+                new Notification('Activity Complete!', { body: `Session finished. Confirm to log ${mins} min.` });
+              }
+            } catch (_) {}
             setIsActive(false);
           }
         } catch (_) {}
@@ -11664,22 +11665,20 @@ ${habits.map(habit => {
         if (timeLeft > 0 && isActive) {
           timerRef.current = setTimeout(() => setTimeLeft((t) => t - 1), 1000);
         } else if (timeLeft === 0 && isActive) {
-          // Finish and log once
+          // Finish — require confirmation to log
           const mins = duration;
           setIsActive(false);
           try {
-            const st = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-            if (!st || !st.logged) {
-              onLogActivity({ minutes: mins });
-              localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...(st || {}), isActive: false, logged: true, completedAt: Date.now() }));
-            } else {
-              localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...(st || {}), isActive: false }));
-            }
-          } catch (_) {
-            onLogActivity({ minutes: mins });
-          }
+            const todayISO = toLocalISODate(new Date());
+            const st = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null') || {};
+            localStorage.setItem(
+              STORAGE_KEY,
+              JSON.stringify({ ...st, isActive: false, logged: false, pendingMinutes: mins, pendingDate: todayISO, completedAt: Date.now() })
+            );
+          } catch (_) {}
+          setPendingMins(mins);
           if ('Notification' in window && Notification.permission === 'granted') {
-            try { new Notification('Activity Complete!', { body: `Great job! You've logged ${mins} minutes.` }); } catch (_) {}
+            try { new Notification('Activity Complete!', { body: `Session finished. Confirm to log ${mins} min.` }); } catch (_) {}
           }
         }
         return () => clearTimeout(timerRef.current);
@@ -11705,6 +11704,28 @@ ${habits.map(habit => {
         } catch (_) {}
       };
 
+      const confirmPending = () => {
+        const now = Date.now();
+        try {
+          const st = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null') || {};
+          const mins = Number(st.pendingMinutes || pendingMins || 0);
+          if (mins > 0) {
+            onLogActivity({ minutes: mins });
+          }
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...st, isActive: false, logged: true, pendingMinutes: 0, completedAt: now }));
+        } catch (_) {}
+        setPendingMins(0);
+      };
+
+      const dismissPending = () => {
+        const now = Date.now();
+        try {
+          const st = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null') || {};
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...st, isActive: false, logged: true, pendingMinutes: 0, completedAt: now }));
+        } catch (_) {}
+        setPendingMins(0);
+      };
+
       const formatTime = (seconds) => {
         const mins = Math.floor(seconds / 60);
         const secs = seconds % 60;
@@ -11717,6 +11738,15 @@ ${habits.map(habit => {
 
       return (
         <div className="space-y-2">
+          {pendingMins > 0 && (
+            <div className="p-3 bg-yellow-100 dark:bg-yellow-900 rounded-lg flex items-center justify-between">
+              <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">Log {pendingMins} min activity?</span>
+              <div className="space-x-2">
+                <button onClick={confirmPending} className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg">Log</button>
+                <button onClick={dismissPending} className="px-3 py-1 bg-gray-300 dark:bg-gray-600 text-gray-800 dark:text-gray-200 rounded-lg">Dismiss</button>
+              </div>
+            </div>
+          )}
           <p className="font-semibold text-gray-800 dark:text-gray-200 text-center">Start a quick session:</p>
           <div className="grid grid-cols-3 gap-2">
             <button onClick={() => startTimer(10)} className="p-2 bg-pink-500 text-white rounded-lg">10 min</button>
