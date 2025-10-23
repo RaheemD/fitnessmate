@@ -10626,6 +10626,137 @@ User's question: "${userMessage.text}"`;
         }
       });
 
+      const [stressForm, setStressForm] = useState(() => {
+        try {
+          const raw = localStorage.getItem('stressForm');
+          const parsed = raw ? JSON.parse(raw) : {};
+          return {
+            sleepHours: parsed.sleepHours ?? '',
+            workHours: parsed.workHours ?? '',
+            stressRating: parsed.stressRating ?? 5,
+            stressEpisodes: parsed.stressEpisodes ?? '',
+            exerciseMins: parsed.exerciseMins ?? '',
+            meditationMins: parsed.meditationMins ?? '',
+            socialMins: parsed.socialMins ?? '',
+            screenHours: parsed.screenHours ?? '',
+            lifeEvent: parsed.lifeEvent ?? 'none',
+            notes: parsed.notes ?? ''
+          };
+        } catch (_) {
+          return { sleepHours:'', workHours:'', stressRating:5, stressEpisodes:'', exerciseMins:'', meditationMins:'', socialMins:'', screenHours:'', lifeEvent:'none', notes:'' };
+        }
+      });
+      const [stressResult, setStressResult] = useState(null);
+      const [stressInsight, setStressInsight] = useState('');
+
+      useEffect(() => {
+        try { localStorage.setItem('stressForm', JSON.stringify(stressForm)); } catch (_) {}
+      }, [stressForm]);
+
+      const computeStressScore = (inp) => {
+        const v = {
+          sleepHours: Number(inp.sleepHours || 0),
+          workHours: Number(inp.workHours || 0),
+          stressRating: Number(inp.stressRating || 0),
+          stressEpisodes: Number(inp.stressEpisodes || 0),
+          exerciseMins: Number(inp.exerciseMins || 0),
+          meditationMins: Number(inp.meditationMins || 0),
+          socialMins: Number(inp.socialMins || 0),
+          screenHours: Number(inp.screenHours || 0),
+          lifeEvent: inp.lifeEvent || 'none'
+        };
+        const clamp01 = (x) => Math.max(0, Math.min(1, x));
+        // Normalize inputs to 0-1
+        const sleep = clamp01(Math.abs((v.sleepHours || 0) - 8) / 4);
+        const work = clamp01((v.workHours || 0) / 12);
+        const rating = clamp01((v.stressRating - 1) / 9);
+        const episodes = clamp01((v.stressEpisodes || 0) / 6);
+        const screen = clamp01((v.screenHours || 0) / 8);
+        const exerciseRelief = clamp01((v.exerciseMins || 0) / 45);
+        const meditationRelief = clamp01((v.meditationMins || 0) / 15);
+        const socialRelief = clamp01((v.socialMins || 0) / 60);
+
+        // New weight distribution (total: 100%)
+        // Self-rating+Episodes=20%, Exercise+Meditation=20%, Screen=10%
+        const w = { sleep:25, work:20, rating:12, episodes:8, screen:10, exercise:15, meditation:5, social:5 };
+        const stressors = sleep*w.sleep + work*w.work + rating*w.rating + episodes*w.episodes + screen*w.screen;
+        const bufferSum = exerciseRelief*w.exercise + meditationRelief*w.meditation + socialRelief*w.social;
+        let rawIndex = stressors - bufferSum; // Range: [-25, 75]
+        
+        // Map to 0-100 base score
+        let baseScore = Math.max(0, Math.min(100, rawIndex + 25));
+        
+        // Life event multiplier (amplifies stress)
+        let multiplier = 1.0;
+        if (v.lifeEvent === 'minor') multiplier = 1.5;
+        else if (v.lifeEvent === 'major') multiplier = 2.0;
+        
+        let stressScore = Math.round(Math.min(100, baseScore * multiplier));
+
+        let category = 'Low';
+        if (stressScore >= 70) category = 'High';
+        else if (stressScore >= 35) category = 'Moderate';
+
+        // Confidence: weighted completeness matching new distribution
+        const pw = { sleepHours:.25, workHours:.20, stressRating:.12, stressEpisodes:.08, screenHours:.10, exerciseMins:.15, meditationMins:.05, socialMins:.05 };
+        const filled = (k) => {
+          const val = inp[k];
+          return val !== '' && val !== null && val !== undefined;
+        };
+        let coverage = 0;
+        Object.keys(pw).forEach(k => { if (filled(k)) coverage += pw[k]; });
+        const confidence = Math.max(30, Math.min(100, Math.round(coverage * 100)));
+
+        const drivers = {
+          sleep: Math.round(sleep * w.sleep),
+          work: Math.round(work * w.work),
+          selfRating: Math.round(rating * w.rating),
+          episodes: Math.round(episodes * w.episodes),
+          screen: Math.round(screen * w.screen)
+        };
+        const buffers = {
+          exercise: Math.round(exerciseRelief * w.exercise),
+          meditation: Math.round(meditationRelief * w.meditation),
+          social: Math.round(socialRelief * w.social)
+        };
+
+        return { stressScore, category, confidence, breakdown: { drivers, buffers }, lifeEventMultiplier: multiplier };
+      };
+
+      const generateStressInsight = (res, inp) => {
+        const d = res.breakdown?.drivers || {};
+        const entries = [
+          ['work', d.work],
+          ['self rating', d.selfRating],
+          ['sleep', d.sleep],
+          ['screen time', d.screen],
+          ['episodes', d.episodes]
+        ];
+        entries.sort((a, b) => (b[1]||0) - (a[1]||0));
+        const top = entries.filter(e => (e[1]||0) > 0).slice(0, 2).map(e => e[0]);
+
+        const b = res.breakdown?.buffers || {};
+        const reliefs = [
+          ['exercise', b.exercise],
+          ['meditation', b.meditation],
+          ['social time', b.social]
+        ].filter(e => (e[1]||0) > 0).sort((a,b)=> (b[1]||0) - (a[1]||0));
+
+        const act = [];
+        if (top.includes('sleep') || Number(inp.sleepHours || 0) < 7) act.push('aim for 7.5–8h sleep tonight and keep screens away 1h before bed');
+        if (top.includes('work') || Number(inp.workHours || 0) > 9) act.push('add two 5‑min breaks every 90 minutes and end work at a firm time');
+        if (top.includes('screen time') || Number(inp.screenHours || 0) > 6) act.push('set a 30‑min app limit after 9pm');
+        if (top.includes('self rating') || Number(inp.stressRating || 0) >= 7) act.push('do 4‑7‑8 breathing for 3 cycles when stress spikes');
+        if (top.includes('episodes') || Number(inp.stressEpisodes || 0) >= 3) act.push('log triggers and use a quick walk to reset when one appears');
+
+        let s1 = `Stress is ${res.category} (score ${res.stressScore}). Top drivers: ${top.join(' and ') || 'balanced factors'}.`;
+        let s2 = `Action: ${act.slice(0,2).join('; ')}.`;
+        let s3 = '';
+        if (reliefs.length > 0) s3 = `Good job: ${reliefs[0][0]} helped buffer stress. Keep it up.`;
+        const text = [s1, s2, s3].filter(Boolean).join(' ');
+        return text;
+      };
+
       // Helper: use shared timezone-aware formatter so calendar keys match archive keys
       const getLocalDateString = (date) => toLocalISODate(date);
 
@@ -10774,6 +10905,12 @@ User's question: "${userMessage.text}"`;
                 className={`px-6 py-3 rounded-lg font-semibold transition-all duration-200 ${activeTab === 'habits' ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-md' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
               >
                 Habit Tracker
+              </button>
+              <button 
+                onClick={() => setActiveTab('stress')} 
+                className={`px-6 py-3 rounded-lg font-semibold transition-all duration-200 ${activeTab === 'stress' ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-md' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+              >
+                Stress Analyzer
               </button>
             </div>
           </div>
@@ -11477,6 +11614,233 @@ ${habits.map(habit => {
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {activeTab === 'stress' && (
+            <div className="space-y-8">
+              <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl border border-white/20">
+                <h3 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-4 flex items-center">
+                  <span className="mr-2">🧠</span>
+                  Stress Analyzer
+                </h3>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Sleep hours</label>
+                    <input type="number" min="0" step="0.5" value={stressForm.sleepHours}
+                      onChange={e=>setStressForm({...stressForm, sleepHours:e.target.value})}
+                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Work hours</label>
+                    <input type="number" min="0" step="0.5" value={stressForm.workHours}
+                      onChange={e=>setStressForm({...stressForm, workHours:e.target.value})}
+                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Self‑rated stress (1–10)</label>
+                    <input type="number" min="1" max="10" value={stressForm.stressRating}
+                      onChange={e=>setStressForm({...stressForm, stressRating: Number(e.target.value)})}
+                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Stress episodes (count)</label>
+                    <input type="number" min="0" step="1" value={stressForm.stressEpisodes}
+                      onChange={e=>setStressForm({...stressForm, stressEpisodes:e.target.value})}
+                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Exercise (mins)</label>
+                    <input type="number" min="0" step="5" value={stressForm.exerciseMins}
+                      onChange={e=>setStressForm({...stressForm, exerciseMins:e.target.value})}
+                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Meditation (mins)</label>
+                    <input type="number" min="0" step="5" value={stressForm.meditationMins}
+                      onChange={e=>setStressForm({...stressForm, meditationMins:e.target.value})}
+                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Social interaction (mins)</label>
+                    <input type="number" min="0" step="5" value={stressForm.socialMins}
+                      onChange={e=>setStressForm({...stressForm, socialMins:e.target.value})}
+                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Screen time (hours)</label>
+                    <input type="number" min="0" step="0.5" value={stressForm.screenHours}
+                      onChange={e=>setStressForm({...stressForm, screenHours:e.target.value})}
+                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Life event</label>
+                    <div className="flex items-center gap-3">
+                      <select value={stressForm.lifeEvent}
+                        onChange={e=>setStressForm({...stressForm, lifeEvent:e.target.value})}
+                        className="flex-1 p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500">
+                        <option value="none">None</option>
+                        <option value="minor">Minor</option>
+                        <option value="major">Major</option>
+                      </select>
+                      <span className="text-xs text-gray-600 dark:text-gray-400">
+                        Amplifies stress: None 1.0×, Minor 1.5×, Major 2.0×
+                        <span
+                          className="ml-2 inline-flex items-center text-gray-500 dark:text-gray-400 cursor-help select-none"
+                          title={
+                            'What counts as a life event?\n' +
+                            '• None: regular day, routine changes.\n' +
+                            '• Minor: exam week, tight deadline, travel, minor illness, brief conflict.\n' +
+                            '• Major: bereavement, job loss, breakup/divorce, serious illness, major financial or safety crisis.'
+                          }
+                        >
+                          ⓘ
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+                  
+                </div>
+
+                <div className="flex mt-4">
+                  <button
+                    onClick={() => { const r = computeStressScore(stressForm); setStressResult(r); setStressInsight(generateStressInsight(r, stressForm)); }}
+                    className="flex-grow bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold p-3 rounded-xl hover:from-purple-600 hover:to-pink-600 transition-all duration-200">
+                    Compute Stress Score
+                  </button>
+                </div>
+              </div>
+
+              {stressResult && (
+                <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl border border-white/20">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className={`w-20 h-20 bg-gradient-to-br ${stressResult.stressScore >= 70 ? 'from-red-500 to-red-600' : (stressResult.stressScore >= 35 ? 'from-yellow-400 to-orange-500' : 'from-emerald-400 to-green-600')} rounded-3xl flex items-center justify-center text-white font-bold text-2xl shadow-lg`}>
+                      {stressResult.stressScore}
+                    </div>
+                    <div className="text-right">
+                      <div className="text-2xl font-bold text-gray-800 dark:text-gray-200">{stressResult.category}</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">Confidence {stressResult.confidence}%</div>
+                      {stressResult.lifeEventMultiplier > 1.0 && (
+                        <div className="text-xs text-orange-600 dark:text-orange-400 mt-1">Life event: {stressResult.lifeEventMultiplier}× amplifier</div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-2">
+                    {/* Sleep Driver */}
+                    <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-xl">
+                      <div className="flex justify-between items-center mb-1">
+                        <div className="text-xs font-semibold text-gray-500 dark:text-gray-400">Sleep Quality (25%)</div>
+                        <div className="text-lg font-bold text-pink-600 dark:text-pink-400">{stressResult.breakdown.drivers.sleep}/25</div>
+                      </div>
+                      <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2 mb-1">
+                        <div className="bg-gradient-to-r from-pink-400 to-pink-600 h-2 rounded-full" style={{width: `${Math.min(100, (stressResult.breakdown.drivers.sleep / 25) * 100)}%`}}></div>
+                      </div>
+                      <div className="text-xs text-gray-600 dark:text-gray-400">Deviation from 8h optimal sleep</div>
+                    </div>
+
+                    {/* Work Driver */}
+                    <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-xl">
+                      <div className="flex justify-between items-center mb-1">
+                        <div className="text-xs font-semibold text-gray-500 dark:text-gray-400">Work Hours (20%)</div>
+                        <div className="text-lg font-bold text-purple-600 dark:text-purple-400">{stressResult.breakdown.drivers.work}/20</div>
+                      </div>
+                      <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2 mb-1">
+                        <div className="bg-gradient-to-r from-purple-400 to-purple-600 h-2 rounded-full" style={{width: `${Math.min(100, (stressResult.breakdown.drivers.work / 20) * 100)}%`}}></div>
+                      </div>
+                      <div className="text-xs text-gray-600 dark:text-gray-400">Higher work hours increase stress</div>
+                    </div>
+
+                    {/* Self-rating + Episodes Group */}
+                    <div className="p-3 bg-gradient-to-br from-indigo-50 to-orange-50 dark:from-indigo-900/20 dark:to-orange-900/20 rounded-xl border border-indigo-200 dark:border-indigo-700">
+                      <div className="text-xs font-bold text-gray-700 dark:text-gray-300 mb-2">Psychological (20%)</div>
+                      
+                      <div className="mb-2">
+                        <div className="flex justify-between items-center mb-1">
+                          <div className="text-xs text-gray-600 dark:text-gray-400">Self‑rating (12%)</div>
+                          <div className="text-sm font-bold text-indigo-600 dark:text-indigo-400">{stressResult.breakdown.drivers.selfRating}/12</div>
+                        </div>
+                        <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-1.5">
+                          <div className="bg-gradient-to-r from-indigo-400 to-indigo-600 h-1.5 rounded-full" style={{width: `${Math.min(100, (stressResult.breakdown.drivers.selfRating / 12) * 100)}%`}}></div>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between items-center mb-1">
+                          <div className="text-xs text-gray-600 dark:text-gray-400">Episodes (8%)</div>
+                          <div className="text-sm font-bold text-orange-600 dark:text-orange-400">{stressResult.breakdown.drivers.episodes}/8</div>
+                        </div>
+                        <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-1.5">
+                          <div className="bg-gradient-to-r from-orange-400 to-orange-600 h-1.5 rounded-full" style={{width: `${Math.min(100, (stressResult.breakdown.drivers.episodes / 8) * 100)}%`}}></div>
+                        </div>
+                      </div>
+                      
+                      <div className="text-xs text-gray-600 dark:text-gray-400 mt-2">How you feel + stress events</div>
+                    </div>
+
+                    {/* Screen Driver */}
+                    <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-xl">
+                      <div className="flex justify-between items-center mb-1">
+                        <div className="text-xs font-semibold text-gray-500 dark:text-gray-400">Screen Time (10%)</div>
+                        <div className="text-lg font-bold text-blue-600 dark:text-blue-400">{stressResult.breakdown.drivers.screen}/10</div>
+                      </div>
+                      <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2 mb-1">
+                        <div className="bg-gradient-to-r from-blue-400 to-blue-600 h-2 rounded-full" style={{width: `${Math.min(100, (stressResult.breakdown.drivers.screen / 10) * 100)}%`}}></div>
+                      </div>
+                      <div className="text-xs text-gray-600 dark:text-gray-400">Excessive screen use adds stress</div>
+                    </div>
+                  </div>
+
+                  <div className="text-xs font-bold text-gray-700 dark:text-gray-300 mb-2">Protective Buffers (higher = more stress reduction)</div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                    {/* Exercise + Meditation Group */}
+                    <div className="p-3 bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-xl border border-emerald-200 dark:border-emerald-700">
+                      <div className="text-xs font-bold text-gray-700 dark:text-gray-300 mb-2">Wellness Activities (20%)</div>
+                      
+                      <div className="mb-2">
+                        <div className="flex justify-between items-center mb-1">
+                          <div className="text-xs text-gray-600 dark:text-gray-400">Exercise (15%)</div>
+                          <div className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{stressResult.breakdown.buffers.exercise}/15</div>
+                        </div>
+                        <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-1.5">
+                          <div className="bg-gradient-to-r from-emerald-400 to-emerald-600 h-1.5 rounded-full" style={{width: `${Math.min(100, (stressResult.breakdown.buffers.exercise / 15) * 100)}%`}}></div>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between items-center mb-1">
+                          <div className="text-xs text-gray-600 dark:text-gray-400">Meditation (5%)</div>
+                          <div className="text-sm font-bold text-teal-600 dark:text-teal-400">{stressResult.breakdown.buffers.meditation}/5</div>
+                        </div>
+                        <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-1.5">
+                          <div className="bg-gradient-to-r from-teal-400 to-teal-600 h-1.5 rounded-full" style={{width: `${Math.min(100, (stressResult.breakdown.buffers.meditation / 5) * 100)}%`}}></div>
+                        </div>
+                      </div>
+                      
+                      <div className="text-xs text-gray-600 dark:text-gray-400 mt-2">Higher values reduce stress</div>
+                    </div>
+
+                    {/* Social Buffer */}
+                    <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-xl">
+                      <div className="flex justify-between items-center mb-1">
+                        <div className="text-xs font-semibold text-gray-500 dark:text-gray-400">Social Connection (5%)</div>
+                        <div className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{stressResult.breakdown.buffers.social}/5</div>
+                      </div>
+                      <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2 mb-1">
+                        <div className="bg-gradient-to-r from-emerald-400 to-green-600 h-2 rounded-full" style={{width: `${Math.min(100, (stressResult.breakdown.buffers.social / 5) * 100)}%`}}></div>
+                      </div>
+                      <div className="text-xs text-gray-600 dark:text-gray-400">Quality time with others buffers stress</div>
+                    </div>
+                  </div>
+
+                  {stressInsight && (
+                    <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm p-4 rounded-2xl text-gray-800 dark:text-gray-200">
+                      {stressInsight}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
