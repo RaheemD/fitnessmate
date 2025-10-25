@@ -164,7 +164,32 @@
     })();
   </script>
 
-  
+  <script>
+  (function () {
+    if (!('speechSynthesis' in window)) return;
+    const originalSpeak = window.speechSynthesis.speak.bind(window.speechSynthesis);
+
+    window.speechSynthesis.speak = function (utterance) {
+      const text =
+        typeof utterance === 'string' ? utterance : (utterance && utterance.text) || '';
+
+      // Try native first (Chrome/Safari)
+      let started = false;
+      try {
+        if (utterance && typeof utterance === 'object') {
+          const prevOnStart = utterance.onstart;
+          utterance.onstart = function (e) { started = true; if (prevOnStart) prevOnStart(e); };
+        }
+        originalSpeak(utterance);
+      } catch (_) {}
+
+      // Fallback to native bridge in WebView wrappers
+      if (window.TTSBridge && text && !started) {
+        try { window.TTSBridge.speak(text, 1, 1); } catch (e) { console.log('TTSBridge error:', e); }
+      }
+    };
+  })();
+</script>
   </head>
 <body class="bottom-safe bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white">
   <!-- Background Music Audio Element -->
@@ -1867,4 +1892,3 @@
   </script>
 </body>
 </html>
-
