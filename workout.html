@@ -163,6 +163,24 @@
       } catch (e) { /* no-op */ }
     })();
   </script>
+
+  <script>
+window.speechSynthesis = {
+  speak: function(utterance) {
+    var text = typeof utterance === 'string' ? utterance : (utterance.text || '');
+    if (text && window.TTSBridge) {
+      window.TTSBridge.speak(text, 1, 1);
+    }
+  },
+  cancel: function() {},
+  pause: function() {},
+  resume: function() {},
+  getVoices: function() { return []; },
+  pending: false,
+  paused: false,
+  speaking: false
+};
+</script>
   </head>
 <body class="bottom-safe bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white">
   <!-- Background Music Audio Element -->
