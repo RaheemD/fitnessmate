@@ -164,37 +164,7 @@
     })();
   </script>
 
-  <script>
-(function() {
-  if (window.speechSynthesis && window.speechSynthesis.__patched) return;
   
-  var original = window.speechSynthesis;
-  var originalSpeak = original ? original.speak.bind(original) : function(){};
-  
-  window.speechSynthesis = {
-    speak: function(utterance) {
-      var text = typeof utterance === 'string' ? utterance : (utterance && utterance.text ? utterance.text : '');
-      if (text && window.TTSBridge) {
-        try {
-          window.TTSBridge.speak(text, 1, 1);
-        } catch(e) {
-          console.log('TTSBridge error:', e);
-        }
-      }
-      // Still call original so your code doesn't break
-      try { originalSpeak(utterance); } catch(e) {}
-    },
-    cancel: original ? original.cancel.bind(original) : function() {},
-    pause: original ? original.pause.bind(original) : function() {},
-    resume: original ? original.resume.bind(original) : function() {},
-    getVoices: original ? original.getVoices.bind(original) : function() { return []; },
-    pending: false,
-    paused: false,
-    speaking: false,
-    __patched: true
-  };
-})();
-</script>
   </head>
 <body class="bottom-safe bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white">
   <!-- Background Music Audio Element -->
@@ -1897,3 +1867,4 @@
   </script>
 </body>
 </html>
+
