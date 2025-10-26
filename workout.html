@@ -163,7 +163,53 @@
       } catch (e) { /* no-op */ }
     })();
   </script>
-
+  
+<script>
+(function () {
+  console.log('🎤 Initializing TTS bridge for Android WebView...');
+  
+  // Check if we're in Android WebView
+  const isAndroidWebView = /Android/i.test(navigator.userAgent) && 
+                           typeof window.AndroidTTS !== 'undefined';
+  
+  if (isAndroidWebView) {
+    console.log('✅ Android WebView detected, using native TTS bridge');
+    
+    // Override speechSynthesis.speak to use native Android TTS
+    if (window.speechSynthesis) {
+      const originalSpeak = window.speechSynthesis.speak.bind(window.speechSynthesis);
+      
+      window.speechSynthesis.speak = function(utterance) {
+        try {
+          const text = typeof utterance === 'string' ? utterance : (utterance?.text || '');
+          const rate = utterance?.rate || 1.0;
+          const pitch = utterance?.pitch || 1.0;
+          
+          if (text && window.AndroidTTS && window.AndroidTTS.speak) {
+            console.log('📢 Speaking via AndroidTTS:', text);
+            window.AndroidTTS.speak(text, rate, pitch);
+            return;
+          }
+        } catch (e) {
+          console.error('AndroidTTS error:', e);
+        }
+        
+        // Fallback to original (won't work in WebView but won't crash)
+        try { originalSpeak(utterance); } catch (e) {}
+      };
+      
+      // Override cancel/pause/resume for completeness
+      window.speechSynthesis.cancel = function() {
+        if (window.AndroidTTS && window.AndroidTTS.stop) {
+          window.AndroidTTS.stop();
+        }
+      };
+    }
+  } else {
+    console.log('ℹ️ Using browser native speechSynthesis');
+  }
+})();
+</script>
   
   </head>
   
@@ -1868,4 +1914,5 @@
   </script>
 </body>
 </html>
+
 
