@@ -163,8 +163,8 @@
       } catch (e) { /* no-op */ }
     })();
   </script>
-  
-<script>
+
+  <script>
 (function () {
   console.log('🎤 Initializing TTS bridge for Android WebView...');
   
@@ -210,9 +210,8 @@
   }
 })();
 </script>
-  
+
   </head>
-  
 <body class="bottom-safe bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white">
   <!-- Background Music Audio Element -->
   <audio id="background-music" loop preload="none">
@@ -1844,40 +1843,51 @@
 
   function speak(text){
     if (!voiceEnabled) return;
-    if (!('speechSynthesis' in window)) return;
-    const u = new SpeechSynthesisUtterance(text);
-    const voices = speechSynthesis.getVoices();
-    
-    if (voices && voices.length) {
-      // Try to find a voice matching the selected gender
-      let selectedVoice = null;
-      
-      if (voiceGender === 'female') {
-        selectedVoice = voices.find(voice => 
-          voice.name.toLowerCase().includes('female') ||
-          voice.name.toLowerCase().includes('woman') ||
-          voice.name.toLowerCase().includes('samantha') ||
-          voice.name.toLowerCase().includes('susan') ||
-          voice.name.toLowerCase().includes('karen') ||
-          voice.name.toLowerCase().includes('zira')
-        );
-      } else {
-        selectedVoice = voices.find(voice => 
-          voice.name.toLowerCase().includes('male') ||
-          voice.name.toLowerCase().includes('man') ||
-          voice.name.toLowerCase().includes('david') ||
-          voice.name.toLowerCase().includes('mark') ||
-          voice.name.toLowerCase().includes('daniel')
-        );
+    if (!text) return;
+
+    console.log('🎤 Attempting to speak:', text);
+
+    // Check if AndroidTTS bridge is available (for WebView)
+    if (typeof window.AndroidTTS !== 'undefined' && window.AndroidTTS.speak) {
+      console.log('📢 Using AndroidTTS bridge');
+      try {
+        window.AndroidTTS.speak(text, 1.0, 1.0);
+        return;
+      } catch (e) {
+        console.error('AndroidTTS error:', e);
       }
-      
-      // Fallback to first available voice if no gender-specific voice found
-      u.voice = selectedVoice || voices[0];
     }
-    
-    u.rate = 1;
-    try{ speechSynthesis.cancel(); }catch(e){}
-    speechSynthesis.speak(u);
+
+    // Fallback to browser speechSynthesis
+    if ('speechSynthesis' in window) {
+      console.log('📢 Using browser speechSynthesis');
+      const u = new SpeechSynthesisUtterance(text);
+      const voices = speechSynthesis.getVoices();
+
+      if (voices && voices.length) {
+        let selectedVoice = null;
+
+        if (voiceGender === 'female') {
+          selectedVoice = voices.find(voice =>
+            voice.name.toLowerCase().includes('female') ||
+            voice.name.toLowerCase().includes('samantha')
+          );
+        } else {
+          selectedVoice = voices.find(voice =>
+            voice.name.toLowerCase().includes('male') ||
+            voice.name.toLowerCase().includes('david')
+          );
+        }
+
+        u.voice = selectedVoice || voices[0];
+      }
+
+      u.rate = 1;
+      try { speechSynthesis.cancel(); } catch(e) {}
+      speechSynthesis.speak(u);
+    } else {
+      console.error('❌ No TTS method available');
+    }
   }
 
   // keyboard support
@@ -1914,5 +1924,3 @@
   </script>
 </body>
 </html>
-
-
