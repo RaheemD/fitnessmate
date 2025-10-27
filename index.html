@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
   <title>FitnessMate - AI Workout Hub</title>
  
  <meta name="description" content="FitnessMate — AI workout plans and guided sessions. Personalized home & gym workouts, bodyweight routines, and progress tracking.">
@@ -37,6 +37,12 @@
       darkMode: 'class',
     }
   </script>
+  <!-- Global mobile-safe adjustments to reduce WebView text overflow -->
+  <style>
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+    /* Ensure flex children can shrink and not overflow on small screens */
+    .min-w-0 { min-width: 0; }
+  </style>
   
   <script>
     // Prevent white flash on page load - apply background immediately
@@ -3736,6 +3742,7 @@ const midnightTimerRef = useRef(null);
             setIsLoading={setWorkoutPlanLoading}
             error={workoutPlanError}
             setError={setWorkoutPlanError}
+            setScreen={setScreen}
           />;
           case 'coach': return <Coach 
             dailyIntake={dailyIntake} 
@@ -3754,7 +3761,7 @@ const midnightTimerRef = useRef(null);
             isLoadingAdvice={isLoadingAdvice}
             setIsLoadingAdvice={setIsLoadingAdvice}
           />;
-          case 'planner': return <MealPlanner goals={goals} mealPlan={mealPlan} setMealPlan={setMealPlan} isLoading={mealPlanLoading} setIsLoading={setMealPlanLoading} error={mealPlanError} setError={setMealPlanError} />;
+          case 'planner': return <MealPlanner goals={goals} mealPlan={mealPlan} setMealPlan={setMealPlan} isLoading={mealPlanLoading} setIsLoading={setMealPlanLoading} error={mealPlanError} setError={setMealPlanError} setScreen={setScreen} />;
 
           default: return <Dashboard dailyIntake={dailyIntake} goals={goals} recentMeals={recentMeals} onLogActivity={handleLogActivity} onLogWater={handleLogWater} />;
         }
@@ -5226,9 +5233,9 @@ const midnightTimerRef = useRef(null);
       invoice_number: invoiceNumber,
       due_date: dueDate.toLocaleDateString(),
       meeting_link: wherebyLink,
-      payment_instructions: 'Please send payment via bank transfer (SEPA domestic or international Swift transfer), PayPal, or contact us for other payment methods. Your session will be confirmed once payment is received.',
-      bank_details: 'Name: Rahim Dhannani | IBAN: BE45 9670 9853 5289 | Swift/BIC: TRWIBEB1XXX | Bank: Wise, Rue du Trône 100, 3rd floor, Brussels, 1050, Belgium',
-      paypal_email: 'payments@fitmate.com'
+      payment_instructions: 'Please send payment via bank transfer (SEPA domestic or international Swift transfer). Contact us for other payment options if needed. Your session will be confirmed once payment is received.',
+      bank_details: 'Name: Dhannani | IBAN: BE45 9670 9853 5289 | Swift/BIC: TRWIBEB1XXX | Bank: Wise, Rue du Trône 100, 3rd floor, Brussels, 1050, Belgium',
+     
     };
     
     // Show immediate confirmation while email is being sent
@@ -5262,9 +5269,9 @@ const midnightTimerRef = useRef(null);
           amount: bookingDetails.price,
           sessions: bookingDetails.sessions,
           invoiceNumber: invoiceNumber,
-          bankDetails: 'Name: Rahim Dhannani | IBAN: BE45 9670 9853 5289 | Swift/BIC: TRWIBEB1XXX',
+          bankDetails: 'Name: Dhannani | IBAN: BE45 9670 9853 5289 | Swift/BIC: TRWIBEB1XXX',
           bankAddress: 'Bank: Wise, Rue du Trône 100, 3rd floor, Brussels, 1050, Belgium',
-          paypalEmail: 'payments@fitmate.com'
+          
         }
       });
     }).catch(function(error) {
@@ -5681,12 +5688,7 @@ const midnightTimerRef = useRef(null);
                              <div className="mt-1">{confirmationMessage.paymentDetails.bankAddress}</div>
                            </div>
                          </div>
-                         <div>
-                           <span className="text-gray-600 dark:text-gray-400 block mb-1">💰 PayPal:</span>
-                           <div className="text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 p-2 rounded border">
-                             {confirmationMessage.paymentDetails.paypalEmail}
-                           </div>
-                         </div>
+                         {/* PayPal payment method removed */}
                        </div>
                      </div>
                    )}
@@ -6085,13 +6087,15 @@ const midnightTimerRef = useRef(null);
                 Privacy
               </button>
               
-              {/* New Support Button */}
-              <button 
-                onClick={openSupportModal}
-                className="w-full text-left p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 transition-colors"
-              >
-                Support
-              </button>
+              {/* New Support Button (only visible when signed in) */}
+              {user && (
+                <button 
+                  onClick={openSupportModal}
+                  className="w-full text-left p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 transition-colors"
+                >
+                  Support
+                </button>
+              )}
               
               {/* Existing Dark Mode toggle */}
               <div className="flex justify-between items-center p-3">
@@ -6320,8 +6324,8 @@ const midnightTimerRef = useRef(null);
             </div>
           )}
 
-          {/* Support Modal */}
-          {showSupportModal && (
+          {/* Support Modal (only when signed in) */}
+          {showSupportModal && user && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
               <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full max-h-[80vh] overflow-y-auto">
                 {/* Modal Header */}
@@ -7125,7 +7129,7 @@ Respond ONLY with a valid JSON object in this format:
             {/* Portion Input Section */}
             <div className="bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-md mb-4">
               <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3 text-center">Portion Size (Optional)</h3>
-              <div className="flex items-center space-x-2 sm:space-x-3">
+              <div className="flex items-center gap-2 sm:gap-3 w-full">
                 <input
                   type="number"
                   placeholder="Enter quantity"
@@ -7138,9 +7142,9 @@ Respond ONLY with a valid JSON object in this format:
                       console.warn('Failed to save portion size to localStorage:', err);
                     }
                   }}
-                  className="flex-1 p-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="flex-1 min-w-0 p-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
-                <div className="flex bg-gray-100 dark:bg-gray-700 rounded-xl p-1 flex-shrink-0">
+                <div className="flex bg-gray-100 dark:bg-gray-700 rounded-xl p-1 flex-shrink-0 whitespace-nowrap">
                   <button
                     onClick={() => {
                       setPortionUnit('grams');
@@ -8226,222 +8230,33 @@ Respond ONLY with a valid JSON object in this format:
       );
     };
 
-    // Reusable Voice Button Component
+    // Reusable Voice Button Component (hidden)
     const VoiceButton = ({ text, buttonId, label, className = "" }) => {
-      const [isPlaying, setIsPlaying] = useState(false);
-      
-      const handleVoiceControl = () => {
-        const action = speechController.speak(text, buttonId);
-        setIsPlaying(action === 'play');
-        
-        // Monitor speech end
-        const checkEnd = setInterval(() => {
-          if (!speechController.isActuallyPlaying() || speechController.activeButton !== buttonId) {
-            setIsPlaying(false);
-            clearInterval(checkEnd);
-          }
-        }, 500);
-        
-        // Cleanup after 2 minutes
-        setTimeout(() => clearInterval(checkEnd), 120000);
-      };
-      
-      return (
-        <button
-          onClick={handleVoiceControl}
-          className={`inline-flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-            isPlaying 
-              ? 'bg-red-500 hover:bg-red-600 text-white' 
-              : 'bg-blue-500 hover:bg-blue-600 text-white'
-          } ${className}`}
-        >
-          {isPlaying ? '⏹️ Stop' : '🔊'} {label}
-        </button>
-      );
+      return null;
     };
 
-    // Individual Meal Voice Button Component
+    // Individual Meal Voice Button Component (hidden)
     const MealVoiceButton = ({ meal, mealType, buttonId }) => {
-      const [isPlaying, setIsPlaying] = useState(false);
-      
-      useEffect(() => {
-        const checkStatus = () => {
-          const actuallyPlaying = speechController.activeButton === buttonId && speechController.isActuallyPlaying();
-          if (isPlaying !== actuallyPlaying) {
-            setIsPlaying(actuallyPlaying);
-          }
-        };
-        
-        const interval = setInterval(checkStatus, 500);
-        return () => clearInterval(interval);
-      }, [buttonId, isPlaying]);
-      
-      const handleVoiceControl = () => {
-        let text = `${mealType}: ${meal.name}. `;
-        text += "Ingredients: " + meal.ingredients.join(", ") + ". ";
-        text += "Instructions: " + meal.instructions.join(". ") + ".";
-        
-        const action = speechController.speak(text, buttonId);
-        setIsPlaying(action === 'play');
-      };
-      
-      return (
-        <button
-          onClick={handleVoiceControl}
-          className={`w-full mb-3 py-2 px-4 rounded-lg font-medium transition-all duration-200 ${
-            isPlaying 
-              ? 'bg-red-500 hover:bg-red-600 text-white' 
-              : 'bg-blue-500 hover:bg-blue-600 text-white'
-          }`}
-        >
-          {isPlaying ? '⏹️ Stop Reading' : `🔊 Read ${mealType}`}
-        </button>
-      );
+      return null;
     };
 
-    // Full Meal Plan Voice Button Component
+    // Full Meal Plan Voice Button Component (hidden)
     const MealPlanVoiceButton = ({ mealPlan }) => {
-      const [isPlaying, setIsPlaying] = useState(false);
-      const buttonId = 'full-meal-plan';
-      
-      useEffect(() => {
-        const checkStatus = () => {
-          const actuallyPlaying = speechController.activeButton === buttonId && speechController.isActuallyPlaying();
-          if (isPlaying !== actuallyPlaying) {
-            setIsPlaying(actuallyPlaying);
-          }
-        };
-        
-        const interval = setInterval(checkStatus, 500);
-        return () => clearInterval(interval);
-      }, [isPlaying]);
-      
-      const handleVoiceControl = () => {
-        let text = "Here is your complete meal plan. ";
-        
-        // Breakfast
-        text += `For breakfast, you will have ${mealPlan.breakfast.name}. `;
-        text += "Ingredients needed: " + mealPlan.breakfast.ingredients.join(", ") + ". ";
-        text += "Instructions: " + mealPlan.breakfast.instructions.join(". ") + ". ";
-        
-        // Lunch
-        text += `For lunch, you will have ${mealPlan.lunch.name}. `;
-        text += "Ingredients needed: " + mealPlan.lunch.ingredients.join(", ") + ". ";
-        text += "Instructions: " + mealPlan.lunch.instructions.join(". ") + ". ";
-        
-        // Dinner
-        text += `For dinner, you will have ${mealPlan.dinner.name}. `;
-        text += "Ingredients needed: " + mealPlan.dinner.ingredients.join(", ") + ". ";
-        text += "Instructions: " + mealPlan.dinner.instructions.join(". ") + ". ";
-        
-        text += "Enjoy your healthy meals!";
-        
-        const action = speechController.speak(text, buttonId);
-        setIsPlaying(action === 'play');
-      };
-      
-      return (
-        <button
-          onClick={handleVoiceControl}
-          className={`mb-4 mx-auto block py-3 px-6 rounded-xl font-semibold transition-all duration-200 ${
-            isPlaying 
-              ? 'bg-red-500 hover:bg-red-600 text-white' 
-              : 'bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white'
-          }`}
-        >
-          {isPlaying ? '⏹️ Stop Reading Full Plan' : '🔊 Read Complete Meal Plan'}
-        </button>
-      );
+      return null;
     };
 
-    // Individual Exercise Voice Button Component
+    // Individual Exercise Voice Button Component (hidden)
     const ExerciseVoiceButton = ({ exercise, index }) => {
-      const [isPlaying, setIsPlaying] = useState(false);
-      const buttonId = `exercise-${index}`;
-      
-      useEffect(() => {
-        const checkStatus = () => {
-          const actuallyPlaying = speechController.activeButton === buttonId && speechController.isActuallyPlaying();
-          if (isPlaying !== actuallyPlaying) {
-            setIsPlaying(actuallyPlaying);
-          }
-        };
-        
-        const interval = setInterval(checkStatus, 500);
-        return () => clearInterval(interval);
-      }, [buttonId, isPlaying]);
-      
-      const handleVoiceControl = () => {
-        let text = `Exercise ${index + 1}: ${exercise.name}. `;
-        text += `You will do ${exercise.sets} sets of ${exercise.reps} repetitions. `;
-        text += `Instructions: ${exercise.instructions}.`;
-        
-        const action = speechController.speak(text, buttonId);
-        setIsPlaying(action === 'play');
-      };
-      
-      return (
-        <button
-          onClick={handleVoiceControl}
-          className={`w-full mb-2 py-2 px-3 rounded-lg text-sm font-medium transition-all duration-200 ${
-            isPlaying 
-              ? 'bg-red-500 hover:bg-red-600 text-white' 
-              : 'bg-blue-500 hover:bg-blue-600 text-white'
-          }`}
-        >
-          {isPlaying ? '⏹️ Stop' : `🔊 Read Exercise ${index + 1}`}
-        </button>
-      );
+      return null;
     };
 
-    // Full Workout Plan Voice Button Component
+    // Full Workout Plan Voice Button Component (hidden)
     const WorkoutPlanVoiceButton = ({ workoutPlan }) => {
-      const [isPlaying, setIsPlaying] = useState(false);
-      const buttonId = 'full-workout-plan';
-      
-      useEffect(() => {
-        const checkStatus = () => {
-          const actuallyPlaying = speechController.activeButton === buttonId && speechController.isActuallyPlaying();
-          if (isPlaying !== actuallyPlaying) {
-            setIsPlaying(actuallyPlaying);
-          }
-        };
-        
-        const interval = setInterval(checkStatus, 500);
-        return () => clearInterval(interval);
-      }, [isPlaying]);
-      
-      const handleVoiceControl = () => {
-        let text = "Here is your complete workout plan. ";
-        
-        workoutPlan.exercises.forEach((exercise, index) => {
-          text += `Exercise ${index + 1}: ${exercise.name}. `;
-          text += `You will do ${exercise.sets} sets of ${exercise.reps} repetitions. `;
-          text += `Instructions: ${exercise.instructions}. `;
-        });
-        
-        text += "Great job on your workout plan!";
-        
-        const action = speechController.speak(text, buttonId);
-        setIsPlaying(action === 'play');
-      };
-      
-      return (
-        <button
-          onClick={handleVoiceControl}
-          className={`mb-4 mx-auto block py-3 px-6 rounded-xl font-semibold transition-all duration-200 ${
-            isPlaying 
-              ? 'bg-red-500 hover:bg-red-600 text-white' 
-              : 'bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white'
-          }`}
-        >
-          {isPlaying ? '⏹️ Stop Reading Full Plan' : '🔊 Read Complete Workout'}
-        </button>
-      );
+      return null;
     };
 
     // Meal Planner Screen Component
-    const MealPlanner = ({ goals, mealPlan, setMealPlan, isLoading, setIsLoading, error, setError }) => {
+    const MealPlanner = ({ goals, mealPlan, setMealPlan, isLoading, setIsLoading, error, setError, setScreen }) => {
       const [activeTab, setActiveTab] = useState(() => localStorage.getItem('mealPlanner_activeTab') || 'planner'); // 'planner', 'pantry', or 'menu'
       const [preferences, setPreferences] = useState({ cuisine: '', diet: '', calories: goals.calories, allergies: [] });
       
@@ -8681,7 +8496,20 @@ Respond ONLY with a valid JSON object in this exact format:
                   
                   {/* Download Button */}
                   <button
-                    onClick={() => {
+                    onClick={async () => {
+                      // Require sign-in before allowing PDF download
+                      let signedIn = false;
+                      try {
+                        if (auth && auth.getSession) {
+                          const { data: { session } } = await auth.getSession();
+                          signedIn = !!(session && session.user && session.user.id);
+                        }
+                      } catch (_) {}
+                      if (!signedIn) {
+                        try { if (typeof setScreen === 'function') setScreen('profile'); } catch (_) {}
+                        setTimeout(() => { try { window.dispatchEvent(new Event('open-account-modal')); } catch (_) {} }, 50);
+                        return;
+                      }
                       // Format meal plan for PDF
                       const title = "Your Personalized Meal Plan";
                       let content = "";
@@ -9729,7 +9557,7 @@ Respond ONLY with a valid JSON object in this format:
     };
 
     // Workout Planner Screen Component
-    const WorkoutPlanner = ({ workoutPlan, setWorkoutPlan, isLoading, setIsLoading, error, setError }) => {
+    const WorkoutPlanner = ({ workoutPlan, setWorkoutPlan, isLoading, setIsLoading, error, setError, setScreen }) => {
       const [activeTab, setActiveTab] = useState(() => localStorage.getItem('workoutPlanner_activeTab') || 'planner'); // 'planner', 'coach', or 'exercises'
       // Persist active tab to localStorage so we remember last selected tab
       useEffect(() => {
@@ -9766,6 +9594,44 @@ Respond ONLY with a valid JSON object in this format:
       const [voiceInstructions, setVoiceInstructions] = useState(true);
       const videoRef = useRef(null);
       const speechSynthesis = window.speechSynthesis;
+
+      // Size the exercises iframe to the remaining viewport
+      // (viewport height - wrapper top - bottom nav height) and lock outer scroll.
+      useEffect(() => {
+        const updateHeight = () => {
+          try {
+            const iframe = document.getElementById('workout-iframe');
+            const wrapper = document.getElementById('exercises-wrapper');
+            const nav = document.getElementById('bottom-nav');
+            if (!iframe || !wrapper) return;
+            const rect = wrapper.getBoundingClientRect();
+            const navHeight = (nav && nav.offsetHeight) ? nav.offsetHeight : 80;
+            const available = Math.max(240, Math.floor(window.innerHeight - rect.top - navHeight));
+            iframe.style.height = `${available}px`;
+          } catch (_) {}
+        };
+
+        if (activeTab === 'exercises') {
+          updateHeight();
+          window.addEventListener('resize', updateHeight);
+          window.addEventListener('orientationchange', updateHeight);
+          // Lock outer scroll to avoid double scrollbars
+          try {
+            document.documentElement.style.overflow = 'hidden';
+            document.body.style.overflow = 'hidden';
+          } catch (_) {}
+        } else {
+          try {
+            document.documentElement.style.overflow = '';
+            document.body.style.overflow = '';
+          } catch (_) {}
+        }
+
+        return () => {
+          window.removeEventListener('resize', updateHeight);
+          window.removeEventListener('orientationchange', updateHeight);
+        };
+      }, [activeTab]);
 
       // Exercise database with video files from animations folder
       const exerciseDatabase = [
@@ -10227,6 +10093,14 @@ Respond ONLY with a valid JSON object in this format:
         };
       }, [workoutTimer]);
 
+      // Ensure page scroll remains enabled across tabs (iframe auto-sizes instead)
+      useEffect(() => {
+        try {
+          document.documentElement.style.overflow = '';
+          document.body.style.overflow = '';
+        } catch (_) {}
+      }, [activeTab]);
+
       const handlePreferenceChange = (key, value) => {
         setPreferences(prev => ({ ...prev, [key]: value }));
       };
@@ -10304,7 +10178,7 @@ Respond ONLY with a valid JSON object in this exact format:
       };
 
       return (
-        <div className="p-4 sm:p-6 pb-24 mb-20">
+        <div className={`${activeTab === 'exercises' ? 'p-0 m-0 min-h-screen flex flex-col' : 'p-4 sm:p-6 pb-24 mb-20 flex flex-col'}`}>
           <header className="mb-4 sm:mb-6 text-center px-2">
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-gray-200">Workout Hub</h1>
             <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400">Plan workouts or perfect your form</p>
@@ -10440,7 +10314,20 @@ Respond ONLY with a valid JSON object in this exact format:
                   
                   {/* Download Button */}
                   <button
-                    onClick={() => {
+                    onClick={async () => {
+                      // Require sign-in before allowing PDF download
+                      let signedIn = false;
+                      try {
+                        if (auth && auth.getSession) {
+                          const { data: { session } } = await auth.getSession();
+                          signedIn = !!(session && session.user && session.user.id);
+                        }
+                      } catch (_) {}
+                      if (!signedIn) {
+                        try { if (typeof setScreen === 'function') setScreen('profile'); } catch (_) {}
+                        setTimeout(() => { try { window.dispatchEvent(new Event('open-account-modal')); } catch (_) {} }, 50);
+                        return;
+                      }
                       // Format workout plan for PDF
                       const title = workoutPlan.plan_name;
                       let content = "";
@@ -10468,11 +10355,12 @@ Respond ONLY with a valid JSON object in this exact format:
             <WorkoutFormCoach />
           )}
 
-          <div className={`w-full h-screen ${activeTab === 'exercises' ? '' : 'hidden'}`}>
+          <div id="exercises-wrapper" className={`${activeTab === 'exercises' ? 'block' : 'hidden'}`}>
             <iframe 
               src="./workout.html" 
               loading="eager"
-              className="w-full h-full border-0 rounded-lg"
+              id="workout-iframe"
+              className="w-full border-0"
               title="Workout Application"
             />
           </div>
@@ -10723,23 +10611,38 @@ User's question: "${userMessage.text}"`;
 
           <div className="flex-grow overflow-y-auto p-4 rounded-2xl shadow-md relative" 
                style={{
-                 backgroundColor: isDarkMode ? '#1f2937' : '#f8fafc',
-                 backgroundImage: `
-                   radial-gradient(circle at 25px 25px, rgba(59, 130, 246, 0.15) 6px, transparent 6px),
-                   radial-gradient(circle at 75px 75px, rgba(168, 85, 247, 0.12) 8px, transparent 8px),
-                   radial-gradient(circle at 50px 100px, rgba(236, 72, 153, 0.08) 4px, transparent 4px)
-                 `,
-                 backgroundSize: '100px 100px'
+                 backgroundColor: isDarkMode ? '#0f172a' : '#f7fafc',
+                 backgroundImage: isDarkMode
+                   ? `
+                     radial-gradient(circle, rgba(255,255,255,0.10) 3px, transparent 4px),
+                     radial-gradient(circle, rgba(99,102,241,0.22) 3px, transparent 4px),
+                     radial-gradient(circle, rgba(236,72,153,0.18) 3px, transparent 4px)
+                   `
+                   : `
+                     radial-gradient(circle, rgba(99,102,241,0.16) 3px, transparent 4px),
+                     radial-gradient(circle, rgba(236,72,153,0.14) 3px, transparent 4px),
+                     radial-gradient(circle, rgba(168,85,247,0.12) 3px, transparent 4px)
+                   `,
+                 backgroundSize: '42px 42px, 62px 62px, 82px 82px',
+                 backgroundPosition: '0 0, 21px 21px, 11px 31px'
                }}>
             
-            {/* Bigger dots pattern for dark mode */}
-            <div className="absolute inset-0 rounded-2xl dark:bg-gray-800" 
+            {/* Bubble overlay for subtle larger shapes (WhatsApp-like wallpaper) */}
+            <div className="absolute inset-0 rounded-2xl pointer-events-none"
                  style={{
-                   backgroundImage: `
-                     radial-gradient(circle at 25px 25px, rgba(59, 130, 246, 0.2) 5px, transparent 5px),
-                     radial-gradient(circle at 75px 75px, rgba(168, 85, 247, 0.15) 7px, transparent 7px)
-                   `,
-                   backgroundSize: '100px 100px'
+                   opacity: isDarkMode ? 0.45 : 0.2,
+                   backgroundImage: isDarkMode
+                     ? `
+                       radial-gradient(circle at 30px 30px, rgba(255,255,255,0.18) 10px, transparent 11px),
+                       radial-gradient(circle at 90px 90px, rgba(99,102,241,0.22) 12px, transparent 13px),
+                       radial-gradient(circle at 150px 60px, rgba(236,72,153,0.20) 9px, transparent 10px)
+                     `
+                     : `
+                       radial-gradient(circle at 30px 30px, rgba(99,102,241,0.16) 10px, transparent 11px),
+                       radial-gradient(circle at 90px 90px, rgba(236,72,153,0.14) 12px, transparent 13px),
+                       radial-gradient(circle at 150px 60px, rgba(168,85,247,0.12) 9px, transparent 10px)
+                     `,
+                   backgroundSize: '140px 140px'
                  }}></div>
             
             {/* Content container */}
@@ -10771,19 +10674,19 @@ User's question: "${userMessage.text}"`;
             </div>
           )}
 
-          <div className="mt-4 flex">
+          <div className="mt-4 flex items-stretch w-full gap-2">
             <input type="file" accept="image/*" ref={fileInputRef} onChange={handleAttachmentChange} className="hidden" />
-            <button onClick={() => fileInputRef.current.click()} className="p-3 border dark:border-gray-700 rounded-l-lg bg-gray-100 dark:bg-gray-700">📎</button>
+            <button onClick={() => fileInputRef.current.click()} className="p-3 border dark:border-gray-700 rounded-l-lg bg-gray-100 dark:bg-gray-700 flex-shrink-0">📎</button>
             <input
               type="text"
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSend()}
               placeholder="Ask a question..."
-              className="flex-grow p-3 border-t border-b dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-pink-500 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200"
+              className="flex-1 min-w-0 p-3 border-t border-b dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-pink-500 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200"
               disabled={isLoading}
             />
-            <button onClick={handleSend} disabled={isLoading} className="bg-pink-500 text-white p-3 rounded-r-lg font-bold">
+            <button onClick={handleSend} disabled={isLoading} className="bg-pink-500 text-white p-3 rounded-r-lg font-bold flex-shrink-0">
               {isLoading ? '...' : 'Send'}
             </button>
           </div>
@@ -12666,7 +12569,7 @@ ${habits.map(habit => {
 
 
     const BottomNavBar = ({ screen, setScreen }) => (
-      <nav className="fixed bottom-0 left-0 right-0 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm shadow-[0_-2px_10px_rgba(0,0,0,0.05)] dark:shadow-[0_-2px_10px_rgba(0,0,0,0.2)] h-20 flex justify-around items-center px-4">
+    <nav id="bottom-nav" className="fixed bottom-0 left-0 right-0 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm shadow-[0_-2px_10px_rgba(0,0,0,0.05)] dark:shadow-[0_-2px_10px_rgba(0,0,0,0.2)] h-20 flex justify-around items-center px-4">
         <button onClick={() => setScreen('dashboard')} className={`flex flex-col items-center justify-center font-semibold transition-colors ${screen === 'dashboard' ? 'text-pink-500' : 'text-gray-400'}`}>
           <span className="text-2xl mb-1">🏠</span>
         </button>
