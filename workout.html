@@ -338,11 +338,13 @@
         <p id="player-set-info" class="text-gray-600 dark:text-gray-300 mt-1">Set 1 of 3</p>
 
         <div class="mt-2 w-48 h-48 hero-box rounded-2xl p-2 flex flex-col items-center justify-center">
-          <div class="w-full h-full flex items-center justify-center rounded-lg bg-transparent overflow-hidden transition-colors">
+          <div class="w-full h-full flex items-center justify-center rounded-lg bg-transparent overflow-hidden transition-colors relative">
             <lottie-player id="player-lottie" background="transparent" style="width:100%;height:100%;display:none" speed="1" loop autoplay></lottie-player>
-            <video id="player-animation" class="w-full h-full object-cover rounded-lg" autoplay loop muted playsinline preload="auto" style="display:none;">
+            <video id="player-animation" class="absolute inset-0 w-full h-full object-cover rounded-lg" autoplay loop muted playsinline preload="auto" style="display:none; opacity:1;">
               <source src="" type="video/mp4">
             </video>
+            <!-- Secondary video used to preload next exercise and crossfade -->
+            <video id="player-animation-next" class="absolute inset-0 w-full h-full object-cover rounded-lg" autoplay loop muted playsinline preload="auto" style="display:none; opacity:0;"></video>
             <div id="player-animation-fallback" class="text-center text-gray-600 dark:text-gray-300">
               <div style="font-size:32px">🏋️</div>
               <div class="mt-1 text-xs">Exercise Animation</div>
@@ -755,6 +757,93 @@
   let completedExercises = [];
   let sessionExercises = [];
 
+  // ---- MP4 Prefetch & In-Memory Cache (speeds up animation loads)
+  const videoCache = new Map(); // fileName -> objectURL
+  const videoCacheURLs = new Map(); // track to revoke
+  const prefetchPromises = new Map(); // dedupe concurrent fetches
+  const MAX_CACHE_ITEMS = 6;
+
+  async function prefetchVideo(fileName){
+    try {
+      if (!fileName) return null;
+      if (videoCache.has(fileName)) return videoCache.get(fileName);
+      if (prefetchPromises.has(fileName)) return await prefetchPromises.get(fileName);
+
+      const url = `./animations/${encodeURI(fileName)}`;
+      const promise = fetch(url, { cache: 'default' })
+        .then(r => { if (!r.ok) throw new Error(`Video fetch failed: ${r.status}`); return r.blob(); })
+        .then(blob => {
+          const objURL = URL.createObjectURL(blob);
+          videoCache.set(fileName, objURL);
+          videoCacheURLs.set(fileName, objURL);
+          // LRU-ish eviction to cap memory usage
+          if (videoCache.size > MAX_CACHE_ITEMS) {
+            const firstKey = videoCache.keys().next().value;
+            const oldURL = videoCacheURLs.get(firstKey);
+            if (oldURL) URL.revokeObjectURL(oldURL);
+            videoCache.delete(firstKey);
+            videoCacheURLs.delete(firstKey);
+          }
+          return objURL;
+        })
+        .catch(err => { console.log('Prefetch video error:', err); return null; })
+        .finally(() => { prefetchPromises.delete(fileName); });
+
+      prefetchPromises.set(fileName, promise);
+      return await promise;
+    } catch (e) {
+      console.log('prefetchVideo unexpected error:', e);
+      return null;
+    }
+  }
+
+  async function loadVideoInto(el, fileName){
+    if (!el || !fileName) return null;
+    let srcURL = videoCache.get(fileName) || await prefetchVideo(fileName);
+    if (!srcURL) srcURL = `./animations/${encodeURI(fileName)}`;
+    return new Promise(resolve => {
+      const onCanPlay = () => { el.removeEventListener('canplay', onCanPlay); resolve(srcURL); };
+      el.addEventListener('canplay', onCanPlay, { once: true });
+      el.src = srcURL; el.load();
+    });
+  }
+
+  async function setAnimationVideoSrcIfChanged(fileName){
+    const current = document.getElementById('player-animation');
+    const next = document.getElementById('player-animation-next');
+    if (!current || !next || !fileName) return;
+
+    const cachedURL = videoCache.get(fileName) || null;
+    const targetPath = `./animations/${encodeURI(fileName)}`;
+    const currentSrc = current.src || '';
+    const alreadyLoaded = (cachedURL && currentSrc === cachedURL) || (!cachedURL && currentSrc.endsWith(encodeURI(fileName)));
+    if (alreadyLoaded) {
+      current.style.display = 'block';
+      current.style.opacity = '1';
+      current.play().catch(()=>{});
+      return;
+    }
+
+    // Preload into the secondary video and crossfade when ready
+    next.pause();
+    next.style.display = 'block';
+    next.style.opacity = '0';
+    const url = await loadVideoInto(next, fileName);
+    // Once ready, start playing and crossfade
+    next.play().catch(()=>{});
+    next.style.transition = 'opacity 250ms ease-in-out';
+    current.style.transition = 'opacity 250ms ease-in-out';
+    next.style.opacity = '1';
+    current.style.opacity = '0';
+    // After fade, swap IDs so future operations target the visible video
+    setTimeout(() => {
+      current.style.display = 'none';
+      // Swap element IDs
+      current.id = 'player-animation-next';
+      next.id = 'player-animation';
+    }, 260);
+  }
+
   // Workout state persistence functions
   function saveWorkoutState() {
     const workoutState = {
@@ -986,6 +1075,15 @@
     });
 
     showView('view-detail');
+
+    // Opportunistic prefetch: first two exercise videos
+    const firstEx = wx.exercises[0];
+    const secondEx = wx.exercises[1];
+    [firstEx, secondEx].forEach(e => {
+      if (e && e.animation && !/\.json$/i.test(e.animation)) {
+        prefetchVideo(e.animation);
+      }
+    });
   }
 
   detailBack.addEventListener('click', ()=> { showView('view-list'); });
@@ -1108,6 +1206,12 @@
     if (!isRepBased && !timerInterval) {
       setTimeout(()=> startPlayerTimer(), 200);
     }
+
+    // Prefetch next exercise animation to eliminate wait time
+    const nextEx = workout.exercises[currentExerciseIndex + 1];
+    if (nextEx && nextEx.animation && !/\.json$/i.test(nextEx.animation)) {
+      prefetchVideo(nextEx.animation);
+    }
     
     // Save workout state
     saveWorkoutState();
@@ -1173,20 +1277,11 @@
         };
         animationLottie.addEventListener('load', onLottieLoad);
       } else {
-        // Use MP4 video with fade-in when ready
+        // Use MP4 video with prefetch + fade-in when ready
         animationLottie.removeAttribute('src');
         animationLottie.style.display = 'none';
-        animationVideo.style.opacity = '0';
-        animationVideo.style.display = 'block';
         animationFallback.style.display = 'none';
-        animationVideo.src = `./animations/${ex.animation}`;
-        animationVideo.load();
-        const onCanPlay = () => {
-          animationVideo.removeEventListener('canplay', onCanPlay);
-          animationVideo.style.transition = 'opacity 250ms ease-in-out';
-          animationVideo.style.opacity = '1';
-        };
-        animationVideo.addEventListener('canplay', onCanPlay);
+        setAnimationVideoSrcIfChanged(ex.animation);
       }
     } else {
       // No animation available: hide both players and show fallback
@@ -1525,20 +1620,11 @@
             };
             animationLottie.addEventListener('load', onLottieLoad);
           } else {
-            // Use MP4 video for upcoming exercise
+            // Use MP4 video for upcoming exercise (prefetched)
             animationLottie.removeAttribute('src');
             animationLottie.style.display = 'none';
-            animationVideo.style.opacity = '0';
-            animationVideo.style.display = 'block';
             animationFallback.style.display = 'none';
-            animationVideo.src = `./animations/${nextEx.animation}`;
-            animationVideo.load();
-            const onCanPlay = () => {
-              animationVideo.removeEventListener('canplay', onCanPlay);
-              animationVideo.style.transition = 'opacity 250ms ease-in-out';
-              animationVideo.style.opacity = '1';
-            };
-            animationVideo.addEventListener('canplay', onCanPlay);
+            setAnimationVideoSrcIfChanged(nextEx.animation);
           }
         } else {
           // No animation available: show fallback
