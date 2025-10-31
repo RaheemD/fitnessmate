@@ -973,7 +973,7 @@ Respond ONLY with a valid JSON object in this exact format:
             
             // Fitness data
             daily_intake: JSON.parse(localStorage.getItem('dailyIntake') || '{"calories":0,"protein":0,"carbs":0,"fat":0,"activity":0,"water":0}'),
-            recent_meals: JSON.parse(localStorage.getItem('recentMeals') || '[]'),
+            recent_meals: (() => { try { const meals = JSON.parse(localStorage.getItem('recentMeals') || '[]') || []; const todayISO = toLocalISODate(new Date()); return Array.isArray(meals) ? meals.filter(m => m && m.__day === todayISO) : []; } catch { return []; } })(),
             daily_history: JSON.parse(localStorage.getItem('dailyHistory') || '{}'),
             
             // AI and coaching data
@@ -1140,8 +1140,11 @@ Respond ONLY with a valid JSON object in this exact format:
                   try {
                     const todayISO = toLocalISODate(new Date());
                     const remoteUpdateIsToday = !!userData.updated_at && toLocalISODate(new Date(userData.updated_at)) === todayISO;
-                    if (!remoteUpdateIsToday) {
-                      console.log('⏭️ Remote-only: skipping remote daily_intake (updated_at not today)');
+                    const resetAt = parseInt(localStorage.getItem('midnightResetAt') || '0');
+                    const remoteTs = userData.updated_at ? new Date(userData.updated_at).getTime() : 0;
+                    const remoteOlderThanReset = resetAt && remoteTs && (remoteTs <= resetAt);
+                    if (!remoteUpdateIsToday || remoteOlderThanReset) {
+                      console.log(remoteOlderThanReset ? '⏭️ Remote-only: skipping remote daily_intake (stale vs midnight reset)' : '⏭️ Remote-only: skipping remote daily_intake (updated_at not today)');
                     } else {
                       const localIntakeDate = localStorage.getItem('dailyIntakeDate');
                       const lastSaved = localStorage.getItem('lastSavedDate');
@@ -1182,12 +1185,15 @@ Respond ONLY with a valid JSON object in this exact format:
                       if (rolledToToday && localIsEmpty && remoteHasMeals) {
                         console.log('⏭️ Remote-only: skipping recent_meals overwrite after local midnight reset');
                       } else {
-                        localStorage.setItem('recentMeals', JSON.stringify(userData.recent_meals));
+                        const todaysMeals = (Array.isArray(userData.recent_meals) ? userData.recent_meals.filter(m => m && m.__day === todayISO) : []);
+                        localStorage.setItem('recentMeals', JSON.stringify(todaysMeals));
                         console.log('🔒 Remote-only: set recent_meals from remote');
                       }
                     }
                   } catch (_) {
-                    localStorage.setItem('recentMeals', JSON.stringify(userData.recent_meals));
+                    const todayISO = toLocalISODate(new Date());
+                    const todaysMeals = (Array.isArray(userData.recent_meals) ? userData.recent_meals.filter(m => m && m.__day === todayISO) : []);
+                    localStorage.setItem('recentMeals', JSON.stringify(todaysMeals));
                     console.log('🔒 Remote-only: set recent_meals from remote');
                   }
                 }
@@ -1209,8 +1215,11 @@ Respond ONLY with a valid JSON object in this exact format:
                   try {
                     const todayISO = toLocalISODate(new Date());
                     const remoteUpdateIsToday = !!userData.updated_at && toLocalISODate(new Date(userData.updated_at)) === todayISO;
-                    if (!remoteUpdateIsToday) {
-                      console.log('⏭️ Normal sync: skipping remote daily_intake (updated_at not today)');
+                    const resetAt = parseInt(localStorage.getItem('midnightResetAt') || '0');
+                    const remoteTs = userData.updated_at ? new Date(userData.updated_at).getTime() : 0;
+                    const remoteOlderThanReset = resetAt && remoteTs && (remoteTs <= resetAt);
+                    if (!remoteUpdateIsToday || remoteOlderThanReset) {
+                      console.log(remoteOlderThanReset ? '⏭️ Normal sync: skipping remote daily_intake (stale vs midnight reset)' : '⏭️ Normal sync: skipping remote daily_intake (updated_at not today)');
                     } else {
                       const localIntakeDate = localStorage.getItem('dailyIntakeDate');
                       const lastSaved = localStorage.getItem('lastSavedDate');
@@ -1249,12 +1258,15 @@ Respond ONLY with a valid JSON object in this exact format:
                       if (rolledToToday && localIsEmpty && remoteHasMeals) {
                         console.log('⏭️ Skipping remote recent_meals to prevent post-rollover flicker');
                       } else {
-                        localStorage.setItem('recentMeals', JSON.stringify(userData.recent_meals));
+                        const todaysMeals = (Array.isArray(userData.recent_meals) ? userData.recent_meals.filter(m => m && m.__day === todayISO) : []);
+                        localStorage.setItem('recentMeals', JSON.stringify(todaysMeals));
                         console.log('✅ Recent meals synced to localStorage');
                       }
                     }
                   } catch (_) {
-                    localStorage.setItem('recentMeals', JSON.stringify(userData.recent_meals));
+                    const todayISO = toLocalISODate(new Date());
+                    const todaysMeals = (Array.isArray(userData.recent_meals) ? userData.recent_meals.filter(m => m && m.__day === todayISO) : []);
+                    localStorage.setItem('recentMeals', JSON.stringify(todaysMeals));
                     console.log('✅ Recent meals synced to localStorage');
                   }
                 }
@@ -1912,10 +1924,21 @@ Respond ONLY with a valid JSON object in this exact format:
               } else {
                 // CRITICAL: Never import activity from remote; only explicit local logging allowed
                 payload.daily_intake = { ...localIntake, activity: Number(localIntake.activity || 0) };
+                // Stamp the day so reads can enforce same-day sync only
+                try { payload.daily_intake.__day = toLocalISODate(new Date()); } catch (_) {}
               }
             } catch (cmpErr) {
               console.warn('Safe-guard compare failed, proceeding:', cmpErr);
             }
+          }
+
+          // Stamp and hard-filter recent_meals to today-only
+          if (payload && typeof payload === 'object' && 'recent_meals' in payload) {
+            const todayISO = toLocalISODate(new Date());
+            const mealsArray = Array.isArray(payload.recent_meals) ? payload.recent_meals : [];
+            payload.recent_meals = mealsArray
+              .map(m => ({ ...(m || {}), __day: (m && m.__day) ? m.__day : todayISO }))
+              .filter(m => m.__day === todayISO);
           }
 
           if (Object.keys(payload).length === 0) {
@@ -2105,23 +2128,26 @@ Respond ONLY with a valid JSON object in this exact format:
                 try {
                   const todayISO = toLocalISODate(new Date());
                   const remoteUpdateIsToday = !!remoteTimestamp && toLocalISODate(new Date(remoteTimestamp)) === todayISO;
-                  if (!remoteUpdateIsToday) {
-                    console.log('⏭️ Realtime(sub): skipping remote daily_intake (updated_at not today)');
+                  const remoteDayStamp = remoteData.daily_intake?.__day;
+                  const remoteDayMatchesToday = remoteDayStamp ? (remoteDayStamp === todayISO) : remoteUpdateIsToday;
+                  const resetAt = parseInt(localStorage.getItem('midnightResetAt') || '0');
+                  const remoteTs = remoteTimestamp ? new Date(remoteTimestamp).getTime() : 0;
+                  const remoteOlderThanReset = resetAt && remoteTs && (remoteTs <= resetAt);
+                  if (!remoteDayMatchesToday || remoteOlderThanReset) {
+                    console.log(remoteOlderThanReset ? '⏭️ Realtime(sub): skipping remote daily_intake (stale vs midnight reset)' : '⏭️ Realtime(sub): skipping remote daily_intake (day stamp mismatch)');
                   } else {
-                    const localIntakeDate = localStorage.getItem('dailyIntakeDate');
-                    const lastSaved = localStorage.getItem('lastSavedDate');
-                    const rolledToToday = (localIntakeDate === todayISO && lastSaved === todayISO);
                     const currentLocal = (() => { try { return JSON.parse(localStorage.getItem('dailyIntake') || '{}') || {}; } catch { return {}; } })();
                     const localIsZero = ['calories','protein','carbs','fat','activity','water'].every(k => Number(currentLocal[k]||0) === 0);
                     const remoteHasNonZero = ['calories','protein','carbs','fat','activity','water'].some(k => Number(remoteData.daily_intake?.[k]||0) > 0);
                     const localMeals = (() => { try { return JSON.parse(localStorage.getItem('recentMeals') || '[]') || []; } catch { return []; } })();
                     const localHasStarted = !localIsZero || (Array.isArray(localMeals) && localMeals.length > 0);
-                    if (rolledToToday && !localHasStarted && remoteHasNonZero) {
-                      console.log('⏭️ Realtime(sub): skipping remote daily_intake until local day start');
+                    const shouldDeferIntake = !!resetAt && !localHasStarted && remoteHasNonZero;
+                    if (shouldDeferIntake) {
+                      console.log('⏭️ Realtime(sub): deferring remote daily_intake until local activity starts', { resetAt, localHasStarted, remoteHasNonZero });
                     } else {
                       const merged = { ...remoteData.daily_intake, activity: Number(remoteData.daily_intake?.activity || 0) };
                       localStorage.setItem('dailyIntake', JSON.stringify(merged));
-                      console.log('✅ Realtime(sub): daily_intake synced (activity remote-only)');
+                      console.log('✅ Realtime(sub): daily_intake synced');
                     }
                   }
                 } catch (_) {
@@ -2142,15 +2168,18 @@ Respond ONLY with a valid JSON object in this exact format:
                     const localIsEmpty = !Array.isArray(localMeals) || localMeals.length === 0;
                     const remoteHasMeals = Array.isArray(remoteData.recent_meals) && remoteData.recent_meals.length > 0;
                     const resetAt = parseInt(localStorage.getItem('midnightResetAt') || '0');
-                    const remoteOlderThanReset = resetAt && remoteTimestamp && (remoteTimestamp <= resetAt);
-                    if (rolledToToday && localIsEmpty && remoteHasMeals && remoteOlderThanReset) {
-                      console.log('⏭️ Realtime(sub): skipping remote recent_meals to avoid post-rollover flicker');
+                    const shouldDeferMeals = rolledToToday && localIsEmpty && !!resetAt && remoteHasMeals;
+                    if (shouldDeferMeals) {
+                      console.log('⏭️ Realtime(sub): deferring remote recent_meals until local day start',{ resetAt, rolledToToday, localIsEmpty, remoteHasMeals });
                     } else {
-                      localStorage.setItem('recentMeals', JSON.stringify(remoteData.recent_meals));
+                      const todaysMeals = (Array.isArray(remoteData.recent_meals) ? remoteData.recent_meals.filter(m => m && m.__day === todayISO) : []);
+                      localStorage.setItem('recentMeals', JSON.stringify(todaysMeals));
                     }
                   }
                 } catch (_) {
-                  localStorage.setItem('recentMeals', JSON.stringify(remoteData.recent_meals));
+                  const todayISO = toLocalISODate(new Date());
+                  const todaysMeals = (Array.isArray(remoteData.recent_meals) ? remoteData.recent_meals.filter(m => m && m.__day === todayISO) : []);
+                  localStorage.setItem('recentMeals', JSON.stringify(todaysMeals));
                 }
               }
               if (remoteData.daily_history) {
@@ -2229,8 +2258,8 @@ Respond ONLY with a valid JSON object in this exact format:
             goals: JSON.parse(localStorage.getItem('goals') || '{}'),
             // profile_picture intentionally excluded in remote-only mode to avoid overwriting remote data,
             notifications_enabled: JSON.parse(localStorage.getItem('notificationsEnabled') || 'true'),
-            daily_intake: JSON.parse(localStorage.getItem('dailyIntake') || '{}'),
-            recent_meals: JSON.parse(localStorage.getItem('recentMeals') || '[]'),
+            daily_intake: (() => { try { const di = JSON.parse(localStorage.getItem('dailyIntake') || '{}') || {}; di.__day = toLocalISODate(new Date()); return di; } catch { return { __day: toLocalISODate(new Date()) }; } })(),
+            recent_meals: (() => { try { const meals = JSON.parse(localStorage.getItem('recentMeals') || '[]') || []; const todayISO = toLocalISODate(new Date()); return Array.isArray(meals) ? meals.filter(m => m && m.__day === todayISO) : []; } catch { return []; } })(),
             daily_history: JSON.parse(localStorage.getItem('dailyHistory') || '{}'),
             coach_messages: JSON.parse(localStorage.getItem('coachMessages') || '[]'),
             habit_ai_advice: localStorage.getItem('habitAIAdvice') || '',
@@ -2273,8 +2302,10 @@ Respond ONLY with a valid JSON object in this exact format:
       const syncMealsData = async (recentMeals) => {
         if (user && supabase) {
           try {
+            const todayISO = toLocalISODate(new Date());
+            const todaysMeals = Array.isArray(recentMeals) ? recentMeals.filter(m => m && m.__day === todayISO) : [];
             await updateUserData({ 
-              recent_meals: recentMeals
+              recent_meals: todaysMeals
             });
           } catch (error) {
             console.error('Error syncing meals data:', error);
@@ -2975,14 +3006,17 @@ Respond ONLY with a valid JSON object in this exact format:
                 if (rolledToToday && localIsEmpty && remoteHasMeals && remoteOlderThanReset) {
                   console.log('⏭️ Skipping remote recent_meals from event payload after local reset');
                 } else {
-                  setRecentMeals(payload.recent_meals);
-                  try { localStorage.setItem('recentMeals', JSON.stringify(payload.recent_meals)); } catch (_) {}
+                  const todaysMeals = (Array.isArray(payload.recent_meals) ? payload.recent_meals.filter(m => m && m.__day === todayISO) : []);
+                  setRecentMeals(todaysMeals);
+                  try { localStorage.setItem('recentMeals', JSON.stringify(todaysMeals)); } catch (_) {}
                   console.log('✅ Recent meals applied from event payload');
                 }
               }
             } catch (_) {
-              setRecentMeals(payload.recent_meals);
-              try { localStorage.setItem('recentMeals', JSON.stringify(payload.recent_meals)); } catch (__e) {}
+              const todayISO = toLocalISODate(new Date());
+              const todaysMeals = (Array.isArray(payload.recent_meals) ? payload.recent_meals.filter(m => m && m.__day === todayISO) : []);
+              setRecentMeals(todaysMeals);
+              try { localStorage.setItem('recentMeals', JSON.stringify(todaysMeals)); } catch (__e) {}
               console.log('✅ Recent meals applied from event payload');
             }
           } else {
@@ -3105,19 +3139,22 @@ Respond ONLY with a valid JSON object in this exact format:
               try {
                 const todayISO = toLocalISODate(new Date());
                 const remoteUpdateIsToday = !!payload.updated_at && toLocalISODate(new Date(payload.updated_at)) === todayISO;
-                if (!remoteUpdateIsToday) {
-                  console.log('⏭️ Hydrate: skipping remote intake (updated_at not today)');
+                const remoteDayStamp = payload.daily_intake?.__day;
+                const remoteDayMatchesToday = remoteDayStamp ? (remoteDayStamp === todayISO) : remoteUpdateIsToday;
+                const resetAt = parseInt(localStorage.getItem('midnightResetAt') || '0');
+                const remoteTs = payload.updated_at ? new Date(payload.updated_at).getTime() : 0;
+                const remoteOlderThanReset = resetAt && remoteTs && (remoteTs <= resetAt);
+                if (!remoteDayMatchesToday || remoteOlderThanReset) {
+                  console.log(remoteOlderThanReset ? '⏭️ Hydrate: skipping remote intake (stale vs midnight reset)' : '⏭️ Hydrate: skipping remote intake (day stamp mismatch)');
                 } else {
-                  const localIntakeDate = localStorage.getItem('dailyIntakeDate');
-                  const lastSaved = localStorage.getItem('lastSavedDate');
-                  const rolledToToday = (localIntakeDate === todayISO && lastSaved === todayISO);
                   const localIntake = (() => { try { return JSON.parse(localStorage.getItem('dailyIntake')||'{}'); } catch { return {}; } })();
                   const localIsZero = ['calories','protein','carbs','fat','activity','water'].every(k => Number(localIntake[k]||0) === 0);
                   const remoteHasNonZero = ['calories','protein','carbs','fat','activity','water'].some(k => Number(payload.daily_intake?.[k]||0) > 0);
                   const localMeals = (() => { try { return JSON.parse(localStorage.getItem('recentMeals') || '[]') || []; } catch { return []; } })();
                   const localHasStarted = !localIsZero || (Array.isArray(localMeals) && localMeals.length > 0);
-                  if (rolledToToday && !localHasStarted && remoteHasNonZero) {
-                    console.log('⏭️ Hydrate: skipping remote intake until local day start');
+                  const shouldDeferIntake = !!resetAt && !localHasStarted && remoteHasNonZero;
+                  if (shouldDeferIntake) {
+                    console.log('⏭️ Hydrate: deferring remote intake until local activity starts', { resetAt, localHasStarted, remoteHasNonZero });
                   } else {
                     const merged = { 
                       ...payload.daily_intake, 
@@ -3125,7 +3162,7 @@ Respond ONLY with a valid JSON object in this exact format:
                     };
                     setDailyIntake(merged);
                     try { localStorage.setItem('dailyIntake', JSON.stringify(merged)); } catch (_) {}
-                    console.log('⏭️ Hydrate: applied intake with activity merged by max:', merged.activity);
+                    console.log('✅ Hydrate: applied intake');
                   }
                 }
               } catch (_e) {
@@ -3139,17 +3176,17 @@ Respond ONLY with a valid JSON object in this exact format:
                 if (!remoteUpdateIsToday) {
                   console.log('⏭️ Hydrate: skipping recent_meals (updated_at not today)');
                 } else {
-                  const localIntakeDate = localStorage.getItem('dailyIntakeDate');
-                  const lastSaved = localStorage.getItem('lastSavedDate');
-                  const rolledToToday = (localIntakeDate === todayISO && lastSaved === todayISO);
                   const localMeals = (() => { try { return JSON.parse(localStorage.getItem('recentMeals') || '[]') || []; } catch { return []; } })();
                   const localIsEmpty = !Array.isArray(localMeals) || localMeals.length === 0;
                   const remoteHasMeals = Array.isArray(payload.recent_meals) && payload.recent_meals.length > 0;
-                  if (rolledToToday && localIsEmpty && remoteHasMeals) {
-                    console.log('⏭️ Hydrate: skipping recent_meals until local day start');
+                  const resetAt = parseInt(localStorage.getItem('midnightResetAt') || '0');
+                  const shouldDeferMeals = !!resetAt && localIsEmpty && remoteHasMeals;
+                  if (shouldDeferMeals) {
+                    console.log('⏭️ Hydrate: deferring recent_meals until local activity starts', { resetAt, localIsEmpty, remoteHasMeals });
                   } else {
-                    setRecentMeals(payload.recent_meals);
-                    try { localStorage.setItem('recentMeals', JSON.stringify(payload.recent_meals)); } catch (_) {}
+                    const todaysMeals = (Array.isArray(payload.recent_meals) ? payload.recent_meals.filter(m => m && m.__day === todayISO) : []);
+                    setRecentMeals(todaysMeals);
+                    try { localStorage.setItem('recentMeals', JSON.stringify(todaysMeals)); } catch (_) {}
                   }
                 }
               } catch (_) {
@@ -3174,27 +3211,57 @@ Respond ONLY with a valid JSON object in this exact format:
         };
         return () => { try { delete window.fitmateHydrateFromRemote; } catch (_) {} };
       }, []);
-      // --- Day-Boundary Watcher: Archive and Reset at Local Midnight ---
+      
+
+      // --- Enhanced Data Persistence with Supabase Sync ---
+      const { user, updateUserData, syncDailyIntake, syncMealsData, syncDailyHistory, syncAIContent, forceNextRemoteOnlyRef, authInitialRemoteAppliedRef } = useAuth();
+      const isRemoteSyncRef = useRef(false);
+      // Track initial state to avoid overwriting remote with local defaults/stale data
+      const hadDailyIntakeAtStartRef = useRef(!!localStorage.getItem('dailyIntake'));
+      const hadGoalsAtStartRef = useRef(!!localStorage.getItem('goals'));
+      const hadMealsAtStartRef = useRef((() => { try { return (JSON.parse(localStorage.getItem('recentMeals') || '[]') || []).length > 0; } catch { return false; } })());
+      const hadHistoryAtStartRef = useRef((() => { try { return Object.keys(JSON.parse(localStorage.getItem('dailyHistory') || '{}') || {}).length > 0; } catch { return false; } })());
+      const initialSyncCompletedRef = useRef(false);
+const midnightTimerRef = useRef(null);
+
+      // Day-Boundary Watcher: Archive previous day and reset today
       useEffect(() => {
         const finalizeIfDayChanged = () => {
           try {
             const todayISO = toLocalISODate(new Date());
-            const lastSaved = localStorage.getItem('lastSavedDate') || '';
-            const intakeDate = localStorage.getItem('dailyIntakeDate') || '';
-            const dayChanged = (!!intakeDate && intakeDate !== todayISO) || (!!lastSaved && lastSaved !== todayISO);
+            let lastSaved = localStorage.getItem('lastSavedDate') || '';
+            let intakeDate = localStorage.getItem('dailyIntakeDate') || '';
+            const currentIntake = (() => { try { return JSON.parse(localStorage.getItem('dailyIntake') || '{}') || {}; } catch { return {}; } })();
+            const currentMeals = (() => { try { return JSON.parse(localStorage.getItem('recentMeals') || '[]') || []; } catch { return []; } })();
+            const hasContent = ['calories','protein','carbs','fat','activity','water'].some(k => Number(currentIntake[k]||0) > 0) || (Array.isArray(currentMeals) && currentMeals.length > 0);
+            const resetAt = parseInt(localStorage.getItem('midnightResetAt') || '0');
+            const rolledToToday = (!!intakeDate && intakeDate === todayISO) && (!!lastSaved && lastSaved === todayISO);
+            // If keys were set to today previously but we still have content and no reset timestamp,
+            // treat this as a missed rollover and finalize now.
+            const needsFixForFalseToday = rolledToToday && !resetAt && hasContent;
+            // If guard keys are missing but we have content, treat it as yesterday's data
+            if ((!intakeDate || !lastSaved) && hasContent) {
+              const yISO = toLocalISODate(new Date(Date.now() - 24*60*60*1000));
+              intakeDate = intakeDate || yISO;
+              lastSaved = lastSaved || yISO;
+            }
+            const dayChanged = needsFixForFalseToday || (!!intakeDate && intakeDate !== todayISO) || (!!lastSaved && lastSaved !== todayISO);
             if (dayChanged) {
               const prevDate = intakeDate || lastSaved || todayISO;
-              const prevIntake = (() => { try { return JSON.parse(localStorage.getItem('dailyIntake') || '{}') || {}; } catch { return {}; } })();
-              const prevMeals = (() => { try { return JSON.parse(localStorage.getItem('recentMeals') || '[]') || []; } catch { return []; } })();
+              const prevIntake = currentIntake;
+              const prevMeals = currentMeals;
               const history = (() => { try { return JSON.parse(localStorage.getItem('dailyHistory') || '{}') || {}; } catch { return {}; } })();
               const scoreObj = computeHealthScoreForDate(prevIntake, goals, prevDate);
               const record = { intake: prevIntake, meals: prevMeals, score: scoreObj?.score, components: scoreObj?.components };
-              history[prevDate] = { ...(history[prevDate] || {}), ...record, archivedAt: Date.now() };
+              history[prevDate] = { ...(history[prevDate] || {}), ...record, archivedAt: Date.now(), inProgress: false };
               localStorage.setItem('dailyHistory', JSON.stringify(history));
+              try { setDailyHistory(history); } catch (_) {}
 
               const zero = { calories:0, protein:0, carbs:0, fat:0, activity:0, water:0 };
               localStorage.setItem('dailyIntake', JSON.stringify(zero));
               localStorage.setItem('recentMeals', JSON.stringify([]));
+              try { setDailyIntake(zero); } catch (_) {}
+              try { setRecentMeals([]); } catch (_) {}
               localStorage.removeItem('activityTimerState');
 
               localStorage.setItem('dailyIntakeDate', todayISO);
@@ -3204,11 +3271,7 @@ Respond ONLY with a valid JSON object in this exact format:
               // Push reset to Supabase to mark today's zeroed intake/meals
               if (user && supabase && !forceNextRemoteOnlyRef?.current && authInitialRemoteAppliedRef?.current) {
                 const currentTimestamp = new Date().toISOString();
-                const update = {
-                  daily_intake: zero,
-                  recent_meals: [],
-                  updated_at: currentTimestamp
-                };
+                const update = { daily_intake: { ...zero, __day: todayISO }, recent_meals: [], updated_at: currentTimestamp };
                 queueUserUpdate(user.id, update)
                   .then(() => {
                     try { localStorage.setItem('lastSyncTimestamp', Date.now().toString()); } catch (_) {}
@@ -3224,8 +3287,11 @@ Respond ONLY with a valid JSON object in this exact format:
               try { window.dispatchEvent(new CustomEvent('userDataSynced')); } catch (_) {}
               console.log(`🌙 Midnight reset: archived ${prevDate} with score ${scoreObj?.score ?? 'n/a'} and reset to zero`);
             } else {
-              if (!intakeDate) localStorage.setItem('dailyIntakeDate', todayISO);
-              if (!lastSaved) localStorage.setItem('lastSavedDate', todayISO);
+              // Initialize guard keys only when there is no content (fresh start)
+              if ((!intakeDate || !lastSaved) && !hasContent) {
+                localStorage.setItem('dailyIntakeDate', todayISO);
+                localStorage.setItem('lastSavedDate', todayISO);
+              }
             }
           } catch (e) {
             console.warn('Midnight reset check failed:', e);
@@ -3236,23 +3302,6 @@ Respond ONLY with a valid JSON object in this exact format:
         const onVis = () => { if (!document.hidden) finalizeIfDayChanged(); };
         document.addEventListener('visibilitychange', onVis, true);
         return () => { clearInterval(intervalId); document.removeEventListener('visibilitychange', onVis, true); };
-      }, [user]);
-
-      // --- Enhanced Data Persistence with Supabase Sync ---
-      const { user, updateUserData, syncDailyIntake, syncMealsData, syncDailyHistory, syncAIContent, forceNextRemoteOnlyRef, authInitialRemoteAppliedRef } = useAuth();
-      const isRemoteSyncRef = useRef(false);
-      // Track initial state to avoid overwriting remote with local defaults/stale data
-      const hadDailyIntakeAtStartRef = useRef(!!localStorage.getItem('dailyIntake'));
-      const hadGoalsAtStartRef = useRef(!!localStorage.getItem('goals'));
-      const hadMealsAtStartRef = useRef((() => { try { return (JSON.parse(localStorage.getItem('recentMeals') || '[]') || []).length > 0; } catch { return false; } })());
-      const hadHistoryAtStartRef = useRef((() => { try { return Object.keys(JSON.parse(localStorage.getItem('dailyHistory') || '{}') || {}).length > 0; } catch { return false; } })());
-      const initialSyncCompletedRef = useRef(false);
-const midnightTimerRef = useRef(null);
-
-      // Day-boundary watcher disabled: no automatic resets or archiving
-      useEffect(() => {
-        // Intentionally do nothing. Keep intake and meals untouched across days.
-        return () => {};
       }, [user]);
       const isDefaultIntake = (di) => !di || (
         Number(di.calories) === 0 &&
@@ -3277,32 +3326,43 @@ const midnightTimerRef = useRef(null);
             if (userData.profile_picture) localStorage.setItem('profilePicture', userData.profile_picture);
             if (userData.notifications_enabled !== undefined) localStorage.setItem('notificationsEnabled', JSON.stringify(userData.notifications_enabled));
             // Skip syncing dark_mode from remote - it's a local UI preference
-            if (userData.daily_intake) {
-              try {
-                const todayISO = toLocalISODate(new Date());
-                const remoteUpdateIsToday = !!userData.updated_at && toLocalISODate(new Date(userData.updated_at)) === todayISO;
-                if (!remoteUpdateIsToday) {
-                  console.log('⏭️ Realtime(sub-2): skipping remote daily_intake (updated_at not today)');
+              if (userData.daily_intake) {
+                try {
+                  const todayISO = toLocalISODate(new Date());
+                  const remoteUpdateIsToday = !!userData.updated_at && toLocalISODate(new Date(userData.updated_at)) === todayISO;
+                  const remoteDayStamp = userData.daily_intake?.__day;
+                  const remoteDayMatchesToday = remoteDayStamp ? (remoteDayStamp === todayISO) : remoteUpdateIsToday;
+                  const resetAt = parseInt(localStorage.getItem('midnightResetAt') || '0');
+                  const remoteTs = userData.updated_at ? new Date(userData.updated_at).getTime() : 0;
+                  const remoteOlderThanReset = resetAt && remoteTs && (remoteTs <= resetAt);
+                if (!remoteDayMatchesToday || remoteOlderThanReset) {
+                  console.log(remoteOlderThanReset ? '⏭️ Realtime(sub-2): skipping remote daily_intake (stale vs midnight reset)' : '⏭️ Realtime(sub-2): skipping remote daily_intake (day stamp mismatch)');
                 } else {
-                  const currentLocal = JSON.parse(localStorage.getItem('dailyIntake') || '{}') || {};
                   const merged = {
                     ...userData.daily_intake,
                     activity: Number(userData.daily_intake?.activity || 0)
                   };
                   localStorage.setItem('dailyIntake', JSON.stringify(merged));
+                  try { setDailyIntake(merged); } catch (_) {}
                 }
               } catch (_) {
                 const merged = { ...userData.daily_intake, activity: Number(userData.daily_intake?.activity || 0) };
                 localStorage.setItem('dailyIntake', JSON.stringify(merged));
+                try { setDailyIntake(merged); } catch (_) {}
               }
             }
             if (userData.recent_meals) {
               const todayISO = toLocalISODate(new Date());
               const remoteUpdateIsToday = !!userData.updated_at && toLocalISODate(new Date(userData.updated_at)) === todayISO;
-              if (!remoteUpdateIsToday) {
-                console.log('⏭️ Realtime(sub-2): skipping remote recent_meals (updated_at not today)');
+              const resetAt = parseInt(localStorage.getItem('midnightResetAt') || '0');
+              const remoteTs = userData.updated_at ? new Date(userData.updated_at).getTime() : 0;
+              const remoteOlderThanReset = resetAt && remoteTs && (remoteTs <= resetAt);
+              if (!remoteUpdateIsToday || remoteOlderThanReset) {
+                console.log(remoteOlderThanReset ? '⏭️ Realtime(sub-2): skipping remote recent_meals (stale vs midnight reset)' : '⏭️ Realtime(sub-2): skipping remote recent_meals (updated_at not today)');
               } else {
-                localStorage.setItem('recentMeals', JSON.stringify(userData.recent_meals));
+                const todaysMeals = (Array.isArray(userData.recent_meals) ? userData.recent_meals.filter(m => m && m.__day === todayISO) : []);
+                localStorage.setItem('recentMeals', JSON.stringify(todaysMeals));
+                try { setRecentMeals(todaysMeals); } catch (_) {}
               }
             }
             if (userData.daily_history) {
@@ -3372,6 +3432,45 @@ const midnightTimerRef = useRef(null);
 
         return () => subscription.unsubscribe();
       }, [user]);
+
+      // Helper: maintain a live dailyHistory entry for today
+      const updateLiveDailyHistorySnapshot = React.useCallback(() => {
+        try {
+          const todayISO = toLocalISODate(new Date());
+          const todaysMeals = Array.isArray(recentMeals) ? recentMeals.filter(m => m && m.__day === todayISO) : [];
+          const { score, components } = computeHealthScoreForDate(dailyIntake, goals, todayISO);
+          const prev = dailyHistory || {};
+          const next = {
+            ...prev,
+            [todayISO]: {
+              ...(prev[todayISO] || {}),
+              intake: dailyIntake,
+              meals: todaysMeals,
+              score,
+              components,
+              inProgress: true,
+              liveUpdatedAt: Date.now()
+            }
+          };
+          setDailyHistory(next);
+          try { localStorage.setItem('dailyHistory', JSON.stringify(next)); } catch (_) {}
+        } catch (e) {
+          console.warn('Live dailyHistory update failed:', e);
+        }
+      }, [dailyIntake, recentMeals, goals, dailyHistory]);
+
+      // Seed today's live entry after initial remote apply or when signed-out
+      useEffect(() => {
+        const seedAfterRemote = () => {
+          updateLiveDailyHistorySnapshot();
+        };
+        window.addEventListener('remoteDataApplied', seedAfterRemote);
+        // If not signed in, seed immediately
+        if (!user) {
+          updateLiveDailyHistorySnapshot();
+        }
+        return () => window.removeEventListener('remoteDataApplied', seedAfterRemote);
+      }, [user, updateLiveDailyHistorySnapshot]);
 
       // Real-time listener for workout_history table to sync workouts across devices
       useEffect(() => {
@@ -3453,6 +3552,8 @@ const midnightTimerRef = useRef(null);
         localStorage.setItem('dailyIntake', JSON.stringify(dailyIntake));
         // DO NOT set dailyIntakeDate here - only finalize logic (on-mount & midnight) should set it.
         // Setting it on every change breaks the "intakeDate !== today" guard in finalize.
+        // Maintain live dailyHistory entry for today
+        try { updateLiveDailyHistorySnapshot(); } catch (_) {}
         // Defer pushing intake until initial remote sync completes AND prevent overwriting remote data
         if (user && !isRemoteSyncRef.current && !forceNextRemoteOnlyRef?.current) {
           if (!initialSyncCompletedRef.current) return;
@@ -3473,13 +3574,17 @@ const midnightTimerRef = useRef(null);
       }, []);
       
       useEffect(() => { 
-        localStorage.setItem('recentMeals', JSON.stringify(recentMeals));
+        const todayISO = toLocalISODate(new Date());
+        const todaysMeals = Array.isArray(recentMeals) ? recentMeals.filter(m => m && m.__day === todayISO) : [];
+        localStorage.setItem('recentMeals', JSON.stringify(todaysMeals));
+        // Maintain live dailyHistory entry for today
+        try { updateLiveDailyHistorySnapshot(); } catch (_) {}
         // Defer pushing meals until initial remote sync completes AND prevent overwriting remote data
         if (user && !isRemoteSyncRef.current && !forceNextRemoteOnlyRef?.current) {
           if (!initialSyncCompletedRef.current) return;
           // Additional guard: Don't sync if we just loaded remote data
           if (!authInitialRemoteAppliedRef.current) return;
-          syncMealsData(recentMeals);
+          syncMealsData(todaysMeals);
         }
       }, [recentMeals, user, syncMealsData]);
       
@@ -3646,6 +3751,7 @@ const midnightTimerRef = useRef(null);
             calories: calories,
             image: processedImage,
             mood: mealData.mood || 'Neutral',
+            __day: toLocalISODate(new Date())
           };
           
           // Batch state updates with proper error boundaries
@@ -3660,7 +3766,7 @@ const midnightTimerRef = useRef(null);
                 fat: prevIntake.fat + fat,
               }));
               
-              // Add to recent meals
+              // Add to recent meals (client will persist today-only)
               setRecentMeals(prevMeals => [newMeal, ...prevMeals.slice(0, 9)]); // Limit to 10 items
               
               console.log('💾 Meal saved successfully:', newMeal);
@@ -4044,6 +4150,8 @@ const midnightTimerRef = useRef(null);
           const todayStr = toLocalISODate(new Date());
           const newScore = computeHealthScoreForDate(dailyIntake, goals, todayStr).score;
           setHealthScore(newScore);
+          // Maintain live dailyHistory entry for today whenever workout data changes
+          try { updateLiveDailyHistorySnapshot(); } catch (_) {}
           console.log('🏋️ Health score recalculated after workout update:', newScore);
         };
 
@@ -5948,7 +6056,7 @@ const midnightTimerRef = useRef(null);
                             // profile_picture intentionally excluded to avoid overwriting remote value during remote-only mode,
                             notifications_enabled: JSON.parse(localStorage.getItem('notificationsEnabled') || 'true'),
                             daily_intake: JSON.parse(localStorage.getItem('dailyIntake') || '{}'),
-                            recent_meals: JSON.parse(localStorage.getItem('recentMeals') || '[]'),
+                            recent_meals: (() => { try { const meals = JSON.parse(localStorage.getItem('recentMeals') || '[]') || []; const todayISO = toLocalISODate(new Date()); return Array.isArray(meals) ? meals.filter(m => m && m.__day === todayISO) : []; } catch { return []; } })(),
                             daily_history: JSON.parse(localStorage.getItem('dailyHistory') || '{}'),
                             coach_messages: JSON.parse(localStorage.getItem('coachMessages') || '[]'),
                             habit_ai_advice: localStorage.getItem('habitAIAdvice') || '',
@@ -5960,6 +6068,13 @@ const midnightTimerRef = useRef(null);
                             form_analysis: JSON.parse(localStorage.getItem('formAnalysis') || 'null'),
                             updated_at: new Date().toISOString()
                           };
+                          // Ensure day stamp is present for safe same-day remote sync
+                          try {
+                            const di = JSON.parse(localStorage.getItem('dailyIntake') || '{}') || {};
+                            allLocalData.daily_intake = { ...di, __day: toLocalISODate(new Date()) };
+                          } catch {
+                            allLocalData.daily_intake = { __day: toLocalISODate(new Date()) };
+                          }
                           
                           await queueUserUpdate(user.id, allLocalData);
                           console.log('✅ Manual upload queued and will be sent shortly!');
@@ -5998,7 +6113,11 @@ const midnightTimerRef = useRef(null);
                                 console.log('✅ Manual download: synced daily_intake (remote activity used)');
                               }
                             }
-                            if (userData.recent_meals) localStorage.setItem('recentMeals', JSON.stringify(userData.recent_meals));
+                            if (userData.recent_meals) {
+                              const todayISO = toLocalISODate(new Date());
+                              const todaysMeals = Array.isArray(userData.recent_meals) ? userData.recent_meals.filter(m => m && m.__day === todayISO) : [];
+                              localStorage.setItem('recentMeals', JSON.stringify(todaysMeals));
+                            }
                             if (userData.daily_history) {
                               try {
                                 const localDH = JSON.parse(localStorage.getItem('dailyHistory') || '{}') || {};
@@ -11129,20 +11248,32 @@ User's question: "${userMessage.text}"`;
                   // Adjust day of week calculation for Monday-first calendar
                   const dayOfWeek = (startDay + day) % 7;
                   const isWeekend = dayOfWeek === 5 || dayOfWeek === 6; // Saturday=5, Sunday=6
-                  
+                  // Live score for today even if not yet archived
+                  const liveScore = isToday ? computeHealthScoreForDate(dailyIntake, goals, dateString).score : null;
+                  const showBubble = !!data || isToday;
+                  const scoreValue = (data && typeof data.score === 'number') ? data.score : (isToday ? liveScore : null);
+                  const inProgress = isToday && ((data && data.inProgress !== false) || !data);
+                  const tileBase = 'aspect-square flex items-center justify-center cursor-pointer group relative rounded-lg border transition-all duration-200 overflow-hidden';
+                  const tileWeekend = 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-700 hover:border-red-300 dark:hover:border-red-600';
+                  const tileWeekday = 'bg-white dark:bg-gray-600 border-gray-200 dark:border-gray-500 hover:border-gray-300 dark:hover:border-gray-400';
+                  const tileToday = 'bg-purple-50 dark:bg-purple-900/10 border-purple-300 dark:border-purple-600 hover:border-purple-400 dark:hover:border-purple-500';
+
                   return (
                     <div 
                       key={day} 
-                      onClick={() => data && setSelectedDay({date: dateString, ...data})} 
-                      className={`aspect-square flex items-center justify-center cursor-pointer group relative rounded-lg border transition-all duration-200 ${
-                        isWeekend 
-                          ? 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-700 hover:border-red-300 dark:hover:border-red-600' 
-                          : 'bg-white dark:bg-gray-600 border-gray-200 dark:border-gray-500 hover:border-gray-300 dark:hover:border-gray-400'
-                      }`}
+                      onClick={() => {
+                        if (data) {
+                          setSelectedDay({ date: dateString, ...data });
+                        } else if (isToday) {
+                          const comps = computeHealthScoreForDate(dailyIntake, goals, dateString).components;
+                          setSelectedDay({ date: dateString, intake: dailyIntake, score: liveScore, components: comps });
+                        }
+                      }} 
+                      className={`${tileBase} ${isToday ? tileToday : (isWeekend ? tileWeekend : tileWeekday)}`}
                     >
-                      {data ? (
-                        <div className={`w-10 h-10 bg-gradient-to-br ${getScoreColor(data.score)} rounded-xl flex items-center justify-center text-white font-bold text-sm shadow-lg ${getScoreGlow(data.score)} transform transition-all duration-200 group-hover:scale-110 group-hover:shadow-2xl ${isToday ? 'ring-3 ring-purple-400 ring-opacity-60' : ''} ${isWeekend ? 'ring-2 ring-red-300 dark:ring-red-600' : ''}`}>
-                          {data.score}
+                      {showBubble ? (
+                        <div className={`w-10 h-10 bg-gradient-to-br ${getScoreColor(scoreValue)} rounded-xl flex items-center justify-center text-white font-bold text-sm shadow-lg ${getScoreGlow(scoreValue)} transform transition-all duration-200 group-hover:scale-110 group-hover:shadow-2xl ${isToday ? 'ring-2 ring-purple-400 ring-opacity-60' : ''} ${isWeekend ? 'ring-2 ring-red-300 dark:ring-red-600' : ''} ${inProgress ? 'animate-pulse' : ''}`}>
+                          {scoreValue}
                         </div>
                       ) : (
                         <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-medium transition-all duration-200 ${
@@ -11153,10 +11284,23 @@ User's question: "${userMessage.text}"`;
                           {day + 1}
                         </div>
                       )}
-                      
+
                       {/* Weekend Corner Marker */}
                       {isWeekend && (
                         <div className="absolute top-1 right-1 w-2 h-2 bg-red-400 dark:bg-red-500 rounded-full opacity-60"></div>
+                      )}
+                      {/* In-Progress badge for today (responsive) */}
+                      {inProgress && (
+                        <>
+                          {/* Compact mobile badge to avoid overflow */}
+                          <div className="absolute bottom-1 right-1 px-1 py-[1px] text-[9px] font-semibold rounded-full bg-purple-200 dark:bg-purple-700 text-purple-700 dark:text-purple-200 shadow-sm sm:hidden">
+                            Live
+                          </div>
+                          {/* Full text badge for larger screens */}
+                          <div className="absolute bottom-1 left-1 right-1 mx-auto w-fit max-w-[90%] px-2 py-[2px] text-[10px] font-semibold rounded-full bg-purple-200 dark:bg-purple-700 text-purple-700 dark:text-purple-200 shadow-sm hidden sm:flex">
+                            In Progress
+                          </div>
+                        </>
                       )}
                     </div>
                   );
@@ -12203,11 +12347,11 @@ ${habits.map(habit => {
       return (
         <div className="space-y-2">
           {pendingMins > 0 && (
-            <div className="p-3 bg-yellow-100 dark:bg-yellow-900 rounded-lg flex items-center justify-between">
+            <div className="p-3 bg-yellow-100 dark:bg-yellow-900 rounded-lg flex flex-wrap items-center justify-between gap-2">
               <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">Log {pendingMins} min activity?</span>
-              <div className="space-x-2">
-                <button onClick={confirmPending} className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg">Log</button>
-                <button onClick={dismissPending} className="px-3 py-1 bg-gray-300 dark:bg-gray-600 text-gray-800 dark:text-gray-200 rounded-lg">Dismiss</button>
+              <div className="flex items-center gap-2 whitespace-nowrap shrink-0">
+                <button onClick={confirmPending} className="inline-flex items-center justify-center px-2 sm:px-3 py-1 text-xs sm:text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg">Log</button>
+                <button onClick={dismissPending} className="inline-flex items-center justify-center px-2 sm:px-3 py-1 text-xs sm:text-sm bg-gray-300 dark:bg-gray-600 text-gray-800 dark:text-gray-200 rounded-lg">Dismiss</button>
               </div>
             </div>
           )}
@@ -12425,6 +12569,31 @@ ${habits.map(habit => {
       const [selectedChannel, setSelectedChannel] = useState('all');
       const [shortOnly, setShortOnly] = useState(false);
 
+      // Detect Android WebView (PWA-to-native wrapper) to route YouTube with Intent
+      const isAndroidWebView = () => {
+        const ua = navigator.userAgent || '';
+        const isAndroid = /Android/i.test(ua);
+        // "wv" token indicates Android WebView; also check for crosswalk chromes
+        const isWV = /; wv\)/i.test(ua) || /Version\/\d+\.\d+ Chrome\/\d+/i.test(ua);
+        return isAndroid && isWV;
+      };
+
+      const openYouTubeExternally = (e, url) => {
+        try {
+          if (isAndroidWebView()) {
+            e.preventDefault();
+            // Try Android intent to force opening YouTube app or external browser
+            const cleaned = String(url).replace(/^https?:\/\//, '');
+            const intentUrl = `intent://${cleaned}#Intent;scheme=https;package=com.google.android.youtube;end`;
+            // Fallback to plain URL in case intent fails
+            window.location.href = intentUrl;
+            setTimeout(() => {
+              try { window.open(url, '_blank', 'noopener,noreferrer'); } catch (_) {}
+            }, 400);
+          }
+        } catch (_) {}
+      };
+
       // Helpers to generate YouTube search URLs with channel/duration preferences
       const normalizeExerciseName = (exerciseName) => {
         let name = String(exerciseName || '');
@@ -12539,6 +12708,7 @@ ${habits.map(habit => {
                         href={getYouTubeChannelSearchUrl(exercise.name)} 
                         target="_blank" 
                         rel="noopener noreferrer"
+                        onClick={(e) => openYouTubeExternally(e, getYouTubeChannelSearchUrl(exercise.name))}
                         className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 text-sm sm:text-base w-full sm:w-auto"
                       >
                         <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -12551,6 +12721,7 @@ ${habits.map(habit => {
                       href={getYouTubeGlobalSearchUrl(exercise.name)} 
                       target="_blank" 
                       rel="noopener noreferrer"
+                      onClick={(e) => openYouTubeExternally(e, getYouTubeGlobalSearchUrl(exercise.name))}
                       className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 text-sm sm:text-base w-full sm:w-auto"
                     >
                       <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
