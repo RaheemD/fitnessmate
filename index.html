@@ -2604,7 +2604,7 @@ Respond ONLY with a valid JSON object in this exact format:
           this.activeButton = buttonId;
           return 'play';
         } else {
-          alert('Text-to-speech not supported in this browser');
+          if (window.showToast) { showToast('Text-to-speech not supported in this browser', 'error'); } else { console.log('Text-to-speech not supported in this browser'); }
           return 'error';
         }
       },
@@ -4573,9 +4573,9 @@ const midnightTimerRef = useRef(null);
           }
           // Show user feedback
           if (newValue) {
-            alert('✅ Notifications enabled! You\'ll receive fitness reminders and updates.');
+            if (window.showToast) { showToast("✅ Notifications enabled! You'll receive fitness reminders and updates.", 'success'); } else { console.log("✅ Notifications enabled! You'll receive fitness reminders and updates."); }
           } else {
-            alert('🔕 Notifications disabled. You won\'t receive any alerts.');
+            if (window.showToast) { showToast("🔕 Notifications disabled. You won't receive any alerts.", 'info'); } else { console.log("🔕 Notifications disabled. You won't receive any alerts."); }
           }
           return newValue;
         });      };
@@ -4593,7 +4593,7 @@ const midnightTimerRef = useRef(null);
                 console.log('Audio play failed (likely due to autoplay policy):', e);
                 // Show user-friendly message for mobile
                 if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
-                  alert('🎵 Tap anywhere on the screen to start background music!');
+                  if (window.showToast) { showToast('🎵 Tap anywhere on the screen to start background music!', 'info', { duration: 3000 }); } else { console.log('🎵 Tap anywhere on the screen to start background music!'); }
                   // Add click listener to start music on next user interaction
                   const startMusicOnClick = () => {
                     audio.play().catch(e => console.log('Audio play still failed:', e));
@@ -4682,9 +4682,9 @@ const midnightTimerRef = useRef(null);
           localStorage.removeItem('dailyIntake');
           localStorage.removeItem('fitmate_user');
           localStorage.removeItem('fitmate_user_data');
-          alert('✅ Successfully signed out!');
+          if (window.showToast) { showToast('✅ Successfully signed out!', 'success'); } else { console.log('✅ Successfully signed out!'); }
         } catch (error) {
-          alert('❌ Error signing out: ' + error.message);
+          if (window.showToast) { showToast('❌ Error signing out: ' + error.message, 'error'); } else { console.error('❌ Error signing out: ' + error.message); }
         }
       };
 
@@ -4831,7 +4831,7 @@ const midnightTimerRef = useRef(null);
           
           // Only show error alert if all retries failed
           if (retryCount >= 2) {
-            alert('❌ Error loading booking history. Please try again.');
+            if (window.showToast) { showToast('❌ Error loading booking history. Please try again.', 'error'); } else { console.error('❌ Error loading booking history. Please try again.'); }
           }
         } finally {
           // Always stop loading, regardless of retry count
@@ -5150,7 +5150,7 @@ const midnightTimerRef = useRef(null);
   
   const handleBookingSubmit = async () => {
     if (!selectedDate || !selectedTimeSlot || !selectedPackage) {
-      alert('Please complete all booking steps');
+      if (window.showToast) { showToast('Please complete all booking steps', 'error'); } else { console.log('Please complete all booking steps'); }
       return;
     }
     
@@ -5159,7 +5159,7 @@ const midnightTimerRef = useRef(null);
     const isAvailable = await checkSlotAvailability(dateString, selectedTimeSlot);
     
     if (!isAvailable) {
-      alert('❌ Sorry, this time slot is already booked. Please select a different time.');
+      if (window.showToast) { showToast('❌ Sorry, this time slot is already booked. Please select a different time.', 'error'); } else { console.log('❌ Sorry, this time slot is already booked. Please select a different time.'); }
       return;
     }
     
@@ -5407,22 +5407,22 @@ const midnightTimerRef = useRef(null);
         
         // Validation
         if (!supportForm.fullName.trim()) {
-          alert('Please enter your full name.');
+          if (window.showToast) { showToast('Please enter your full name.', 'error'); } else { console.log('Please enter your full name.'); }
           return;
         }
         
         if (!supportForm.email.trim() || !validateEmail(supportForm.email)) {
-          alert('Please enter a valid email address.');
+          if (window.showToast) { showToast('Please enter a valid email address.', 'error'); } else { console.log('Please enter a valid email address.'); }
           return;
         }
         
         if (!supportForm.subject.trim()) {
-          alert('Please enter a subject.');
+          if (window.showToast) { showToast('Please enter a subject.', 'error'); } else { console.log('Please enter a subject.'); }
           return;
         }
         
         if (!supportForm.message.trim()) {
-          alert('Please enter your message.');
+          if (window.showToast) { showToast('Please enter your message.', 'error'); } else { console.log('Please enter your message.'); }
           return;
         }
 
@@ -5512,7 +5512,7 @@ const midnightTimerRef = useRef(null);
           }
         } catch (error) {
           console.error('Avatar generation error:', error);
-          alert('Failed to generate avatar. Please try again.');
+          if (window.showToast) { showToast('Failed to generate avatar. Please try again.', 'error'); } else { console.log('Failed to generate avatar. Please try again.'); }
         } finally {
           setIsGeneratingAvatar(false);
         }
@@ -6078,10 +6078,10 @@ const midnightTimerRef = useRef(null);
                           
                           await queueUserUpdate(user.id, allLocalData);
                           console.log('✅ Manual upload queued and will be sent shortly!');
-                          alert('✅ Data uploaded successfully! Check another device to see if it appears.');
+                          if (window.showToast) { showToast('✅ Data uploaded successfully! Check another device to see if it appears.', 'success'); } else { console.log('✅ Data uploaded successfully! Check another device to see if it appears.'); }
                         } catch (error) {
                           console.error('❌ Manual upload failed:', error);
-                          alert('❌ Upload failed: ' + error.message);
+                          if (window.showToast) { showToast('❌ Upload failed: ' + error.message, 'error'); } else { console.error('❌ Upload failed: ' + error.message); }
                         }
                       }}
                       className="w-full text-left p-3 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900 text-blue-700 dark:text-blue-300 transition-colors flex items-center gap-2"
@@ -6142,13 +6142,13 @@ const midnightTimerRef = useRef(null);
                             window.dispatchEvent(new CustomEvent('userDataSynced'));
                             
                             console.log('✅ Manual download completed successfully!');
-                            alert('✅ Data downloaded successfully! Check if your data updated.');
+                            if (window.showToast) { showToast('✅ Data downloaded successfully! Check if your data updated.', 'success'); } else { console.log('✅ Data downloaded successfully! Check if your data updated.'); }
                           } else {
-                            alert('❌ No data found in cloud.');
+                            if (window.showToast) { showToast('❌ No data found in cloud.', 'info'); } else { console.log('❌ No data found in cloud.'); }
                           }
                         } catch (error) {
                           console.error('❌ Manual download failed:', error);
-                          alert('❌ Download failed: ' + error.message);
+                          if (window.showToast) { showToast('❌ Download failed: ' + error.message, 'error'); } else { console.error('❌ Download failed: ' + error.message); }
                         }
                       }}
                       className="w-full text-left p-3 rounded-lg hover:bg-green-100 dark:hover:bg-green-900 text-green-700 dark:text-green-300 transition-colors flex items-center gap-2"
@@ -6774,10 +6774,10 @@ const midnightTimerRef = useRef(null);
               throw new Error('Password must be at least 6 characters');
             }
             await signUp(formData.email, formData.password, formData.displayName);
-            alert('✅ Account created successfully!');
+            if (window.showToast) { showToast('✅ Account created successfully!', 'success'); } else { console.log('✅ Account created successfully!'); }
           } else {
             await signIn(formData.email, formData.password);
-            alert('✅ Successfully signed in!');
+            if (window.showToast) { showToast('✅ Successfully signed in!', 'success'); } else { console.log('✅ Successfully signed in!'); }
           }
           onClose();
         } catch (error) {
@@ -6995,7 +6995,7 @@ const midnightTimerRef = useRef(null);
                       try {
                         await resetPassword(formData.email);
                         setAuthError('');
-                        alert('Password reset email sent! Check your inbox.');
+                        if (window.showToast) { showToast('Password reset email sent! Check your inbox.', 'success'); } else { console.log('Password reset email sent! Check your inbox.'); }
                       } catch (error) {
                         // Error is already handled in resetPassword function
                       }
@@ -12580,76 +12580,30 @@ ${habits.map(habit => {
 
       const openYouTubeExternally = async (e, url) => {
         try {
-          // Only intervene when we can open EXTERNALLY. Otherwise, let the anchor default handle it.
-          let handledExternally = false;
-
-          // Prefer known native hooks first (Cordova, Capacitor, custom Android interface, ReactNativeWebView)
           if (isAndroidWebView()) {
-            try {
-              // Cordova InAppBrowser (_system opens in external browser/app)
-              if (window.cordova && window.cordova.InAppBrowser && typeof window.cordova.InAppBrowser.open === 'function') {
-                e?.preventDefault?.();
-                handledExternally = true;
-                try { window.__transitionOverlay?.show('Opening YouTube…'); } catch(_) {}
-                window.cordova.InAppBrowser.open(url, '_system');
-              }
-              // Capacitor Browser plugin
-              else if ((window.Browser && typeof window.Browser.open === 'function') || (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Browser)) {
-                e?.preventDefault?.();
-                handledExternally = true;
-                try { window.__transitionOverlay?.show('Opening YouTube…'); } catch(_) {}
-                const Browser = window.Browser || (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Browser);
-                await Browser.open({ url });
-              }
-              // Custom Android interfaces commonly exposed by wrappers
-              else if (window.Android && typeof window.Android.openExternal === 'function') {
-                e?.preventDefault?.();
-                handledExternally = true;
-                try { window.__transitionOverlay?.show('Opening YouTube…'); } catch(_) {}
-                window.Android.openExternal(url);
-              } else if (window.Android && typeof window.Android.openUrl === 'function') {
-                e?.preventDefault?.();
-                handledExternally = true;
-                try { window.__transitionOverlay?.show('Opening YouTube…'); } catch(_) {}
-                window.Android.openUrl(url);
-              }
-              // React Native WebView bridge
-              else if (window.ReactNativeWebView && typeof window.ReactNativeWebView.postMessage === 'function') {
-                e?.preventDefault?.();
-                handledExternally = true;
-                try { window.__transitionOverlay?.show('Opening YouTube…'); } catch(_) {}
-                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'openExternal', url }));
-              }
-            } catch(_) { /* no-op */ }
-          }
-
-          // If not yet handled, try a programmatic new tab; only prevent default if it succeeds.
-          if (!handledExternally) {
+            // In Android WebView, intent:// is not a recognized scheme and causes
+            // net::ERR_UNKNOWN_URL_SCHEME. Provide immediate feedback and prefer
+            // opening externally; if blocked, navigate in-place.
+            e.preventDefault();
+            try { window.__transitionOverlay?.show('Opening YouTube…'); } catch(_) {}
             try {
               const win = window.open(url, '_blank', 'noopener,noreferrer');
-              if (win) {
-                e?.preventDefault?.();
-                handledExternally = true;
-                try { window.__transitionOverlay?.show('Opening YouTube…'); } catch(_) {}
+              if (!win) {
+                // Optional share sheet as a nicer fallback if available
+                if (navigator.share && typeof navigator.share === 'function') {
+                  try { await navigator.share({ title: 'YouTube', url }); } catch(_) {}
+                } else {
+                  // Fallback: navigate within the WebView
+                  window.location.href = url;
+                }
               }
-            } catch(_) { /* ignore and let default proceed */ }
+            } catch (_) {
+              window.location.href = url;
+            } finally {
+              setTimeout(() => { try { window.__transitionOverlay?.hide(); } catch(_) {} }, 1200);
+            }
           }
-
-          // Optional share sheet as a nicer fallback — only if nothing else handled
-          if (!handledExternally && navigator.share && typeof navigator.share === 'function') {
-            try {
-              e?.preventDefault?.();
-              handledExternally = true;
-              await navigator.share({ title: 'YouTube', url });
-            } catch(_) { /* user may cancel */ }
-          }
-
-          // Hide overlay after a short delay only if we showed it
-          if (handledExternally) {
-            setTimeout(() => { try { window.__transitionOverlay?.hide(); } catch(_) {} }, 1200);
-          }
-          // If we didn't handle externally, do NOTHING here — the anchor's default click opens in-app.
-        } catch (_) { /* no-op */ }
+        } catch (_) {}
       };
 
       // Minimal transition overlay to reassure users during external navigation
@@ -13014,7 +12968,7 @@ ${habits.map(habit => {
     });
     if (installBtnIOS && bannerIOS) {
       installBtnIOS.addEventListener('click', () => {
-        alert('To install FitnessMate on iPhone: tap the Share icon in Safari, then select "Add to Home Screen".');
+        if (window.showToast) { showToast('To install FitnessMate on iPhone: tap the Share icon in Safari, then select "Add to Home Screen".', 'info', { duration: 5000 }); } else { console.log('To install FitnessMate on iPhone: tap the Share icon in Safari, then select "Add to Home Screen".'); }
         bannerIOS.classList.remove('show');
       });
     }
@@ -13042,6 +12996,66 @@ ${habits.map(habit => {
   window.openStripePricingModal = function(){ var m=document.getElementById('stripePricingModal'); if(m) m.style.display='flex'; };
   window.closeStripePricingModal = function(){ var m=document.getElementById('stripePricingModal'); if(m) m.style.display='none'; };
 })();
+</script>
+<!-- Fitmate Toast / Snackbar UI -->
+<style id="fitmate-toast-styles">
+  .fitmate-toast-container { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 100000; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+  .fitmate-toast { min-width: 240px; max-width: 86vw; background: rgba(20,20,22,0.85); color: #fff; border-radius: 12px; padding: 12px 16px; box-shadow: 0 10px 24px rgba(0,0,0,0.35); backdrop-filter: blur(12px); font: 600 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; opacity: 0; transform: translateY(-8px); transition: opacity .25s ease, transform .25s ease; pointer-events: auto; }
+  .fitmate-toast.visible { opacity: 1; transform: translateY(0); }
+  .fitmate-toast--success { background: linear-gradient(135deg, #10b981, #0ea5e9 20%, #059669 80%); }
+  .fitmate-toast--error { background: linear-gradient(135deg, #ef4444, #f43f5e 30%, #dc2626 85%); }
+  .fitmate-toast--info { background: linear-gradient(135deg, #3b82f6, #2563eb 70%); }
+  .fitmate-toast__icon { margin-right: 8px; }
+  @media (prefers-color-scheme: light) {
+    .fitmate-toast { background: rgba(25,25,28,0.85); }
+  }
+</style>
+<script>
+  (function(){
+    const containerId = 'fitmate-toast-container';
+    function ensureToastContainer(){
+      let el = document.getElementById(containerId);
+      if (!el) {
+        el = document.createElement('div');
+        el.id = containerId;
+        el.className = 'fitmate-toast-container';
+        document.body.appendChild(el);
+      }
+      return el;
+    }
+
+    function buildToast(message, type){
+      const toast = document.createElement('div');
+      toast.className = 'fitmate-toast' + (type ? (' fitmate-toast--' + type) : '');
+      toast.role = 'status';
+      toast.setAttribute('aria-live', 'polite');
+      toast.textContent = message;
+      // Dismiss on tap
+      toast.addEventListener('click', function(){
+        toast.classList.remove('visible');
+        setTimeout(function(){ toast.remove(); }, 250);
+      });
+      return toast;
+    }
+
+    window.showToast = function(message, type = 'info', options){
+      try {
+        const container = ensureToastContainer();
+        const toast = buildToast(String(message || ''), type);
+        const duration = Math.max(800, Math.min(6000, (options && options.duration) || 2200));
+        container.appendChild(toast);
+        requestAnimationFrame(function(){ toast.classList.add('visible'); });
+        setTimeout(function(){
+          toast.classList.remove('visible');
+          setTimeout(function(){ toast.remove(); }, 250);
+        }, duration);
+        return toast;
+      } catch (_) {
+        console.log('[toast]', message);
+        return null;
+      }
+    };
+  })();
 </script>
 </body>
 </html>
