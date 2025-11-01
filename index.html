@@ -12578,25 +12578,80 @@ ${habits.map(habit => {
         return isAndroid && isWV;
       };
 
-      const openYouTubeExternally = (e, url) => {
+      const openYouTubeExternally = async (e, url) => {
         try {
           if (isAndroidWebView()) {
             // In Android WebView, intent:// is not a recognized scheme and causes
-            // net::ERR_UNKNOWN_URL_SCHEME. Prefer opening in an external tab/browser,
-            // and if blocked, navigate in-place.
+            // net::ERR_UNKNOWN_URL_SCHEME. Provide immediate feedback and prefer
+            // opening externally; if blocked, navigate in-place.
             e.preventDefault();
+            try { window.__transitionOverlay?.show('Opening YouTube…'); } catch(_) {}
             try {
               const win = window.open(url, '_blank', 'noopener,noreferrer');
               if (!win) {
-                // Fallback: navigate within the WebView
-                window.location.href = url;
+                // Optional share sheet as a nicer fallback if available
+                if (navigator.share && typeof navigator.share === 'function') {
+                  try { await navigator.share({ title: 'YouTube', url }); } catch(_) {}
+                } else {
+                  // Fallback: navigate within the WebView
+                  window.location.href = url;
+                }
               }
             } catch (_) {
               window.location.href = url;
+            } finally {
+              setTimeout(() => { try { window.__transitionOverlay?.hide(); } catch(_) {} }, 1200);
             }
           }
         } catch (_) {}
       };
+
+      // Minimal transition overlay to reassure users during external navigation
+      (function(){
+        try {
+          const api = {
+            el: null,
+            ensure(){
+              if (this.el) return;
+              const overlay = document.createElement('div');
+              overlay.id = 'transition-overlay';
+              overlay.style.position = 'fixed';
+              overlay.style.inset = '0';
+              overlay.style.background = 'rgba(17,24,39,0.45)';
+              overlay.style.backdropFilter = 'blur(2px)';
+              overlay.style.display = 'none';
+              overlay.style.alignItems = 'center';
+              overlay.style.justifyContent = 'center';
+              overlay.style.zIndex = '9999';
+              const box = document.createElement('div');
+              box.className = 'rounded-lg bg-white dark:bg-gray-800 px-4 py-3 shadow';
+              box.style.minWidth = '220px';
+              box.style.textAlign = 'center';
+              box.innerHTML = `
+                <div class="flex items-center justify-center gap-2 text-gray-800 dark:text-gray-200">
+                  <svg class="w-5 h-5 text-red-600" viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                  <span class="font-medium">Opening YouTube…</span>
+                </div>`;
+              overlay.appendChild(box);
+              document.body.appendChild(overlay);
+              this.el = overlay;
+            },
+            show(text){
+              this.ensure();
+              try {
+                const span = this.el.querySelector('span');
+                if (text && span) span.textContent = text;
+                this.el.style.display = 'flex';
+              } catch(_) {}
+            },
+            hide(){ try { if (this.el) this.el.style.display = 'none'; } catch(_) {}
+            }
+          };
+          window.__transitionOverlay = api;
+          window.addEventListener('pageshow', () => { try { api.hide(); } catch(_) {} });
+          document.addEventListener('visibilitychange', () => { if (!document.hidden) { try { api.hide(); } catch(_) {} } });
+        } catch(_) {}
+      })();
 
       // Helpers to generate YouTube search URLs with channel/duration preferences
       const normalizeExerciseName = (exerciseName) => {
