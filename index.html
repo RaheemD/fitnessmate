@@ -12581,15 +12581,19 @@ ${habits.map(habit => {
       const openYouTubeExternally = (e, url) => {
         try {
           if (isAndroidWebView()) {
+            // In Android WebView, intent:// is not a recognized scheme and causes
+            // net::ERR_UNKNOWN_URL_SCHEME. Prefer opening in an external tab/browser,
+            // and if blocked, navigate in-place.
             e.preventDefault();
-            // Try Android intent to force opening YouTube app or external browser
-            const cleaned = String(url).replace(/^https?:\/\//, '');
-            const intentUrl = `intent://${cleaned}#Intent;scheme=https;package=com.google.android.youtube;end`;
-            // Fallback to plain URL in case intent fails
-            window.location.href = intentUrl;
-            setTimeout(() => {
-              try { window.open(url, '_blank', 'noopener,noreferrer'); } catch (_) {}
-            }, 400);
+            try {
+              const win = window.open(url, '_blank', 'noopener,noreferrer');
+              if (!win) {
+                // Fallback: navigate within the WebView
+                window.location.href = url;
+              }
+            } catch (_) {
+              window.location.href = url;
+            }
           }
         } catch (_) {}
       };
