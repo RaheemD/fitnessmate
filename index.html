@@ -5347,10 +5347,10 @@ const midnightTimerRef = useRef(null);
     };
     
     // Show immediate confirmation while email is being sent
-    setConfirmationMessage({
+  setConfirmationMessage({
       type: 'success',
       title: 'Invoice Generated!',
-      message: `Booking reserved! You've selected ${bookingDetails.sessions} sessions for $${bookingDetails.price}. Invoice and payment instructions are being sent...`
+      message: `Booking reserved! You've selected ${bookingDetails.sessions} sessions for €${bookingDetails.price}. Invoice and payment instructions are being sent...`
     });
     closeBookingModal();
     
@@ -5372,7 +5372,7 @@ const midnightTimerRef = useRef(null);
       setConfirmationMessage({
         type: 'success',
         title: 'Invoice Sent!',
-        message: `Booking reserved! You've selected ${bookingDetails.sessions} sessions for $${bookingDetails.price}. Invoice and payment instructions sent successfully!`,
+        message: `Booking reserved! You've selected ${bookingDetails.sessions} sessions for €${bookingDetails.price}. Invoice and payment instructions sent successfully!`,
         paymentDetails: {
           amount: bookingDetails.price,
           sessions: bookingDetails.sessions,
@@ -5678,7 +5678,7 @@ const midnightTimerRef = useRef(null);
                             onClick={() => selectPackage('free')}
                           >
                             <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">Free Trial Session</h4>
-                            <p className="text-2xl font-bold text-pink-500 mb-3">$0</p>
+                            <p className="text-2xl font-bold text-pink-500 mb-3">€0</p>
                             <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-2">
                               <li>✓ 25-minute introduction session</li>
                               <li>✓ Fitness assessment</li>
@@ -5694,7 +5694,7 @@ const midnightTimerRef = useRef(null);
                             onClick={() => selectPackage('basic')}
                           >
                             <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">Basic Package</h4>
-                            <p className="text-2xl font-bold text-pink-500 mb-3">$100</p>
+                            <p className="text-2xl font-bold text-pink-500 mb-3">€100</p>
                             <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-2">
                               <li>✓ 5 training sessions</li>
                               <li>✓ Personalized workout plan</li>
@@ -5710,7 +5710,7 @@ const midnightTimerRef = useRef(null);
                             onClick={() => selectPackage('premium')}
                           >
                             <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">Premium Package</h4>
-                            <p className="text-2xl font-bold text-pink-500 mb-3">$150</p>
+                            <p className="text-2xl font-bold text-pink-500 mb-3">€150</p>
                             <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-2">
                               <li>✓ 10 training sessions</li>
                               <li>✓ Comprehensive fitness plan</li>
@@ -5778,7 +5778,7 @@ const midnightTimerRef = useRef(null);
                        <div className="space-y-2 text-sm">
                          <div className="flex justify-between">
                            <span className="text-gray-600 dark:text-gray-400">Amount:</span>
-                           <span className="font-medium text-gray-800 dark:text-gray-200">${confirmationMessage.paymentDetails.amount}</span>
+                           <span className="font-medium text-gray-800 dark:text-gray-200">€{confirmationMessage.paymentDetails.amount}</span>
                          </div>
                          <div className="flex justify-between">
                            <span className="text-gray-600 dark:text-gray-400">Sessions:</span>
@@ -5910,8 +5910,8 @@ const midnightTimerRef = useRef(null);
                   <div className="mt-4 space-y-3">
                     <div className="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
                       <div>
-                        <p className="text-gray-700 dark:text-gray-300"><span className="font-bold text-pink-500">5 Sessions:</span> $100</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">Save $25 compared to individual sessions</p>
+                        <p className="text-gray-700 dark:text-gray-300"><span className="font-bold text-pink-500">5 Sessions:</span> €100</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Save €25 compared to individual sessions</p>
                       </div>
                       {user && (
                         <button 
@@ -5927,8 +5927,8 @@ const midnightTimerRef = useRef(null);
                     </div>
                     <div className="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
                       <div>
-                        <p className="text-gray-700 dark:text-gray-300"><span className="font-bold text-pink-500">10 Sessions:</span> $150</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">Best value - Save $50!</p>
+                        <p className="text-gray-700 dark:text-gray-300"><span className="font-bold text-pink-500">10 Sessions:</span> €150</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Best value - Save €50!</p>
                       </div>
                       {user && (
                         <button 
@@ -6398,7 +6398,7 @@ const midnightTimerRef = useRef(null);
                                   ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200'
                                   : 'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200'
                               }`}>
-                                {booking.type === 'free' ? 'Free Trial' : `$${booking.price}`}
+                                {booking.type === 'free' ? 'Free Trial' : `€${booking.price}`}
                               </span>
                             </div>
                           </div>
