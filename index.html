@@ -12580,30 +12580,76 @@ ${habits.map(habit => {
 
       const openYouTubeExternally = async (e, url) => {
         try {
+          // Only intervene when we can open EXTERNALLY. Otherwise, let the anchor default handle it.
+          let handledExternally = false;
+
+          // Prefer known native hooks first (Cordova, Capacitor, custom Android interface, ReactNativeWebView)
           if (isAndroidWebView()) {
-            // In Android WebView, intent:// is not a recognized scheme and causes
-            // net::ERR_UNKNOWN_URL_SCHEME. Provide immediate feedback and prefer
-            // opening externally; if blocked, navigate in-place.
-            e.preventDefault();
-            try { window.__transitionOverlay?.show('Opening YouTube…'); } catch(_) {}
+            try {
+              // Cordova InAppBrowser (_system opens in external browser/app)
+              if (window.cordova && window.cordova.InAppBrowser && typeof window.cordova.InAppBrowser.open === 'function') {
+                e?.preventDefault?.();
+                handledExternally = true;
+                try { window.__transitionOverlay?.show('Opening YouTube…'); } catch(_) {}
+                window.cordova.InAppBrowser.open(url, '_system');
+              }
+              // Capacitor Browser plugin
+              else if ((window.Browser && typeof window.Browser.open === 'function') || (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Browser)) {
+                e?.preventDefault?.();
+                handledExternally = true;
+                try { window.__transitionOverlay?.show('Opening YouTube…'); } catch(_) {}
+                const Browser = window.Browser || (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Browser);
+                await Browser.open({ url });
+              }
+              // Custom Android interfaces commonly exposed by wrappers
+              else if (window.Android && typeof window.Android.openExternal === 'function') {
+                e?.preventDefault?.();
+                handledExternally = true;
+                try { window.__transitionOverlay?.show('Opening YouTube…'); } catch(_) {}
+                window.Android.openExternal(url);
+              } else if (window.Android && typeof window.Android.openUrl === 'function') {
+                e?.preventDefault?.();
+                handledExternally = true;
+                try { window.__transitionOverlay?.show('Opening YouTube…'); } catch(_) {}
+                window.Android.openUrl(url);
+              }
+              // React Native WebView bridge
+              else if (window.ReactNativeWebView && typeof window.ReactNativeWebView.postMessage === 'function') {
+                e?.preventDefault?.();
+                handledExternally = true;
+                try { window.__transitionOverlay?.show('Opening YouTube…'); } catch(_) {}
+                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'openExternal', url }));
+              }
+            } catch(_) { /* no-op */ }
+          }
+
+          // If not yet handled, try a programmatic new tab; only prevent default if it succeeds.
+          if (!handledExternally) {
             try {
               const win = window.open(url, '_blank', 'noopener,noreferrer');
-              if (!win) {
-                // Optional share sheet as a nicer fallback if available
-                if (navigator.share && typeof navigator.share === 'function') {
-                  try { await navigator.share({ title: 'YouTube', url }); } catch(_) {}
-                } else {
-                  // Fallback: navigate within the WebView
-                  window.location.href = url;
-                }
+              if (win) {
+                e?.preventDefault?.();
+                handledExternally = true;
+                try { window.__transitionOverlay?.show('Opening YouTube…'); } catch(_) {}
               }
-            } catch (_) {
-              window.location.href = url;
-            } finally {
-              setTimeout(() => { try { window.__transitionOverlay?.hide(); } catch(_) {} }, 1200);
-            }
+            } catch(_) { /* ignore and let default proceed */ }
           }
-        } catch (_) {}
+
+          // Optional share sheet as a nicer fallback — only if nothing else handled
+          if (!handledExternally && navigator.share && typeof navigator.share === 'function') {
+            try {
+              e?.preventDefault?.();
+              handledExternally = true;
+              await navigator.share({ title: 'YouTube', url });
+            } catch(_) { /* user may cancel */ }
+          }
+
+          // Hide overlay after a short delay only if we showed it
+          if (handledExternally) {
+            setTimeout(() => { try { window.__transitionOverlay?.hide(); } catch(_) {} }, 1200);
+          }
+          // If we didn't handle externally, do NOTHING here — the anchor's default click opens in-app.
+        } catch (_) { /* no-op */ }
       };
 
       // Minimal transition overlay to reassure users during external navigation
