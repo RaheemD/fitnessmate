@@ -19,18 +19,19 @@
     Access-Control-Allow-Origin = "*"
     Cache-Control = "public, max-age=3600"
 
-# 3. Serve ads.txt correctly for AdSense (most important)
+# 3. # Serve app-ads.txt correctly for AdMob
 [[redirects]]
-  from = "/ads.txt"
-  to = "/ads.txt"
+  from = "/app-ads.txt"
+  to   = "/app-ads.txt"
   status = 200
   force = true
 
 [[headers]]
-  for = "/ads.txt"
+  for = "/app-ads.txt"
   [headers.values]
     Content-Type = "text/plain; charset=utf-8"
-    Cache-Control = "public, max-age=3600"    
+    Cache-Control = "public, max-age=3600"
+
 
 # 5. Allow CORS for all API calls (important for Supabase)
 [[headers]]
