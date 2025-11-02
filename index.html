@@ -1034,7 +1034,11 @@ Respond ONLY with a valid JSON object in this exact format:
           'goals',
           'dailyIntake',
           'recentMeals',
-          'dailyHistory'
+          'dailyHistory',
+          'habits',
+          'workoutHistory', 
+          'stressForm',
+          'progress_activeTab'
         ];
         // Preserve 'dailyIntakeDate' and 'lastSavedDate' to retain midnight rollover guard
         keys.forEach(k => { try { localStorage.removeItem(k); } catch (_) {} });
@@ -1735,6 +1739,22 @@ Respond ONLY with a valid JSON object in this exact format:
           // Clear any legacy local tokens/storage
           localStorage.removeItem('supabase.auth.token');
           sessionStorage.removeItem('supabase.auth.token');
+          
+          // CRITICAL: Clear all user-specific data from localStorage on logout
+          // This prevents data leakage between different user profiles
+          const userDataKeys = [
+            'goals',
+            'dailyIntake', 
+            'recentMeals',
+            'dailyHistory',
+            'habits',
+            'workoutHistory',
+            'stressForm',
+            'progress_activeTab'
+          ];
+          userDataKeys.forEach(key => {
+            try { localStorage.removeItem(key); } catch (_) {}
+          });
           
           // Immediately reflect sign-out in UI to avoid requiring a second click
           try { setUser(null); } catch (_) { /* no-op */ }
