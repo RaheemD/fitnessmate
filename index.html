@@ -3301,14 +3301,19 @@ const midnightTimerRef = useRef(null);
               localStorage.setItem('lastSavedDate', todayISO);
               localStorage.setItem('midnightResetAt', String(Date.now()));
 
-              // Push reset to Supabase to mark today's zeroed intake/meals
+              // Push reset to Supabase to mark today's zeroed intake/meals and persist archived daily_history
               if (user && supabase && !forceNextRemoteOnlyRef?.current && authInitialRemoteAppliedRef?.current) {
                 const currentTimestamp = new Date().toISOString();
-                const update = { daily_intake: { ...zero, __day: todayISO }, recent_meals: [], updated_at: currentTimestamp };
+                const update = { 
+                  daily_intake: { ...zero, __day: todayISO }, 
+                  recent_meals: [], 
+                  daily_history: history,
+                  updated_at: currentTimestamp 
+                };
                 queueUserUpdate(user.id, update)
                   .then(() => {
                     try { localStorage.setItem('lastSyncTimestamp', Date.now().toString()); } catch (_) {}
-                    console.log('📤 Midnight reset: queued Supabase update with zeros and today timestamp');
+                    console.log('📤 Midnight reset: queued Supabase update with zeros, today timestamp, and archived daily_history');
                   })
                   .catch((pushErr) => {
                     console.warn('⚠️ Midnight reset: Supabase push failed; will rely on next sync', pushErr);
