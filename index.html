@@ -745,6 +745,30 @@ Respond ONLY with a valid JSON object in this exact format:
         // Validate and clean data before sending to Supabase
         const cleanedData = this.cleanUserData(updateData);
         
+        // SAFEGUARD: Deep-merge daily_history with existing remote value to avoid overwriting past days
+        if (cleanedData && typeof cleanedData === 'object' && 'daily_history' in cleanedData) {
+          try {
+            const { data: existing, error: fetchErr } = await supabase
+              .from('users')
+              .select('daily_history')
+              .eq('id', userId)
+              .single();
+
+            if (!fetchErr) {
+              const current = (existing && existing.daily_history) || {};
+              const patch = cleanedData.daily_history || {};
+              // Merge by day key: remote retains past days, patch updates/adds current day
+              const merged = { ...current, ...patch };
+              cleanedData.daily_history = merged;
+              try { console.log('🔧 Merged daily_history before update', { userId, remoteDays: Object.keys(current).length, patchDays: Object.keys(patch).length, mergedDays: Object.keys(merged).length }); } catch (_) {}
+            } else if (fetchErr && fetchErr.code !== 'PGRST116') {
+              console.warn('daily_history prefetch failed, proceeding without merge:', fetchErr);
+            }
+          } catch (e) {
+            console.warn('daily_history merge attempt failed, proceeding with provided payload:', e);
+          }
+        }
+        
         // Don't update if no valid data to update
         if (Object.keys(cleanedData).length === 0) {
           console.log('No valid data to update, skipping');
@@ -3269,18 +3293,38 @@ const midnightTimerRef = useRef(null);
             const hasContent = ['calories','protein','carbs','fat','activity','water'].some(k => Number(currentIntake[k]||0) > 0) || (Array.isArray(currentMeals) && currentMeals.length > 0);
             const resetAt = parseInt(localStorage.getItem('midnightResetAt') || '0');
             const rolledToToday = (!!intakeDate && intakeDate === todayISO) && (!!lastSaved && lastSaved === todayISO);
-            // If keys were set to today previously but we still have content and no reset timestamp,
-            // treat this as a missed rollover and finalize now.
-            const needsFixForFalseToday = rolledToToday && !resetAt && hasContent;
-            // If guard keys are missing but we have content, treat it as yesterday's data
+            // Infer the actual content day from stamps if present; default to today
+            const inferredDay = (() => {
+              try {
+                const diDay = typeof currentIntake.__day === 'string' ? currentIntake.__day : '';
+                if (diDay) return diDay;
+              } catch {}
+              try {
+                if (Array.isArray(currentMeals) && currentMeals.length > 0) {
+                  const uniqueDays = Array.from(new Set(currentMeals.map(m => m && m.__day).filter(Boolean)));
+                  if (uniqueDays.length === 1 && uniqueDays[0]) return uniqueDays[0];
+                  if (uniqueDays.includes(todayISO)) return todayISO;
+                }
+              } catch {}
+              return todayISO;
+            })();
+            // If guard keys are missing but we have content, set them to inferred day (usually today)
             if ((!intakeDate || !lastSaved) && hasContent) {
-              const yISO = toLocalISODate(new Date(Date.now() - 24*60*60*1000));
-              intakeDate = intakeDate || yISO;
-              lastSaved = lastSaved || yISO;
+              intakeDate = intakeDate || inferredDay;
+              lastSaved = lastSaved || inferredDay;
             }
+            // Only treat as missed rollover if inferred content day is NOT today
+            const needsFixForFalseToday = rolledToToday && !resetAt && hasContent && inferredDay !== todayISO;
             const dayChanged = needsFixForFalseToday || (!!intakeDate && intakeDate !== todayISO) || (!!lastSaved && lastSaved !== todayISO);
             if (dayChanged) {
-              const prevDate = intakeDate || lastSaved || todayISO;
+              const prevDate = (intakeDate && intakeDate !== todayISO) ? intakeDate : ((lastSaved && lastSaved !== todayISO) ? lastSaved : inferredDay);
+              // Safety: never archive/reset if we still infer content belongs to today
+              if (prevDate === todayISO) {
+                // Ensure guard keys are set and exit without resetting
+                localStorage.setItem('dailyIntakeDate', todayISO);
+                localStorage.setItem('lastSavedDate', todayISO);
+                return;
+              }
               const prevIntake = currentIntake;
               const prevMeals = currentMeals;
               const history = (() => { try { return JSON.parse(localStorage.getItem('dailyHistory') || '{}') || {}; } catch { return {}; } })();
