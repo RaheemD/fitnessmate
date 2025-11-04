@@ -185,12 +185,11 @@
       inset: 0;
       pointer-events: none;
       mix-blend-mode: screen;
+      /* Remove extreme left/right dots; keep central sparkle */
       background:
-        radial-gradient(circle at 12% 35%, rgba(255,255,255,0.9) 0, rgba(255,255,255,0.9) 1.5px, transparent 2.6px),
-        radial-gradient(circle at 28% 62%, rgba(255,255,255,0.8) 0, rgba(255,255,255,0.8) 1.2px, transparent 2.2px),
+        radial-gradient(circle at 32% 62%, rgba(255,255,255,0.8) 0, rgba(255,255,255,0.8) 1.2px, transparent 2.2px),
         radial-gradient(circle at 56% 28%, rgba(255,255,255,0.85) 0, rgba(255,255,255,0.85) 1.2px, transparent 2.2px),
-        radial-gradient(circle at 74% 66%, rgba(255,255,255,0.8) 0, rgba(255,255,255,0.8) 1.2px, transparent 2.2px),
-        radial-gradient(circle at 88% 42%, rgba(255,255,255,0.85) 0, rgba(255,255,255,0.85) 1.2px, transparent 2.2px);
+        radial-gradient(circle at 72% 66%, rgba(255,255,255,0.8) 0, rgba(255,255,255,0.8) 1.2px, transparent 2.2px);
       animation: sparkle 2.8s ease-in-out infinite;
     }
     /* Hard blink on/off for the whole line */
@@ -228,10 +227,13 @@
       flex-direction: column;
       align-items: center;
       gap: 2px;
+      width: 100%;
+      padding-right: 36px; /* space for close button so centering is true */
     }
     #installBannerIOS .main-text {
       display: flex;
       align-items: center;
+      justify-content: center; /* ensure icon + title are centered */
       font-weight: 600;
       font-size: 15px;
     }
@@ -281,11 +283,11 @@
         gap: 8px;
       }
       #closeBannerIOS {
-        position: static;
-        right: auto;
-        top: auto;
-        margin-left: auto;
+        position: absolute; /* keep absolute so content stays centered */
+        right: 8px;
+        top: 6px;
       }
+      #installBannerIOS .banner-content { padding-right: 32px; }
     }
   </style>
   <style>
@@ -4025,14 +4027,14 @@ const midnightTimerRef = useRef(null);
                       {/* Stripe button (web) */}
                       <button
                         onClick={()=>{ try { if (window.openStripePricingModal) window.openStripePricingModal(); } catch(_) {} }}
-                        className={(window.__isNativeAndroidApp ? 'hidden ' : '') + 'bg-pink-500 hover:bg-pink-600 text-white text-sm px-4 py-2 rounded-lg shadow'}
+                        className={(window.__isNativeAndroidApp ? 'hidden ' : '') + 'bg-pink-500 hover:bg-pink-600 text-white text-sm px-4 py-2 rounded-lg shadow whitespace-nowrap leading-tight'}
                       >
                         Subscribe via Stripe
                       </button>
                       {/* Play Store button (native Android app) */}
                       <button
                         onClick={async ()=>{ try { if (!user) { setShowSubscriptionModal(false); setScreen('profile'); setTimeout(()=>{ try { window.dispatchEvent(new Event('open-account-modal')); } catch(_) {} }, 50); return; } const ok = await (window.fitmateIAP && window.fitmateIAP.subscribe ? window.fitmateIAP.subscribe() : Promise.resolve(false)); if (ok) { setShowSubscriptionModal(false); computeAiRemainingGlobal(); } } catch(_){} }}
-                        className={(window.__isNativeAndroidApp ? '' : 'hidden ') + 'bg-blue-500 hover:bg-blue-600 text-white text-sm px-4 py-2 rounded-lg shadow'}
+                        className={(window.__isNativeAndroidApp ? '' : 'hidden ') + 'bg-blue-500 hover:bg-blue-600 text-white text-sm px-4 py-2 rounded-lg shadow whitespace-nowrap leading-tight'}
                       >
                         Subscribe via Play Store
                       </button>
@@ -6099,7 +6101,7 @@ const midnightTimerRef = useRef(null);
                         onClick={openAccountModal}
                         className="w-full md:w-auto bg-gradient-to-r from-purple-500 to-pink-500 text-white px-6 py-3 rounded-lg shadow-lg hover:scale-105 transition-transform font-semibold"
                       >
-                        Sign In to Book
+                        Sign In to Explore
                       </button>
                     )}
                   </div>
@@ -6148,16 +6150,16 @@ const midnightTimerRef = useRef(null);
                   </div>
                 ) : (
                   <div className="flex flex-col gap-2 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className={"grid gap-2 justify-items-center " + (window.__isNativeAndroidApp ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1")}>
                       <button
                         onClick={()=>{ try { if (!user) { openAccountModal(); return; } if (window.openStripePricingModal) window.openStripePricingModal(); } catch(_){} }}
-                        className={(window.__isNativeAndroidApp ? 'hidden ' : '') + 'w-full bg-pink-500 hover:bg-pink-600 text-white text-sm font-medium px-4 py-2.5 rounded-lg shadow-sm transition-colors'}
+                        className={(window.__isNativeAndroidApp ? 'hidden ' : '') + 'w-full max-w-[340px] mx-auto bg-pink-500 hover:bg-pink-600 text-white text-sm font-medium px-4 py-2.5 rounded-lg shadow-sm transition-colors whitespace-nowrap leading-tight'}
                       >
                         Subscribe via Stripe
                       </button>
                       <button
                         onClick={async ()=>{ try { if (!user) { openAccountModal(); return; } await (window.fitmateIAP && window.fitmateIAP.subscribe ? window.fitmateIAP.subscribe() : Promise.resolve(false)); } catch(_){} }}
-                        className={(window.__isNativeAndroidApp ? '' : 'hidden ') + 'w-full bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2.5 rounded-lg shadow-sm transition-colors'}
+                        className={(window.__isNativeAndroidApp ? '' : 'hidden ') + 'w-full max-w-[340px] mx-auto bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2.5 rounded-lg shadow-sm transition-colors whitespace-nowrap leading-tight'}
                       >
                         Subscribe via Play Store
                       </button>
@@ -10755,6 +10757,86 @@ Respond ONLY with a valid JSON object in this exact format:
           };
           
           const currentHealthScore = calculateHealthScore();
+
+          // --- Stress Analyzer knowledge & context (read-only) ---
+          // Pull latest stress inputs saved by Progress → Stress Analyzer
+          const stressFormLS = (() => { try { return JSON.parse(localStorage.getItem('stressForm') || '{}'); } catch (_) { return {}; } })();
+
+          // Local helper mirrors Progress screen logic to compute a summary for the prompt
+          const computeCoachStressScore = (inp) => {
+            const v = {
+              sleepHours: Number(inp.sleepHours || 0),
+              workHours: Number(inp.workHours || 0),
+              stressRating: Number(inp.stressRating || 0),
+              stressEpisodes: Number(inp.stressEpisodes || 0),
+              exerciseMins: Number(inp.exerciseMins || 0),
+              meditationMins: Number(inp.meditationMins || 0),
+              socialMins: Number(inp.socialMins || 0),
+              screenHours: Number(inp.screenHours || 0),
+              lifeEvent: inp.lifeEvent || 'none'
+            };
+            const clamp01 = (x) => Math.max(0, Math.min(1, x));
+            // Normalize inputs to 0-1 (same mapping used by Progress screen)
+            const sleep = clamp01(Math.abs((v.sleepHours || 0) - 8) / 4);
+            const work = clamp01((v.workHours || 0) / 12);
+            const rating = clamp01((v.stressRating - 1) / 9);
+            const episodes = clamp01((v.stressEpisodes || 0) / 6);
+            const screen = clamp01((v.screenHours || 0) / 8);
+            const exerciseRelief = clamp01((v.exerciseMins || 0) / 45);
+            const meditationRelief = clamp01((v.meditationMins || 0) / 15);
+            const socialRelief = clamp01((v.socialMins || 0) / 60);
+
+            // Weights consistent with Progress screen UI
+            const w = { sleep:25, work:20, rating:12, episodes:8, screen:10, exercise:15, meditation:5, social:5 };
+            const stressors = sleep*w.sleep + work*w.work + rating*w.rating + episodes*w.episodes + screen*w.screen;
+            const bufferSum = exerciseRelief*w.exercise + meditationRelief*w.meditation + socialRelief*w.social;
+            let rawIndex = stressors - bufferSum; // [-25, 75]
+            let baseScore = Math.max(0, Math.min(100, rawIndex + 25));
+
+            let multiplier = 1.0;
+            if (v.lifeEvent === 'minor') multiplier = 1.5;
+            else if (v.lifeEvent === 'major') multiplier = 2.0;
+
+            let stressScore = Math.round(Math.min(100, baseScore * multiplier));
+            let category = 'Low';
+            if (stressScore >= 70) category = 'High';
+            else if (stressScore >= 35) category = 'Moderate';
+
+            const pw = { sleepHours:.25, workHours:.20, stressRating:.12, stressEpisodes:.08, screenHours:.10, exerciseMins:.15, meditationMins:.05, socialMins:.05 };
+            const filled = (k) => { const val = inp[k]; return val !== '' && val !== null && val !== undefined; };
+            let coverage = 0; Object.keys(pw).forEach(k => { if (filled(k)) coverage += pw[k]; });
+            const confidence = Math.max(30, Math.min(100, Math.round(coverage * 100)));
+
+            const drivers = {
+              sleep: Math.round(sleep * w.sleep),
+              work: Math.round(work * w.work),
+              selfRating: Math.round(rating * w.rating),
+              episodes: Math.round(episodes * w.episodes),
+              screen: Math.round(screen * w.screen)
+            };
+            const buffers = {
+              exercise: Math.round(exerciseRelief * w.exercise),
+              meditation: Math.round(meditationRelief * w.meditation),
+              social: Math.round(socialRelief * w.social)
+            };
+            return { stressScore, category, confidence, breakdown: { drivers, buffers }, lifeEventMultiplier: multiplier };
+          };
+
+          let stressCtx = null;
+          try {
+            if (stressFormLS && Object.keys(stressFormLS).length > 0) {
+              stressCtx = computeCoachStressScore(stressFormLS);
+            }
+          } catch (_) {}
+
+          const topDriversStr = (() => {
+            if (!stressCtx || !stressCtx.breakdown || !stressCtx.breakdown.drivers) return '';
+            return Object.entries(stressCtx.breakdown.drivers).sort((a,b)=> (b[1]||0)-(a[1]||0)).slice(0,2).map(e=>e[0]).join(' and ');
+          })();
+          const topBufferStr = (() => {
+            if (!stressCtx || !stressCtx.breakdown || !stressCtx.breakdown.buffers) return '';
+            return Object.entries(stressCtx.breakdown.buffers).sort((a,b)=> (b[1]||0)-(a[1]||0)).slice(0,1).map(e=>e[0]).join(', ');
+          })();
           
           let prompt = `You are an AI Health Coach specializing in FITNESS, WORKOUTS, and NUTRITION. You have comprehensive knowledge of the FitnessMate app's features and can provide expert guidance on ALL app screens and functionality.
 
@@ -10815,6 +10897,15 @@ ${highAreas.length > 0 ? `\n🔴 HIGH AREAS: ${highAreas.join(', ')}` : ''}
    - Reference specific features like portion size input, exercise videos, health scoring
    - Encourage cross-feature usage (e.g., scan food → track on dashboard → plan workouts)
    - Mention specific exercises from database when recommending fitness routines
+
+🧘 STRESS ANALYZER (Separate Feature):
+- Purpose: quick check of a stress index (0–100) labeled Low/Moderate/High. It is NOT part of the Health Score points system.
+- Inputs considered: sleep hours deviation, work hours, self‑rating (1–10), stress episodes, screen hours.
+- Buffers: exercise minutes, meditation minutes, social time.
+- Weights: sleep 25, work 20, self‑rating 12, episodes 8, screen 10; buffers exercise 15, meditation 5, social 5.
+- Life event multiplier: minor ×1.5, major ×2.0.
+- Reading the screen: gauge shows score; category + confidence; 'Drivers' bars show contributors; 'Buffers' bars show relief.
+${stressCtx ? `- Current stress (from Progress → Stress Analyzer): ${stressCtx.category} (${stressCtx.stressScore}), confidence ${stressCtx.confidence}%. Top drivers: ${topDriversStr || 'n/a'}. Relief: ${topBufferStr || 'n/a'}.` : `- No stress inputs logged yet. Open Progress → Stress Analyzer to enter today's values.`}
 
 User's question: "${userMessage.text}"`;
 
@@ -12075,48 +12166,56 @@ ${habits.map(habit => {
                   <div>
                     <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Sleep hours</label>
                     <input type="number" min="0" step="0.5" value={stressForm.sleepHours}
+                      placeholder="8h = optimal; deviation raises stress (25%)"
                       onChange={e=>setStressForm({...stressForm, sleepHours:e.target.value})}
                       className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" />
                   </div>
                   <div>
                     <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Work hours</label>
                     <input type="number" min="0" step="0.5" value={stressForm.workHours}
+                      placeholder="More hours = more stress; ~8h typical (20%)"
                       onChange={e=>setStressForm({...stressForm, workHours:e.target.value})}
                       className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" />
                   </div>
                   <div>
                     <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Self‑rated stress (1–10)</label>
                     <input type="number" min="1" max="10" value={stressForm.stressRating}
+                      placeholder="Higher rating increases stress (12%)"
                       onChange={e=>setStressForm({...stressForm, stressRating: Number(e.target.value)})}
                       className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" />
                   </div>
                   <div>
                     <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Stress episodes (count)</label>
                     <input type="number" min="0" step="1" value={stressForm.stressEpisodes}
+                      placeholder="More episodes raise stress; 6 caps impact (8%)"
                       onChange={e=>setStressForm({...stressForm, stressEpisodes:e.target.value})}
                       className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" />
                   </div>
                   <div>
                     <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Exercise (mins)</label>
                     <input type="number" min="0" step="5" value={stressForm.exerciseMins}
+                      placeholder="More minutes reduce stress; ~45m = full relief (15%)"
                       onChange={e=>setStressForm({...stressForm, exerciseMins:e.target.value})}
                       className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" />
                   </div>
                   <div>
                     <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Meditation (mins)</label>
                     <input type="number" min="0" step="5" value={stressForm.meditationMins}
+                      placeholder="More minutes reduce stress; ~15m = full relief (5%)"
                       onChange={e=>setStressForm({...stressForm, meditationMins:e.target.value})}
                       className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" />
                   </div>
                   <div>
                     <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Social interaction (mins)</label>
                     <input type="number" min="0" step="5" value={stressForm.socialMins}
+                      placeholder="Quality time reduces stress; ~60m = full relief (5%)"
                       onChange={e=>setStressForm({...stressForm, socialMins:e.target.value})}
                       className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" />
                   </div>
                   <div>
                     <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Screen time (hours)</label>
                     <input type="number" min="0" step="0.5" value={stressForm.screenHours}
+                      placeholder="More hours add stress; ~8h caps impact (10%)"
                       onChange={e=>setStressForm({...stressForm, screenHours:e.target.value})}
                       className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" />
                   </div>
@@ -12126,9 +12225,9 @@ ${habits.map(habit => {
                       <select value={stressForm.lifeEvent}
                         onChange={e=>setStressForm({...stressForm, lifeEvent:e.target.value})}
                         className="flex-1 p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500">
-                        <option value="none">None</option>
-                        <option value="minor">Minor</option>
-                        <option value="major">Major</option>
+                        <option value="none">None — no multiplier</option>
+                        <option value="minor">Minor — 1.5× stress amplifier</option>
+                        <option value="major">Major — 2.0× stress amplifier</option>
                       </select>
                       <span className="text-xs text-gray-600 dark:text-gray-400">
                         Amplifies stress: None 1.0×, Minor 1.5×, Major 2.0×
@@ -12588,6 +12687,9 @@ ${habits.map(habit => {
           >
             {masked ? 'Sign in to log' : 'Log a Glass'}
           </button>
+          <p className="text-xs text-gray-500 dark:text-gray-400 text-center mt-2">
+            <span className="font-semibold">Hydration</span> = log water glasses. You can log more than 8, but points cap at 15 (earned at 8 glasses).
+          </p>
         </div>
       );
     };
@@ -13008,26 +13110,32 @@ ${habits.map(habit => {
 
     const BottomNavBar = ({ screen, setScreen }) => (
     <nav id="bottom-nav" className="fixed bottom-0 left-0 right-0 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm shadow-[0_-2px_10px_rgba(0,0,0,0.05)] dark:shadow-[0_-2px_10px_rgba(0,0,0,0.2)] h-20 flex justify-around items-center px-4">
-        <button onClick={() => setScreen('dashboard')} className={`flex flex-col items-center justify-center font-semibold transition-colors ${screen === 'dashboard' ? 'text-pink-500' : 'text-gray-400'}`}>
-          <span className="text-2xl mb-1">🏠</span>
+        <button onClick={() => setScreen('dashboard')} aria-current={screen === 'dashboard' ? 'page' : undefined} className={`flex flex-col items-center justify-center font-semibold transition-colors rounded-xl px-2 py-1 ${screen === 'dashboard' ? 'text-pink-600 bg-pink-50 dark:bg-gray-800' : 'text-gray-400'}`}>
+          <span className="text-2xl">🏠</span>
+          <span className={`${screen === 'dashboard' ? 'block' : 'hidden'} w-6 h-1 bg-pink-500 rounded-full mt-1`}></span>
         </button>
-        <button onClick={() => setScreen('progress')} className={`flex flex-col items-center justify-center font-semibold transition-colors ${screen === 'progress' ? 'text-pink-500' : 'text-gray-400'}`}>
-          <span className="text-2xl mb-1">📊</span>
+        <button onClick={() => setScreen('progress')} aria-current={screen === 'progress' ? 'page' : undefined} className={`flex flex-col items-center justify-center font-semibold transition-colors rounded-xl px-2 py-1 ${screen === 'progress' ? 'text-pink-600 bg-pink-50 dark:bg-gray-800' : 'text-gray-400'}`}>
+          <span className="text-2xl">📊</span>
+          <span className={`${screen === 'progress' ? 'block' : 'hidden'} w-6 h-1 bg-pink-500 rounded-full mt-1`}></span>
         </button>
-        <button onClick={() => setScreen('planner')} className={`flex flex-col items-center justify-center font-semibold transition-colors ${screen === 'planner' ? 'text-pink-500' : 'text-gray-400'}`}>
-          <span className="text-2xl mb-1">🍽️</span>
+        <button onClick={() => setScreen('planner')} aria-current={screen === 'planner' ? 'page' : undefined} className={`flex flex-col items-center justify-center font-semibold transition-colors rounded-xl px-2 py-1 ${screen === 'planner' ? 'text-pink-600 bg-pink-50 dark:bg-gray-800' : 'text-gray-400'}`}>
+          <span className="text-2xl">🍽️</span>
+          <span className={`${screen === 'planner' ? 'block' : 'hidden'} w-6 h-1 bg-pink-500 rounded-full mt-1`}></span>
         </button>
         <button onClick={() => setScreen('scan')} className="bg-blue-500 text-white w-14 h-14 rounded-full flex items-center justify-center text-lg font-bold shadow-lg">
           Cal
         </button>
-        <button onClick={() => setScreen('workout')} className={`flex flex-col items-center justify-center font-semibold transition-colors ${screen === 'workout' ? 'text-pink-500' : 'text-gray-400'}`}>
-          <span className="text-2xl mb-1">🏋️</span>
+        <button onClick={() => setScreen('workout')} aria-current={screen === 'workout' ? 'page' : undefined} className={`flex flex-col items-center justify-center font-semibold transition-colors rounded-xl px-2 py-1 ${screen === 'workout' ? 'text-pink-600 bg-pink-50 dark:bg-gray-800' : 'text-gray-400'}`}>
+          <span className="text-2xl">🏋️</span>
+          <span className={`${screen === 'workout' ? 'block' : 'hidden'} w-6 h-1 bg-pink-500 rounded-full mt-1`}></span>
         </button>
-        <button onClick={() => setScreen('coach')} className={`flex flex-col items-center justify-center font-semibold transition-colors ${screen === 'coach' ? 'text-pink-500' : 'text-gray-400'}`}>
-          <span className="text-2xl mb-1">🤖</span>
+        <button onClick={() => setScreen('coach')} aria-current={screen === 'coach' ? 'page' : undefined} className={`flex flex-col items-center justify-center font-semibold transition-colors rounded-xl px-2 py-1 ${screen === 'coach' ? 'text-pink-600 bg-pink-50 dark:bg-gray-800' : 'text-gray-400'}`}>
+          <span className="text-2xl">🤖</span>
+          <span className={`${screen === 'coach' ? 'block' : 'hidden'} w-6 h-1 bg-pink-500 rounded-full mt-1`}></span>
         </button>
-        <button onClick={() => setScreen('profile')} className={`flex flex-col items-center justify-center font-semibold transition-colors ${screen === 'profile' ? 'text-pink-500' : 'text-gray-400'}`}>
-          <span className="text-2xl mb-1">👤</span>
+        <button onClick={() => setScreen('profile')} aria-current={screen === 'profile' ? 'page' : undefined} className={`flex flex-col items-center justify-center font-semibold transition-colors rounded-xl px-2 py-1 ${screen === 'profile' ? 'text-pink-600 bg-pink-50 dark:bg-gray-800' : 'text-gray-400'}`}>
+          <span className="text-2xl">👤</span>
+          <span className={`${screen === 'profile' ? 'block' : 'hidden'} w-6 h-1 bg-pink-500 rounded-full mt-1`}></span>
         </button>
       </nav>
     );
@@ -13128,9 +13236,16 @@ ${habits.map(habit => {
         </span>
         Install <b class="app-name">FitnessMate</b>
       </div>
-      <div class="sub-text">On iPhone: Tap Share, then Add to Home Screen</div>
+      <div class="sub-text">On iPhone: Tap Share 
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" shape-rendering="geometricPrecision" style="display:inline-block;width:24px;height:24px;margin:0 8px -3px 8px;vertical-align:-3px;">
+          <!-- Open-top rounded square (no top stroke) -->
+          <path d="M6 20h12a2 2 0 0 0 2-2v-10" />
+          <path d="M6 20a2 2 0 0 1-2-2v-10" />
+          <!-- Up arrow emerging from the square -->
+          <path d="M12 3v7" />
+          <path d="M8.5 7.5L12 4l3.5 3.5" />
+        </svg>, then Add to Home Screen</div>
     </div>
-    <button id="installBtnIOS">Install</button>
     <button id="closeBannerIOS">×</button>
   </div>
   
