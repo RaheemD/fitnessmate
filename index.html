@@ -2550,20 +2550,34 @@ Respond ONLY with a valid JSON object in this exact format:
       };
 
       const subscribe = async (productId = PRODUCT_ID) => {
-        if (!('PaymentRequest' in window)) {
-          try { if (window.openStripePricingModal) window.openStripePricingModal(); } catch(_) {}
-          return false;
-        }
-        const methodData = [{ supportedMethods: BILLING_METHOD, data: { sku: productId, type: 'subs' } }];
-        const details = { total: { label: 'Subscription', amount: { currency: 'EUR', value: '1.49' } } };
-        try {
-          const request = new PaymentRequest(methodData, details);
-          const resp = await request.show();
-          await resp.complete('success');
-          await refreshEntitlement();
-          return true;
-        } catch (e) {
-          try { console.warn('Subscription failed:', e); } catch(_) { }
+        const isNative = !!window.__isNativeAndroidApp;
+        const openPlayManage = () => {
+          const sku = (window.fitmateIAP && window.fitmateIAP.PRODUCT_ID) ? window.fitmateIAP.PRODUCT_ID : 'fitmate_monthly_149';
+          const manageUrl = `https://play.google.com/store/account/subscriptions?sku=${encodeURIComponent(sku)}`;
+          try { window.open(manageUrl, '_blank'); } catch(_) {}
+        };
+
+        if (isNative) {
+          // Prefer Google Play Billing in native Android contexts; never fall back to Stripe
+          const hasPR = ('PaymentRequest' in window);
+          const hasDGA = (typeof window.getDigitalGoodsService === 'function');
+          if (!hasPR || !hasDGA) { openPlayManage(); return false; }
+          const methodData = [{ supportedMethods: BILLING_METHOD, data: { sku: productId, type: 'subs' } }];
+          const details = { total: { label: 'Subscription', amount: { currency: 'EUR', value: '1.49' } } };
+          try {
+            const request = new PaymentRequest(methodData, details);
+            const resp = await request.show();
+            await resp.complete('success');
+            await refreshEntitlement();
+            return true;
+          } catch (e) {
+            try { console.warn('Play subscription failed:', e); } catch(_) {}
+            // If purchase cannot be shown (e.g., SKU not published), direct user to Play subscription management
+            openPlayManage();
+            return false;
+          }
+        } else {
+          // Web/PWA/non-native Android: Stripe pricing table
           try { if (window.openStripePricingModal) window.openStripePricingModal(); } catch(_) {}
           return false;
         }
