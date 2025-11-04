@@ -364,6 +364,25 @@
       } catch (e) { /* no-op */ }
     })();
   </script>
+  <script>
+    // Lightweight platform detection to decide which subscription button to show
+    (function(){
+      try {
+        var ua = navigator.userAgent || '';
+        var plat = (navigator.userAgentData && navigator.userAgentData.platform) || '';
+        var isAndroid = /Android/i.test(ua) || /Android/i.test(plat);
+        // Play Billing via Digital Goods API only available in native/TWA WebView contexts
+        var hasDigitalGoods = typeof window.getDigitalGoodsService === 'function';
+        // Android WebView userAgent commonly includes "wv"; treat as native-hosted
+        var isWebView = /\bwv\b/i.test(ua) || /Version\/\d+/i.test(ua);
+        var isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || (navigator.standalone === true);
+        var isTWA = isAndroid && isStandalone && hasDigitalGoods;
+        window.__isNativeAndroidApp = !!(isAndroid && (hasDigitalGoods || isWebView || isTWA));
+      } catch(_) {
+        window.__isNativeAndroidApp = false;
+      }
+    })();
+  </script>
 </head>
 <body class="bg-gray-50 dark:bg-gray-900">
   <!-- Hidden Netlify Form for Support -->
@@ -3989,7 +4008,20 @@ const midnightTimerRef = useRef(null);
                     </div>
                   ) : (
                     <div className="flex items-center gap-3">
-                      <button onClick={async ()=>{ try { if (!user) { setShowSubscriptionModal(false); setScreen('profile'); setTimeout(()=>{ try { window.dispatchEvent(new Event('open-account-modal')); } catch(_) {} }, 50); return; } const ok = await (window.fitmateIAP && window.fitmateIAP.subscribe ? window.fitmateIAP.subscribe() : Promise.resolve(false)); if (ok) { setShowSubscriptionModal(false); computeAiRemainingGlobal(); } } catch(_){} }} className="bg-blue-500 hover:bg-blue-600 text-white text-sm px-4 py-2 rounded-lg shadow">Subscribe · €1.49</button>
+                      {/* Stripe button (web) */}
+                      <button
+                        onClick={()=>{ try { if (window.openStripePricingModal) window.openStripePricingModal(); } catch(_) {} }}
+                        className={(window.__isNativeAndroidApp ? 'hidden ' : '') + 'bg-pink-500 hover:bg-pink-600 text-white text-sm px-4 py-2 rounded-lg shadow'}
+                      >
+                        Subscribe via Stripe
+                      </button>
+                      {/* Play Store button (native Android app) */}
+                      <button
+                        onClick={async ()=>{ try { if (!user) { setShowSubscriptionModal(false); setScreen('profile'); setTimeout(()=>{ try { window.dispatchEvent(new Event('open-account-modal')); } catch(_) {} }, 50); return; } const ok = await (window.fitmateIAP && window.fitmateIAP.subscribe ? window.fitmateIAP.subscribe() : Promise.resolve(false)); if (ok) { setShowSubscriptionModal(false); computeAiRemainingGlobal(); } } catch(_){} }}
+                        className={(window.__isNativeAndroidApp ? '' : 'hidden ') + 'bg-blue-500 hover:bg-blue-600 text-white text-sm px-4 py-2 rounded-lg shadow'}
+                      >
+                        Subscribe via Play Store
+                      </button>
                       <button onClick={async ()=>{ try { await (window.fitmateIAP && window.fitmateIAP.restore ? window.fitmateIAP.restore() : Promise.resolve(false)); computeAiRemainingGlobal(); } catch(_){} }} className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 underline">Restore</button>
                     </div>
                   )}
@@ -6102,12 +6134,20 @@ const midnightTimerRef = useRef(null);
                   </div>
                 ) : (
                   <div className="flex flex-col gap-2 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
-                    <button
-                      onClick={()=>{ try { if (!user) { openAccountModal(); return; } window.dispatchEvent(new CustomEvent('force-open-subscription-modal')); } catch(_){} }}
-                      className="w-full bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2.5 rounded-lg shadow-sm transition-colors"
-                    >
-                      Subscribe · €1.49/mo
-                    </button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={()=>{ try { if (!user) { openAccountModal(); return; } if (window.openStripePricingModal) window.openStripePricingModal(); } catch(_){} }}
+                        className={(window.__isNativeAndroidApp ? 'hidden ' : '') + 'w-full bg-pink-500 hover:bg-pink-600 text-white text-sm font-medium px-4 py-2.5 rounded-lg shadow-sm transition-colors'}
+                      >
+                        Subscribe via Stripe
+                      </button>
+                      <button
+                        onClick={async ()=>{ try { if (!user) { openAccountModal(); return; } await (window.fitmateIAP && window.fitmateIAP.subscribe ? window.fitmateIAP.subscribe() : Promise.resolve(false)); } catch(_){} }}
+                        className={(window.__isNativeAndroidApp ? '' : 'hidden ') + 'w-full bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2.5 rounded-lg shadow-sm transition-colors'}
+                      >
+                        Subscribe via Play Store
+                      </button>
+                    </div>
                     <button
                       onClick={async ()=>{ try { await (window.fitmateIAP && window.fitmateIAP.restore ? window.fitmateIAP.restore() : Promise.resolve(false)); } catch(_){} }}
                       className="text-xs text-center text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
