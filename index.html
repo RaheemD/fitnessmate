@@ -1078,9 +1078,12 @@ Respond ONLY with a valid JSON object in this exact format:
       const clearLocalProfileForRemoteOnly = () => {
         const keys = [
           'goals',
-          'dailyHistory'
+          'dailyHistory',
+          'recentMeals',
+          'dailyIntake',
+          'dailyIntakeDate',
+          'lastSavedDate'
         ];
-        // Preserve 'dailyIntake' and 'recentMeals' along with 'dailyIntakeDate' and 'lastSavedDate'
         keys.forEach(k => { try { localStorage.removeItem(k); } catch (_) {} });
       };
 
@@ -3381,7 +3384,8 @@ const midnightTimerRef = useRef(null);
               localStorage.setItem('midnightResetAt', String(Date.now()));
 
               // Push reset to Supabase to mark today's zeroed intake/meals and persist archived daily_history
-              if (user && supabase && !forceNextRemoteOnlyRef?.current && authInitialRemoteAppliedRef?.current) {
+              // Minimal fix: always push when user & supabase are available, regardless of sign-in gating
+              if (user && supabase) {
                 const currentTimestamp = new Date().toISOString();
                 const update = { 
                   daily_intake: { ...zero, __day: todayISO }, 
@@ -3397,8 +3401,6 @@ const midnightTimerRef = useRef(null);
                   .catch((pushErr) => {
                     console.warn('⚠️ Midnight reset: Supabase push failed; will rely on next sync', pushErr);
                   });
-              } else {
-                console.log('📤 Midnight reset: skipped Supabase push (auth gating active)');
               }
 
               try { window.dispatchEvent(new CustomEvent('userDataSynced')); } catch (_) {}
