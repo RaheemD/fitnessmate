@@ -11107,6 +11107,7 @@ User's question: "${userMessage.text}"`;
       });
       const [stressResult, setStressResult] = useState(null);
       const [stressInsight, setStressInsight] = useState('');
+      const [lifeEventInfoOpen, setLifeEventInfoOpen] = useState(false);
 
       useEffect(() => {
         try { localStorage.setItem('stressForm', JSON.stringify(stressForm)); } catch (_) {}
@@ -12165,84 +12166,92 @@ ${habits.map(habit => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Sleep hours</label>
-                    <input type="number" min="0" step="0.5" value={stressForm.sleepHours}
-                      placeholder="8h = optimal; deviation raises stress (25%)"
+                    <input type="number" inputMode="numeric" min="0" step="0.5" value={stressForm.sleepHours}
+                      placeholder="8h ideal; deviation raises stress (25%)"
                       onChange={e=>setStressForm({...stressForm, sleepHours:e.target.value})}
-                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500 placeholder:text-[11px] md:placeholder:text-sm appearance-none" style={{MozAppearance:'textfield'}} />
                   </div>
                   <div>
                     <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Work hours</label>
-                    <input type="number" min="0" step="0.5" value={stressForm.workHours}
-                      placeholder="More hours = more stress; ~8h typical (20%)"
+                    <input type="number" inputMode="numeric" min="0" step="0.5" value={stressForm.workHours}
+                      placeholder="More hours add stress; ~8h typical (20%)"
                       onChange={e=>setStressForm({...stressForm, workHours:e.target.value})}
-                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500 placeholder:text-[11px] md:placeholder:text-sm appearance-none" style={{MozAppearance:'textfield'}} />
                   </div>
                   <div>
                     <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Self‑rated stress (1–10)</label>
-                    <input type="number" min="1" max="10" value={stressForm.stressRating}
+                    <input type="number" inputMode="numeric" min="1" max="10" value={stressForm.stressRating}
                       placeholder="Higher rating increases stress (12%)"
                       onChange={e=>setStressForm({...stressForm, stressRating: Number(e.target.value)})}
-                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500 placeholder:text-[11px] md:placeholder:text-sm appearance-none" style={{MozAppearance:'textfield'}} />
                   </div>
                   <div>
                     <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Stress episodes (count)</label>
-                    <input type="number" min="0" step="1" value={stressForm.stressEpisodes}
+                    <input type="number" inputMode="numeric" min="0" step="1" value={stressForm.stressEpisodes}
                       placeholder="More episodes raise stress; 6 caps impact (8%)"
                       onChange={e=>setStressForm({...stressForm, stressEpisodes:e.target.value})}
-                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500 placeholder:text-[11px] md:placeholder:text-sm appearance-none" style={{MozAppearance:'textfield'}} />
                   </div>
                   <div>
                     <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Exercise (mins)</label>
-                    <input type="number" min="0" step="5" value={stressForm.exerciseMins}
-                      placeholder="More minutes reduce stress; ~45m = full relief (15%)"
+                    <input type="number" inputMode="numeric" min="0" step="5" value={stressForm.exerciseMins}
+                      placeholder="More mins reduce stress; ~45m full relief (15%)"
                       onChange={e=>setStressForm({...stressForm, exerciseMins:e.target.value})}
-                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500 placeholder:text-[11px] md:placeholder:text-sm appearance-none" style={{MozAppearance:'textfield'}} />
                   </div>
                   <div>
                     <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Meditation (mins)</label>
-                    <input type="number" min="0" step="5" value={stressForm.meditationMins}
-                      placeholder="More minutes reduce stress; ~15m = full relief (5%)"
+                    <input type="number" inputMode="numeric" min="0" step="5" value={stressForm.meditationMins}
+                      placeholder="More mins reduce stress; ~15m full relief (5%)"
                       onChange={e=>setStressForm({...stressForm, meditationMins:e.target.value})}
-                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500 placeholder:text-[11px] md:placeholder:text-sm appearance-none" style={{MozAppearance:'textfield'}} />
                   </div>
                   <div>
                     <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Social interaction (mins)</label>
-                    <input type="number" min="0" step="5" value={stressForm.socialMins}
-                      placeholder="Quality time reduces stress; ~60m = full relief (5%)"
+                    <input type="number" inputMode="numeric" min="0" step="5" value={stressForm.socialMins}
+                      placeholder="Quality time buffers stress; ~60m relief (5%)"
                       onChange={e=>setStressForm({...stressForm, socialMins:e.target.value})}
-                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500 placeholder:text-[10px] md:placeholder:text-sm appearance-none" style={{MozAppearance:'textfield'}} />
                   </div>
                   <div>
                     <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Screen time (hours)</label>
-                    <input type="number" min="0" step="0.5" value={stressForm.screenHours}
-                      placeholder="More hours add stress; ~8h caps impact (10%)"
+                    <input type="number" inputMode="numeric" min="0" step="0.5" value={stressForm.screenHours}
+                      placeholder="More hours add stress; ~8h cap impact (10%)"
                       onChange={e=>setStressForm({...stressForm, screenHours:e.target.value})}
-                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500 placeholder:text-[11px] md:placeholder:text-sm appearance-none" style={{MozAppearance:'textfield'}} />
                   </div>
                   <div>
                     <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Life event</label>
-                    <div className="flex items-center gap-3">
+                    <div className="mt-1">
+                      <div className="flex items-center justify-between text-[11px] md:text-xs text-gray-600 dark:text-gray-400">
+                        <span className="truncate block max-w-[calc(100%-2.5rem)]">Amplifies: None 1.0×, Minor 1.5×, Major 2.0×</span>
+                        <button type="button"
+                          onClick={() => setLifeEventInfoOpen(v => !v)}
+                          aria-label="Show life event info"
+                          className="ml-2 inline-flex items-center justify-center w-6 h-6 rounded-full border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+                          i
+                        </button>
+                      </div>
+                      {lifeEventInfoOpen && (
+                        <div className="mt-2 p-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white/80 dark:bg-gray-800/80 text-xs text-gray-700 dark:text-gray-300">
+                          <div className="font-semibold mb-1">What counts as a life event?</div>
+                          <ul className="list-disc pl-4 space-y-1">
+                            <li>None: regular day, routine changes.</li>
+                            <li>Minor: exam week, deadline, travel, minor illness, brief conflict.</li>
+                            <li>Major: bereavement, job loss, breakup/divorce, serious illness, major crisis.</li>
+                          </ul>
+                          <div className="mt-2 text-right">
+                            <button type="button" onClick={() => setLifeEventInfoOpen(false)} className="px-3 py-1 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200">Close</button>
+                          </div>
+                        </div>
+                      )}
                       <select value={stressForm.lifeEvent}
                         onChange={e=>setStressForm({...stressForm, lifeEvent:e.target.value})}
-                        className="flex-1 p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500">
+                        className="mt-2 w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500">
                         <option value="none">None — no multiplier</option>
                         <option value="minor">Minor — 1.5× stress amplifier</option>
                         <option value="major">Major — 2.0× stress amplifier</option>
                       </select>
-                      <span className="text-xs text-gray-600 dark:text-gray-400">
-                        Amplifies stress: None 1.0×, Minor 1.5×, Major 2.0×
-                        <span
-                          className="ml-2 inline-flex items-center text-gray-500 dark:text-gray-400 cursor-help select-none"
-                          title={
-                            'What counts as a life event?\n' +
-                            '• None: regular day, routine changes.\n' +
-                            '• Minor: exam week, tight deadline, travel, minor illness, brief conflict.\n' +
-                            '• Major: bereavement, job loss, breakup/divorce, serious illness, major financial or safety crisis.'
-                          }
-                        >
-                          ⓘ
-                        </span>
-                      </span>
                     </div>
                   </div>
                   
