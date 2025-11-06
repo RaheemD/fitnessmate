@@ -409,6 +409,75 @@
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
   <script type="text/babel">
+    // --- Frontend network stabilizers (warm-up, retry, compression) ---
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    
+    // Ping backend health endpoint to avoid cold-start races
+    const warmUpBackend = async () => {
+      try {
+        const cfg = getDirectGeminiConfig();
+        const base = cfg.url.replace(/\/api\/myapi$/, '');
+        await fetch(`${base}/_health`, { method: 'GET', mode: 'cors', cache: 'no-store' }).catch(() => {});
+      } catch (_) {
+        // ignore
+      }
+    };
+    
+    // Robust POST with small retry/backoff on network errors
+    const postMyApiWithRetry = async (payload, { retries = 2, delayMs = 700 } = {}) => {
+      const cfg = getDirectGeminiConfig();
+      await warmUpBackend();
+      let attempt = 0;
+      while (true) {
+        try {
+          const res = await fetch(cfg.url, {
+            method: 'POST',
+            headers: cfg.headers,
+            body: JSON.stringify(payload)
+          });
+          return res; // do not retry on HTTP responses; caller decides
+        } catch (e) {
+          const msg = String(e?.message || e || '');
+          if (attempt >= retries) throw e;
+          // backoff and retry only for network-level errors
+          await sleep(Math.round(delayMs * Math.pow(1.6, attempt)));
+          attempt += 1;
+        }
+      }
+    };
+    
+    // Compress images client-side to reduce payloads
+    const compressImage = (file, { maxWidth = 768, quality = 0.72 } = {}) => new Promise((resolve, reject) => {
+      try {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+          try {
+            const scale = Math.min(1, maxWidth / img.width);
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.round(img.width * scale);
+            canvas.height = Math.round(img.height * scale);
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            canvas.toBlob((blob) => {
+              try {
+                URL.revokeObjectURL(url);
+              } catch (_) {}
+              if (!blob) return resolve(file);
+              const out = new File([blob], (file.name || 'image').replace(/\.[^/.]+$/, '.jpg'), { type: 'image/jpeg' });
+              resolve(out);
+            }, 'image/jpeg', quality);
+          } catch (err) {
+            try { URL.revokeObjectURL(url); } catch (_) {}
+            resolve(file); // fallback: return original
+          }
+        };
+        img.onerror = () => { try { URL.revokeObjectURL(url); } catch (_) {}; resolve(file); };
+        img.src = url;
+      } catch (e) {
+        resolve(file);
+      }
+    });
     const { useState, useRef, useEffect, useCallback } = React;
 
     // Global safe stub to avoid ReferenceError before the real helper is defined
@@ -966,6 +1035,8 @@ Respond ONLY with a valid JSON object in this exact format:
               // Purge local profile so we only accept remote
               try { clearLocalProfileForRemoteOnly(); } catch (_) {}
               // DO NOT clear aiUsage on sign-in - use handshake to sync MAX value across devices
+              // Track current user id to detect account switches
+              try { localStorage.setItem('lastSignedInUserId', currentUser.id); } catch (_) {}
             }
             // Sync user data when authenticated
             syncUserData(currentUser);
@@ -977,6 +1048,8 @@ Respond ONLY with a valid JSON object in this exact format:
             try { window.dispatchEvent(new CustomEvent('ads-control', { detail: { enabled: true } })); } catch (_) {}
             try { localStorage.removeItem('aiUsage'); } catch (_) {}
             try { window.dispatchEvent(new Event('userDataSynced')); } catch (_) {}
+            // Purge all user-scoped local data on sign-out to avoid cross-account mirroring
+            try { clearLocalProfileForRemoteOnly(); } catch (_) {}
           }
           // Surface password recovery flow even if URL lacks type=recovery
           if (event === 'PASSWORD_RECOVERY') {
@@ -1010,28 +1083,28 @@ Respond ONLY with a valid JSON object in this exact format:
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
             
-            // Profile data
-            goals: JSON.parse(localStorage.getItem('goals') || '{}'),
+            // Profile data (safe defaults only; do NOT import localStorage here)
+            goals: defaultGoals,
             // profile_picture omitted to avoid overwriting remote value during remote-only mode,
-            notifications_enabled: JSON.parse(localStorage.getItem('notificationsEnabled') || 'true'),
-            dark_mode: JSON.parse(localStorage.getItem('fitmate-dark-mode') || 'false'),
+            notifications_enabled: true,
+            dark_mode: false,
             
             // Fitness data
-            daily_intake: JSON.parse(localStorage.getItem('dailyIntake') || '{"calories":0,"protein":0,"carbs":0,"fat":0,"activity":0,"water":0}'),
-            recent_meals: (() => { try { const meals = JSON.parse(localStorage.getItem('recentMeals') || '[]') || []; const todayISO = toLocalISODate(new Date()); return Array.isArray(meals) ? meals.filter(m => m && m.__day === todayISO) : []; } catch { return []; } })(),
-            daily_history: JSON.parse(localStorage.getItem('dailyHistory') || '{}'),
+            daily_intake: { calories: 0, protein: 0, carbs: 0, fat: 0, activity: 0, water: 0 },
+            recent_meals: [],
+            daily_history: {},
             
             // AI and coaching data
-            coach_messages: JSON.parse(localStorage.getItem('coachMessages') || '[{"text":"Hello! I\'m your AI Health Coach. Ask me anything about your nutrition or meals.","sender":"ai"}]'),
-            habit_ai_advice: localStorage.getItem('habitAIAdvice') || '',
-            habits: JSON.parse(localStorage.getItem('habits') || '[]'),
+            coach_messages: [{ text: "Hello! I'm your AI Health Coach. Ask me anything about your nutrition or meals.", sender: "ai" }],
+            habit_ai_advice: '',
+            habits: [],
             
             // AI-generated content
-            meal_plan: JSON.parse(localStorage.getItem('mealPlan') || 'null'),
-            workout_plan: JSON.parse(localStorage.getItem('workoutPlan') || 'null'),
-            // workout_history: JSON.parse(localStorage.getItem('workoutHistory') || '[]'), // Removed - using separate table
-            scan_result: JSON.parse(localStorage.getItem('scanResult') || 'null'),
-            form_analysis: JSON.parse(localStorage.getItem('formAnalysis') || 'null'),
+            meal_plan: null,
+            workout_plan: null,
+            // workout_history removed - using separate table
+            scan_result: null,
+            form_analysis: null,
             
             // AI usage tracking removed - using localStorage only for quota sync
           });
@@ -1073,16 +1146,22 @@ Respond ONLY with a valid JSON object in this exact format:
         return hasGoals || hasIntake || hasMeals || hasHistory || hasCoachMessages || hasHabits || hasMealPlan || hasWorkoutPlan;
       };
 
-      // Purge local profile data so sign-in starts from remote source of truth,
-      // but preserve today's intake and meals to avoid score drops after midnight reset
+      // Aggressively purge user-scoped local data to prevent cross-account contamination.
+      // Called on sign-in (remote-only) and sign-out.
       const clearLocalProfileForRemoteOnly = () => {
         const keys = [
-          'goals',
-          'dailyHistory',
-          'recentMeals',
-          'dailyIntake',
-          'dailyIntakeDate',
-          'lastSavedDate'
+          // Core profile and fitness data
+          'goals', 'dailyHistory', 'recentMeals', 'dailyIntake', 'dailyIntakeDate', 'lastSavedDate',
+          // Coaching and habits
+          'coachMessages', 'habitAIAdvice', 'habits',
+          // AI-generated content
+          'mealPlan', 'workoutPlan', 'scanResult', 'formAnalysis',
+          // UI-backed user content
+          'profilePicture', 'notificationsEnabled', 'workoutHistory',
+          // Sync flags
+          'lastSyncTimestamp', 'pendingHydratePayload', 'pendingUserDataSynced',
+          // Account switch marker
+          'lastSignedInUserId'
         ];
         keys.forEach(k => { try { localStorage.removeItem(k); } catch (_) {} });
       };
@@ -1716,6 +1795,8 @@ Respond ONLY with a valid JSON object in this exact format:
           // Enforce remote-only fetch for this sign-in so local data cannot overwrite remote
           try { localStorage.removeItem('lastSyncTimestamp'); } catch (_) {}
           try { forceNextRemoteOnlyRef.current = true; } catch (_) {}
+          // Track current user id to detect account switches
+          try { localStorage.setItem('lastSignedInUserId', data.user.id); } catch (_) {}
           // DO NOT clear aiUsage on sign-in - use handshake to sync MAX value across devices
           // Trigger immediate remote fetch (onAuthStateChange will also call this, this is safe)
           try { await syncUserData(data.user); } catch (_) {}
@@ -1801,6 +1882,9 @@ Respond ONLY with a valid JSON object in this exact format:
           
           // Immediately reflect sign-out in UI to avoid requiring a second click
           try { setUser(null); } catch (_) { /* no-op */ }
+
+          // Purge all user-scoped local data after explicit sign-out
+          try { clearLocalProfileForRemoteOnly(); } catch (_) {}
 
           return true;
         } catch (error) {
@@ -2467,9 +2551,9 @@ Respond ONLY with a valid JSON object in this exact format:
       return {
         url: 'https://fitserver-k7r4.onrender.com/api/myapi',
         headers: {
+          // Keep JSON content type for backend parsing; remove custom headers to simplify preflight
           'Content-Type': 'application/json',
-          'X-Title': 'Fitmate',
-          'HTTP-Referer': (typeof window !== 'undefined' && window.location ? window.location.origin : 'http://localhost')
+          'Accept': 'application/json'
         }
       };
     };
@@ -3384,8 +3468,8 @@ const midnightTimerRef = useRef(null);
               localStorage.setItem('midnightResetAt', String(Date.now()));
 
               // Push reset to Supabase to mark today's zeroed intake/meals and persist archived daily_history
-              // Minimal fix: always push when user & supabase are available, regardless of sign-in gating
-              if (user && supabase) {
+              // Guarded push: only after initial remote is applied and not during remote-only sign-in
+              if (user && supabase && !forceNextRemoteOnlyRef?.current && authInitialRemoteAppliedRef?.current) {
                 const currentTimestamp = new Date().toISOString();
                 const update = { 
                   daily_intake: { ...zero, __day: todayISO }, 
@@ -3401,6 +3485,8 @@ const midnightTimerRef = useRef(null);
                   .catch((pushErr) => {
                     console.warn('⚠️ Midnight reset: Supabase push failed; will rely on next sync', pushErr);
                   });
+              } else {
+                console.log('⏸️ Midnight reset: skipped Supabase push (remote-only or initial remote not applied)');
               }
 
               try { window.dispatchEvent(new CustomEvent('userDataSynced')); } catch (_) {}
@@ -10914,8 +11000,10 @@ User's question: "${userMessage.text}"`;
           const parts = [{ text: prompt }];
 
           if (attachment) {
-            const base64ImageData = await fileToBase64(attachment);
-            parts.push({ inlineData: { mimeType: attachment.type, data: base64ImageData } });
+            // Compress attachment to stabilize network and reduce payload size
+            const processed = await compressImage(attachment);
+            const base64ImageData = await fileToBase64(processed);
+            parts.push({ inlineData: { mimeType: processed.type || attachment.type, data: base64ImageData } });
             prompt += "\n\nPlease also consider the attached document in your analysis.";
           }
 
@@ -10924,18 +11012,14 @@ User's question: "${userMessage.text}"`;
               role: 'user',
               content: [
                 { type: 'text', text: prompt },
-                { type: 'image_url', image_url: `data:${attachment.type};base64,${await fileToBase64(attachment)}` }
+                { type: 'image_url', image_url: `data:${(attachment && attachment.type) || 'image/jpeg'};base64,${attachment ? await fileToBase64(await compressImage(attachment)) : ''}` }
               ]
             } : { role: 'user', content: prompt }
           ];
 
-          const response = await fetch(getDirectGeminiConfig().url, {
-            method: 'POST',
-            headers: getDirectGeminiConfig().headers,
-            body: JSON.stringify({
-              model: attachment ? OPENROUTER_QWEN_VL_MODEL : OPENROUTER_QWEN_MODEL,
-              messages: orMessages
-            })
+          const response = await postMyApiWithRetry({
+            model: attachment ? OPENROUTER_QWEN_VL_MODEL : OPENROUTER_QWEN_MODEL,
+            messages: orMessages
           });
 
           if (!response.ok) {
