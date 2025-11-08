@@ -42,6 +42,12 @@
     Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
     Access-Control-Allow-Headers = "Origin, Content-Type, Authorization"
 
+# Force HTTP/1.1 for Netlify Functions to avoid HTTP/2 resets
+[[headers]]
+  for = "/.netlify/functions/*"
+  [headers.values]
+    Connection = "close"
+
 # 4b. Route API calls to Netlify Functions
 [[redirects]]
   from = "/api/*"
