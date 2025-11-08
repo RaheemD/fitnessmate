@@ -60,13 +60,15 @@ export const handler = async (event) => {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Expose-Headers": "Content-Length, Content-Type",
         "Content-Type": "application/json",
+        // Encourage HTTP/1.1 behavior in some edge cases
+        "Connection": "close",
       },
       body: text,
     };
   } catch (error) {
     return {
       statusCode: 500,
-      headers: { "Access-Control-Allow-Origin": "*" },
+      headers: { "Access-Control-Allow-Origin": "*", "Connection": "close" },
       body: JSON.stringify({ error: String(error) }),
     };
   }
