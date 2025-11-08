@@ -2455,8 +2455,8 @@ Respond ONLY with a valid JSON object in this exact format:
     };
 
     // --- Centralized API Configuration ---
-    // Edge function endpoint
-    const NETLIFY_API_URL = '/api/myapi';
+    // Netlify Functions direct endpoint (avoids redirect issues)
+    const NETLIFY_API_URL = '/.netlify/functions/myapi';
     
     // Removed deprecated Gemini simple config and GEMINI_API_URL (migrated to OpenRouter)
     
