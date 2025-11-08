@@ -3,6 +3,7 @@
 [build]
   publish = "."
   command = ""
+  functions = "netlify/functions"  
 
 # 1. Redirect .well-known (for Android Asset Links)
 [[redirects]]
@@ -33,13 +34,20 @@
     Cache-Control = "public, max-age=3600"
 
 
-# 5. Allow CORS for all API calls (important for Supabase)
+# 4. Allow CORS for all API calls (important for Supabase)
 [[headers]]
-  for = "/*"
+  for = "/api/*"
   [headers.values]
     Access-Control-Allow-Origin = "*"
     Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
     Access-Control-Allow-Headers = "Origin, Content-Type, Authorization"
+
+# 4b. Route API calls to Netlify Functions
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+  force = true
 
 # 5. Keep client-side routing working (for index.html + workout.html)
 [[redirects]]
