@@ -975,7 +975,10 @@ Respond ONLY with a valid JSON object in this exact format:
             try { localStorage.setItem('subscriptionActive', JSON.stringify(false)); } catch (_) {}
             try { window.dispatchEvent(new CustomEvent('subscription-status-changed', { detail: { active: false } })); } catch (_) {}
             try { window.dispatchEvent(new CustomEvent('ads-control', { detail: { enabled: true } })); } catch (_) {}
-            try { localStorage.removeItem('aiUsage'); } catch (_) {}
+            // Only clear aiUsage on an explicit SIGNED_OUT event; preserve counts on initial load
+            if (event === 'SIGNED_OUT') {
+              try { localStorage.removeItem('aiUsage'); } catch (_) {}
+            }
             try { window.dispatchEvent(new Event('userDataSynced')); } catch (_) {}
           }
           // Surface password recovery flow even if URL lacks type=recovery
@@ -2462,7 +2465,8 @@ Respond ONLY with a valid JSON object in this exact format:
     const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
     const getDirectGeminiConfig = () => {
       return {
-        url: 'https://fitserver-k7r4.onrender.com/api/myapi',
+        // Route through Netlify Functions (redirected from /api/*)
+        url: NETLIFY_API_URL,
         headers: {
           'Content-Type': 'application/json',
           'X-Title': 'Fitmate',
@@ -2473,7 +2477,7 @@ Respond ONLY with a valid JSON object in this exact format:
     
     // Feature flag: hide manual cloud sync UI (auto-sync is active)
     const SHOW_MANUAL_CLOUD_SYNC = false;
-    (function(){const installLimiter=()=>{if(window.__aiLimiterInstalled)return;const aiUrl=getDirectGeminiConfig().url;const orig=window.fetch.bind(window);window.fetch=async (input,init={})=>{try{const reqUrl=typeof input==='string'?input:((input&&input.url)||'');const method=(init&&init.method)?String(init.method).toUpperCase():'GET';const isAI=(reqUrl===aiUrl&&method==='POST');if(!isAI){return orig(input,init);}let hdrs=(init&&init.headers)||null;let ignore=false;try{if(hdrs&&typeof hdrs.get==='function'){ignore=!!hdrs.get('X-Fitmate-Ignore-Quota');}else if(hdrs&&typeof hdrs==='object'){ignore=!!(hdrs['X-Fitmate-Ignore-Quota']||hdrs['x-fitmate-ignore-quota']);}}catch(_){}if(ignore){return orig(input,init);}let uid=null;try{if(auth&&auth.getSession){const { data:{ session } }=await auth.getSession();uid=session&&session.user?session.user.id:null;}}catch(_){}const todayISO=(typeof toLocalISODate==='function'?toLocalISODate(new Date()):new Date().toISOString().slice(0,10));let usage={};try{usage=JSON.parse(localStorage.getItem('aiUsage')||'{}')||{};}catch(_){}if(!usage[todayISO])usage[todayISO]={};const key=uid||'anon';let subscribed=false;try{subscribed=JSON.parse(localStorage.getItem('subscriptionActive')||'false');}catch(_){}const limit=subscribed?10:(uid?5:3);const count=Number(usage[todayISO][key]||0);if(count>=limit){try{if(uid){window.dispatchEvent(new Event('force-open-subscription-modal'));}else{window.dispatchEvent(new CustomEvent('ai-quota-exceeded',{detail:{key,limit}}));}}catch(_){}return new Response(JSON.stringify({error:'quota_exceeded'}),{status:429,headers:{'Content-Type':'application/json'}});}usage[todayISO][key]=count+1;try{localStorage.setItem('aiUsage',JSON.stringify(usage));
+    (function(){const installLimiter=()=>{if(window.__aiLimiterInstalled)return;const aiUrl=getDirectGeminiConfig().url;const orig=window.fetch.bind(window);window.__aiThinkingPending=window.__aiThinkingPending||0;window.fetch=async (input,init={})=>{try{const reqUrl=typeof input==='string'?input:((input&&input.url)||'');const method=(init&&init.method)?String(init.method).toUpperCase():'GET';const isAI=(reqUrl===aiUrl&&method==='POST');if(!isAI){return orig(input,init);}let hdrs=(init&&init.headers)||null;let ignore=false;try{if(hdrs&&typeof hdrs.get==='function'){ignore=!!hdrs.get('X-Fitmate-Ignore-Quota');}else if(hdrs&&typeof hdrs==='object'){ignore=!!(hdrs['X-Fitmate-Ignore-Quota']||hdrs['x-fitmate-ignore-quota']);}}catch(_){}let uid=null;try{if(auth&&auth.getSession){const { data:{ session } }=await auth.getSession();uid=session&&session.user?session.user.id:null;}}catch(_){}const todayISO=(typeof toLocalISODate==='function'?toLocalISODate(new Date()):new Date().toISOString().slice(0,10));let usage={};try{usage=JSON.parse(localStorage.getItem('aiUsage')||'{}')||{};}catch(_){}if(!usage[todayISO])usage[todayISO]={};const key=uid||'anon';let subscribed=false;try{subscribed=JSON.parse(localStorage.getItem('subscriptionActive')||'false');}catch(_){}const limit=subscribed?10:(uid?5:3);const count=Number(usage[todayISO][key]||0);if(count>=limit){try{if(uid){window.dispatchEvent(new Event('force-open-subscription-modal'));}else{window.dispatchEvent(new CustomEvent('ai-quota-exceeded',{detail:{key,limit}}));}}catch(_){}return new Response(JSON.stringify({error:'quota_exceeded'}),{status:429,headers:{'Content-Type':'application/json'}});}usage[todayISO][key]=count+1;try{localStorage.setItem('aiUsage',JSON.stringify(usage));
             try {
               // Sync AI usage to database immediately after incrementing
               if (uid && typeof supabase !== 'undefined' && typeof db !== 'undefined' && db.updateUser) {
@@ -2493,7 +2497,21 @@ Respond ONLY with a valid JSON object in this exact format:
                 }
               }
             } catch(e) { console.error('AI limiter: Database sync error:', e); }}
-            catch(_){}return orig(input,init);}catch(_){return orig(input,init);}};window.__aiLimiterInstalled=true;};installLimiter();})();
+            catch(_){}
+            // Dispatch global thinking indicator before network call
+            try {
+              window.__aiThinkingPending = (window.__aiThinkingPending || 0) + 1;
+              window.dispatchEvent(new CustomEvent('ai-thinking', { detail: { pending: window.__aiThinkingPending } }));
+            } catch(_) {}
+            const _req = orig(input,init);
+            // Ensure indicator stops after completion
+            return _req.finally(() => {
+              try {
+                window.__aiThinkingPending = Math.max(0, (window.__aiThinkingPending || 0) - 1);
+                window.dispatchEvent(new CustomEvent('ai-thinking', { detail: { pending: window.__aiThinkingPending } }));
+              } catch(_) {}
+            });
+          }catch(_){return orig(input,init);}};window.__aiLimiterInstalled=true;};installLimiter();})();
 
     (function(){
       if (window.__iapSetupInstalled) return;
@@ -2757,6 +2775,19 @@ Respond ONLY with a valid JSON object in this exact format:
         const saved = localStorage.getItem('fitmate-dark-mode');
         return saved === 'true';
       });
+
+      // --- Global AI Thinking Indicator ---
+      const [aiThinkingPending, setAiThinkingPending] = useState(0);
+      useEffect(() => {
+        const onThinking = (e) => {
+          try {
+            const pending = (e && e.detail && typeof e.detail.pending === 'number') ? e.detail.pending : 0;
+            setAiThinkingPending(pending);
+          } catch (_) {}
+        };
+        window.addEventListener('ai-thinking', onThinking);
+        return () => window.removeEventListener('ai-thinking', onThinking);
+      }, []);
 
       // --- Coach and Progress State Management ---
       const [coachMessages, setCoachMessages] = useState(() => {
@@ -3996,6 +4027,12 @@ const midnightTimerRef = useRef(null);
             {renderScreen()}
           </main>
           {screen !== null && <BottomNavBar screen={screen} setScreen={setScreen} />}
+          {aiThinkingPending > 0 && (
+            <div className="fixed bottom-24 left-1/2 -translate-x-1/2 transform z-50 bg-white/90 dark:bg-gray-800/90 border border-gray-200 dark:border-gray-700 rounded-full px-3 py-1 shadow-lg flex items-center gap-2 pointer-events-none">
+              <span className="inline-block w-2 h-2 bg-pink-500 rounded-full animate-pulse" aria-hidden="true"></span>
+              <span className="text-sm font-medium text-gray-800 dark:text-gray-200" role="status" aria-live="polite">Thinking…</span>
+            </div>
+          )}
           {showSubscriptionModal && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
               <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full">
@@ -10648,6 +10685,8 @@ Respond ONLY with a valid JSON object in this exact format:
       const [attachment, setAttachment] = useState(null);
       const [attachmentPreview, setAttachmentPreview] = useState(null);
       const fileInputRef = useRef(null);
+      // Temporarily disable uploads for AI Health Coach UI
+      const uploadsEnabled = false;
 
       // Function to start a new conversation
       const startNewConversation = () => {
@@ -11034,15 +11073,19 @@ User's question: "${userMessage.text}"`;
           )}
 
           <div className="mt-4 flex items-stretch w-full gap-2">
-            <input type="file" accept="image/*" ref={fileInputRef} onChange={handleAttachmentChange} className="hidden" />
-            <button onClick={() => fileInputRef.current.click()} className="p-3 border dark:border-gray-700 rounded-l-lg bg-gray-100 dark:bg-gray-700 flex-shrink-0">📎</button>
+            {uploadsEnabled && (
+              <>
+                <input type="file" accept="image/*" ref={fileInputRef} onChange={handleAttachmentChange} className="hidden" />
+                <button onClick={() => fileInputRef.current?.click()} className="p-3 border dark:border-gray-700 rounded-l-lg bg-gray-100 dark:bg-gray-700 flex-shrink-0">📎</button>
+              </>
+            )}
             <input
               type="text"
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSend()}
               placeholder="Ask a question..."
-              className="flex-1 min-w-0 p-3 border-t border-b dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-pink-500 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200"
+              className={`flex-1 min-w-0 p-3 ${uploadsEnabled ? 'border-t border-b' : 'border rounded-l-lg'} dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-pink-500 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200`}
               disabled={isLoading}
             />
             <button onClick={handleSend} disabled={isLoading} className="bg-pink-500 text-white p-3 rounded-r-lg font-bold flex-shrink-0">
