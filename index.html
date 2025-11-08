@@ -696,6 +696,35 @@ Respond ONLY with a valid JSON object in this exact format:
       }, 1000);
     }
 
+    // Helper: upload image data URL to Supabase Storage and return a public URL
+    const uploadImageDataUrlToPublic = async (dataUrl, mimeType) => {
+      try {
+        if (!supabase || !supabase.storage) return null;
+        const bucket = 'fitmate-images'; // Ensure this bucket exists and is public
+        const ext = (mimeType && mimeType.split('/')[1]) || 'jpg';
+        const filename = `ai/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+
+        // Convert data URL to Blob
+        const res = await fetch(dataUrl);
+        const blob = await res.blob();
+
+        const { data, error } = await supabase.storage
+          .from(bucket)
+          .upload(filename, blob, { contentType: mimeType, upsert: true });
+        if (error) {
+          console.warn('Supabase upload failed:', error.message || error);
+          return null;
+        }
+        const { data: publicUrl } = supabase.storage
+          .from(bucket)
+          .getPublicUrl(filename);
+        return (publicUrl && (publicUrl.publicUrl || publicUrl.publicURL || publicUrl)) || null;
+      } catch (e) {
+        console.warn('Upload to storage failed:', e);
+        return null;
+      }
+    };
+
     // Database helper functions for Supabase
     const db = {
       // Helper function to clean and validate user data
@@ -7322,6 +7351,12 @@ const midnightTimerRef = useRef(null);
         setError(null);
         try {
           const base64ImageData = await fileToBase64(file);
+          const dataUrl = `data:${file.type};base64,${base64ImageData}`;
+          // Prefer compressed preview for upload to reduce size
+          const previewDataUrl = (() => { try { return localStorage.getItem('foodScanner_imagePreview'); } catch { return null; } })();
+          const uploadDataUrl = previewDataUrl || dataUrl;
+          const uploadedUrl = await uploadImageDataUrlToPublic(uploadDataUrl, file.type);
+          const imageUrlToSend = uploadedUrl || dataUrl;
           
           // Build the prompt with portion information if provided
           let prompt = `Analyze the food in this image.
@@ -7358,7 +7393,7 @@ Respond ONLY with a valid JSON object in this format:
                 role: 'user',
                 content: [
                   { type: 'text', text: prompt },
-                  { type: 'image_url', image_url: `data:${file.type};base64,${base64ImageData}` }
+                  { type: 'image_url', image_url: imageUrlToSend }
                 ]
               }
             ]
@@ -7378,7 +7413,7 @@ Respond ONLY with a valid JSON object in this format:
           const textResponse = (result.choices?.[0]?.message?.content || '');
           const jsonString = textResponse.replace(/```json|```/g, '').trim();
           const data = JSON.parse(jsonString);
-          data.image = `data:${file.type};base64,${base64ImageData}`;
+          data.image = imageUrlToSend;
           setScanResult(data);
           
           // Save to localStorage for persistence
@@ -7842,6 +7877,12 @@ Respond ONLY with a valid JSON object in this format:
           };
 
           // Use Direct OpenRouter (Qwen)
+          const previewDataUrl = (() => { try { return localStorage.getItem('menuDecoder_imagePreview'); } catch { return null; } })();
+          const dataUrl = `data:${file.type};base64,${base64ImageData}`;
+          const uploadDataUrl = previewDataUrl || dataUrl;
+          const uploadedUrl = await uploadImageDataUrlToPublic(uploadDataUrl, file.type);
+          const imageUrlToSend = uploadedUrl || dataUrl;
+
           const response = await fetch(getDirectGeminiConfig().url, {
             method: 'POST',
             headers: getDirectGeminiConfig().headers,
@@ -7851,7 +7892,7 @@ Respond ONLY with a valid JSON object in this format:
                 role: 'user',
                 content: [
                   { type: 'text', text: prompt },
-                  { type: 'image_url', image_url: `data:${file.type};base64,${base64ImageData}` }
+                  { type: 'image_url', image_url: imageUrlToSend }
                 ]
               }]
             })
@@ -8188,6 +8229,11 @@ Respond ONLY with a valid JSON object in this format:
         
         try {
           const base64ImageData = await fileToBase64(file);
+          const dataUrl = `data:${file.type};base64,${base64ImageData}`;
+          const previewDataUrl = (() => { try { return localStorage.getItem('pantryChef_imagePreview'); } catch { return null; } })();
+          const uploadDataUrl = previewDataUrl || dataUrl;
+          const uploadedUrl = await uploadImageDataUrlToPublic(uploadDataUrl, file.type);
+          const imageUrlToSend = uploadedUrl || dataUrl;
           const prompt = `Analyze this image of pantry/fridge ingredients.
 1. Identify all visible food items and ingredients.
 2. List them clearly with estimated quantities if visible.
@@ -8219,7 +8265,7 @@ Respond ONLY with a valid JSON object in this format:
                 role: 'user',
                 content: [
                   { type: 'text', text: prompt },
-                  { type: 'image_url', image_url: `data:${file.type};base64,${base64ImageData}` }
+                  { type: 'image_url', image_url: imageUrlToSend }
                 ]
               }]
             }),
