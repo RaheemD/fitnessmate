@@ -2221,7 +2221,7 @@ Respond ONLY with a valid JSON object in this exact format:
                   const todayISO = toLocalISODate(new Date());
                   const remoteUpdateIsToday = !!remoteTimestamp && toLocalISODate(new Date(remoteTimestamp)) === todayISO;
                   const remoteDayStamp = remoteData.daily_intake?.__day;
-                  const remoteDayMatchesToday = remoteDayStamp ? (remoteDayStamp === todayISO) : remoteUpdateIsToday;
+                  const remoteDayMatchesToday = remoteDayStamp ? ((remoteDayStamp === todayISO) && remoteUpdateIsToday) : remoteUpdateIsToday;
                   const resetAt = parseInt(localStorage.getItem('midnightResetAt') || '0');
                   const remoteTs = remoteTimestamp ? new Date(remoteTimestamp).getTime() : 0;
                   const remoteOlderThanReset = resetAt && remoteTs && (remoteTs <= resetAt);
@@ -3292,7 +3292,7 @@ Respond ONLY with a valid JSON object in this exact format:
                 const todayISO = toLocalISODate(new Date());
                 const remoteUpdateIsToday = !!payload.updated_at && toLocalISODate(new Date(payload.updated_at)) === todayISO;
                 const remoteDayStamp = payload.daily_intake?.__day;
-                const remoteDayMatchesToday = remoteDayStamp ? (remoteDayStamp === todayISO) : remoteUpdateIsToday;
+                const remoteDayMatchesToday = remoteDayStamp ? ((remoteDayStamp === todayISO) && remoteUpdateIsToday) : remoteUpdateIsToday;
                 const resetAt = parseInt(localStorage.getItem('midnightResetAt') || '0');
                 const remoteTs = payload.updated_at ? new Date(payload.updated_at).getTime() : 0;
                 const remoteOlderThanReset = resetAt && remoteTs && (remoteTs <= resetAt);
@@ -3508,7 +3508,7 @@ const midnightTimerRef = useRef(null);
                   const todayISO = toLocalISODate(new Date());
                   const remoteUpdateIsToday = !!userData.updated_at && toLocalISODate(new Date(userData.updated_at)) === todayISO;
                   const remoteDayStamp = userData.daily_intake?.__day;
-                  const remoteDayMatchesToday = remoteDayStamp ? (remoteDayStamp === todayISO) : remoteUpdateIsToday;
+                  const remoteDayMatchesToday = remoteDayStamp ? ((remoteDayStamp === todayISO) && remoteUpdateIsToday) : remoteUpdateIsToday;
                   const resetAt = parseInt(localStorage.getItem('midnightResetAt') || '0');
                   const remoteTs = userData.updated_at ? new Date(userData.updated_at).getTime() : 0;
                   const remoteOlderThanReset = resetAt && remoteTs && (remoteTs <= resetAt);
@@ -8904,7 +8904,7 @@ Respond ONLY with a valid JSON object in this exact format:
                       // Generate and download PDF
                       generatePDF(title, content, "meal-plan.pdf");
                     }}
-                    className="mt-6 mx-auto block bg-pink-500 text-white font-bold py-3 px-6 rounded-xl shadow-lg hover:bg-pink-600 transition-colors"
+                    className="pdf-btn-top mx-auto block bg-pink-500 text-white font-bold py-3 px-6 rounded-xl shadow-lg hover:bg-pink-600 transition-colors"
                   >
                     📥 Download Meal Plan PDF
                   </button>
@@ -10695,7 +10695,7 @@ Respond ONLY with a valid JSON object in this exact format:
                       // Generate and download PDF
                       generatePDF(title, content, "workout-plan.pdf");
                     }}
-                    className="mt-6 mx-auto block bg-pink-500 text-white font-bold py-3 px-6 rounded-xl shadow-lg hover:bg-pink-600 transition-colors"
+                    className="pdf-btn-top mx-auto block bg-pink-500 text-white font-bold py-3 px-6 rounded-xl shadow-lg hover:bg-pink-600 transition-colors"
                   >
                     📥 Download Workout Plan PDF
                   </button>
@@ -10863,19 +10863,37 @@ Respond ONLY with a valid JSON object in this exact format:
             const clamp01 = (x) => Math.max(0, Math.min(1, x));
             // Normalize inputs to 0-1 (same mapping used by Progress screen)
             const sleep = clamp01(Math.abs((v.sleepHours || 0) - 8) / 4);
-            const work = clamp01((v.workHours || 0) / 12);
+            const work = clamp01(Math.abs((v.workHours || 0) - 8) / 4);
             const rating = clamp01((v.stressRating - 1) / 9);
             const episodes = clamp01((v.stressEpisodes || 0) / 6);
             const screen = clamp01((v.screenHours || 0) / 8);
             const exerciseRelief = clamp01((v.exerciseMins || 0) / 45);
             const meditationRelief = clamp01((v.meditationMins || 0) / 15);
             const socialRelief = clamp01((v.socialMins || 0) / 60);
+            // Extra penalty for low sleep: impact grows rapidly below 7h (saturates at 4h)
+            const undersleepTail = clamp01(Math.max(0, 7 - (v.sleepHours || 0)) / 3);
+            // Extra penalty for heavy overtime: impact grows after 12h
+            const overworkTail = clamp01(Math.max(0, (v.workHours || 0) - 12) / 4);
+            // Strong amplification for psychological extremes
+            const ratingTail = clamp01(Math.max(0, (v.stressRating || 0) - 7) / 3); // ramps 7→10
+            const episodesTail = clamp01(Math.max(0, (v.stressEpisodes || 0) - 3) / 3); // ramps 3→6
 
             // Weights consistent with Progress screen UI
             const w = { sleep:25, work:20, rating:12, episodes:8, screen:10, exercise:15, meditation:5, social:5 };
-            const stressors = sleep*w.sleep + work*w.work + rating*w.rating + episodes*w.episodes + screen*w.screen;
+            const workTailWeight = 20; // additional weight applied to overtime beyond 12h
+            const sleepTailWeight = 20; // additional weight applied when sleep < 7h
+            const psychTailRatingWeight = 30; // heavy amplification when self-rated stress ≥7
+            const psychTailEpisodesWeight = 30; // heavy amplification when episodes ≥3
+            const stressors = sleep*w.sleep + work*w.work + rating*w.rating + episodes*w.episodes + screen*w.screen
+              + overworkTail*workTailWeight + undersleepTail*sleepTailWeight
+              + ratingTail*psychTailRatingWeight + episodesTail*psychTailEpisodesWeight;
             const bufferSum = exerciseRelief*w.exercise + meditationRelief*w.meditation + socialRelief*w.social;
-            let rawIndex = stressors - bufferSum; // [-25, 75]
+            // Work‑dominant buffering: damp buffers when work deviation is high
+            const WORK_BUFFER_DAMPEN = 0.7; // up to 70% reduction at max work deviation
+            const PSYCH_BUFFER_DAMPEN = 0.6; // buffers weakened by psychological extremes
+            const bufferScale = clamp01((1 - WORK_BUFFER_DAMPEN * work) * (1 - PSYCH_BUFFER_DAMPEN * Math.max(ratingTail, episodesTail)));
+            const effectiveBuffer = bufferSum * bufferScale;
+            let rawIndex = stressors - effectiveBuffer; // [-25, 75]
             let baseScore = Math.max(0, Math.min(100, rawIndex + 25));
 
             let multiplier = 1.0;
@@ -10883,27 +10901,55 @@ Respond ONLY with a valid JSON object in this exact format:
             else if (v.lifeEvent === 'major') multiplier = 2.0;
 
             let stressScore = Math.round(Math.min(100, baseScore * multiplier));
-            let category = 'Low';
-            if (stressScore >= 70) category = 'High';
-            else if (stressScore >= 35) category = 'Moderate';
+            let category = 'Very Low';
+            if (stressScore >= 81) category = 'Very High';
+            else if (stressScore >= 61) category = 'High';
+            else if (stressScore >= 41) category = 'Moderate';
+            else if (stressScore >= 21) category = 'Low';
 
+            // Confidence: inverse of stress, adjusted by volatility, buffers, events, and minimal missing-data penalty
+            const baseConfidence = 100 - stressScore;
+            let volatilityPenalty = 0;
+            // Sleep volatility (tail grows <7h; strong volatility <5h)
+            if (undersleepTail > 0.66) volatilityPenalty += 10; else if (undersleepTail > 0.33) volatilityPenalty += 5;
+            // Work volatility (>12h overtime)
+            if (overworkTail > 0.50) volatilityPenalty += 8; else if (overworkTail > 0.25) volatilityPenalty += 4;
+            // Psychological/episodes/screen extremes
+            if (rating >= 0.7) volatilityPenalty += 8; else if (rating >= 0.5) volatilityPenalty += 4;
+            if (episodes >= 0.7) volatilityPenalty += 8; else if (episodes >= 0.5) volatilityPenalty += 4;
+            if (screen >= 0.75) volatilityPenalty += 6; else if (screen >= 0.5) volatilityPenalty += 3;
+
+            // Strong buffers add a small confidence boost
+            let bufferBoost = 0;
+            if (exerciseRelief >= 0.8) bufferBoost += 5;
+            if (meditationRelief >= 0.8) bufferBoost += 3;
+            if (socialRelief >= 0.8) bufferBoost += 4;
+
+            // Minimal missing-data penalty (only penalize if many fields are empty)
             const pw = { sleepHours:.25, workHours:.20, stressRating:.12, stressEpisodes:.08, screenHours:.10, exerciseMins:.15, meditationMins:.05, socialMins:.05 };
             const filled = (k) => { const val = inp[k]; return val !== '' && val !== null && val !== undefined; };
             let coverage = 0; Object.keys(pw).forEach(k => { if (filled(k)) coverage += pw[k]; });
-            const confidence = Math.max(30, Math.min(100, Math.round(coverage * 100)));
+            let missingPenalty = 0; if (coverage < 0.5) missingPenalty = 10; else if (coverage < 0.75) missingPenalty = 5;
+
+            // Life event reduces certainty
+            const eventPenalty = (v.lifeEvent === 'major') ? 10 : (v.lifeEvent === 'minor' ? 5 : 0);
+
+            const confidence = Math.max(20, Math.min(95, Math.round(baseConfidence - volatilityPenalty - eventPenalty - missingPenalty + bufferBoost)));
 
             const drivers = {
-              sleep: Math.round(sleep * w.sleep),
+              sleep: Math.round(sleep * w.sleep + undersleepTail * sleepTailWeight),
               work: Math.round(work * w.work),
-              selfRating: Math.round(rating * w.rating),
-              episodes: Math.round(episodes * w.episodes),
+              selfRating: Math.round(rating * w.rating + ratingTail * psychTailRatingWeight),
+              episodes: Math.round(episodes * w.episodes + episodesTail * psychTailEpisodesWeight),
               screen: Math.round(screen * w.screen)
             };
             const buffers = {
-              exercise: Math.round(exerciseRelief * w.exercise),
-              meditation: Math.round(meditationRelief * w.meditation),
-              social: Math.round(socialRelief * w.social)
+              exercise: Math.round(exerciseRelief * w.exercise * bufferScale),
+              meditation: Math.round(meditationRelief * w.meditation * bufferScale),
+              social: Math.round(socialRelief * w.social * bufferScale)
             };
+            // Reflect overtime tail in driver view as part of work
+            drivers.work = Math.round(work * w.work + overworkTail * workTailWeight);
             return { stressScore, category, confidence, breakdown: { drivers, buffers }, lifeEventMultiplier: multiplier };
           };
 
@@ -11181,7 +11227,7 @@ User's question: "${userMessage.text}"`;
           return {
             sleepHours: parsed.sleepHours ?? '',
             workHours: parsed.workHours ?? '',
-            stressRating: parsed.stressRating ?? 5,
+            stressRating: parsed.stressRating ?? '',
             stressEpisodes: parsed.stressEpisodes ?? '',
             exerciseMins: parsed.exerciseMins ?? '',
             meditationMins: parsed.meditationMins ?? '',
@@ -11191,16 +11237,25 @@ User's question: "${userMessage.text}"`;
             notes: parsed.notes ?? ''
           };
         } catch (_) {
-          return { sleepHours:'', workHours:'', stressRating:5, stressEpisodes:'', exerciseMins:'', meditationMins:'', socialMins:'', screenHours:'', lifeEvent:'none', notes:'' };
+          return { sleepHours:'', workHours:'', stressRating:'', stressEpisodes:'', exerciseMins:'', meditationMins:'', socialMins:'', screenHours:'', lifeEvent:'none', notes:'' };
         }
       });
       const [stressResult, setStressResult] = useState(null);
       const [stressInsight, setStressInsight] = useState('');
       const [lifeEventInfoOpen, setLifeEventInfoOpen] = useState(false);
+      const [stressError, setStressError] = useState('');
 
       useEffect(() => {
         try { localStorage.setItem('stressForm', JSON.stringify(stressForm)); } catch (_) {}
       }, [stressForm]);
+
+      // Daily time budget: Sleep + Work + Exercise + Meditation + Social must not exceed 24h
+      const totalHours = Number(stressForm.sleepHours || 0)
+        + Number(stressForm.workHours || 0)
+        + Number(stressForm.exerciseMins || 0) / 60
+        + Number(stressForm.meditationMins || 0) / 60
+        + Number(stressForm.socialMins || 0) / 60;
+      const overBudget = Math.max(0, totalHours - 24);
 
       const computeStressScore = (inp) => {
         const v = {
@@ -11217,20 +11272,38 @@ User's question: "${userMessage.text}"`;
         const clamp01 = (x) => Math.max(0, Math.min(1, x));
         // Normalize inputs to 0-1
         const sleep = clamp01(Math.abs((v.sleepHours || 0) - 8) / 4);
-        const work = clamp01((v.workHours || 0) / 12);
+        const work = clamp01(Math.abs((v.workHours || 0) - 8) / 4);
         const rating = clamp01((v.stressRating - 1) / 9);
         const episodes = clamp01((v.stressEpisodes || 0) / 6);
         const screen = clamp01((v.screenHours || 0) / 8);
         const exerciseRelief = clamp01((v.exerciseMins || 0) / 45);
         const meditationRelief = clamp01((v.meditationMins || 0) / 15);
         const socialRelief = clamp01((v.socialMins || 0) / 60);
+        // Extra penalty for low sleep: impact grows rapidly below 7h (saturates at 4h)
+        const undersleepTail = clamp01(Math.max(0, 7 - (v.sleepHours || 0)) / 3);
+        // Extra penalty for heavy overtime: impact grows after 12h
+        const overworkTail = clamp01(Math.max(0, (v.workHours || 0) - 12) / 4);
+        // Strong amplification for psychological extremes
+        const ratingTail = clamp01(Math.max(0, (v.stressRating || 0) - 7) / 3); // ramps 7→10
+        const episodesTail = clamp01(Math.max(0, (v.stressEpisodes || 0) - 3) / 3); // ramps 3→6
 
         // New weight distribution (total: 100%)
         // Self-rating+Episodes=20%, Exercise+Meditation=20%, Screen=10%
         const w = { sleep:25, work:20, rating:12, episodes:8, screen:10, exercise:15, meditation:5, social:5 };
-        const stressors = sleep*w.sleep + work*w.work + rating*w.rating + episodes*w.episodes + screen*w.screen;
+        const workTailWeight = 20; // additional weight applied to overtime beyond 12h
+        const sleepTailWeight = 20; // additional weight applied when sleep < 7h
+        const psychTailRatingWeight = 30; // heavy amplification when self-rated stress ≥7
+        const psychTailEpisodesWeight = 30; // heavy amplification when episodes ≥3
+        const stressors = sleep*w.sleep + work*w.work + rating*w.rating + episodes*w.episodes + screen*w.screen
+          + overworkTail*workTailWeight + undersleepTail*sleepTailWeight
+          + ratingTail*psychTailRatingWeight + episodesTail*psychTailEpisodesWeight;
         const bufferSum = exerciseRelief*w.exercise + meditationRelief*w.meditation + socialRelief*w.social;
-        let rawIndex = stressors - bufferSum; // Range: [-25, 75]
+        // Work‑dominant buffering: damp buffers when work deviation is high
+        const WORK_BUFFER_DAMPEN = 0.7; // up to 70% reduction at max work deviation
+        const PSYCH_BUFFER_DAMPEN = 0.6; // buffers weakened by psychological extremes
+        const bufferScale = clamp01((1 - WORK_BUFFER_DAMPEN * work) * (1 - PSYCH_BUFFER_DAMPEN * Math.max(ratingTail, episodesTail)));
+        const effectiveBuffer = bufferSum * bufferScale;
+        let rawIndex = stressors - effectiveBuffer; // Range: [-25, 75]
         
         // Map to 0-100 base score
         let baseScore = Math.max(0, Math.min(100, rawIndex + 25));
@@ -11242,32 +11315,56 @@ User's question: "${userMessage.text}"`;
         
         let stressScore = Math.round(Math.min(100, baseScore * multiplier));
 
-        let category = 'Low';
-        if (stressScore >= 70) category = 'High';
-        else if (stressScore >= 35) category = 'Moderate';
+        let category = 'Very Low';
+        if (stressScore >= 81) category = 'Very High';
+        else if (stressScore >= 61) category = 'High';
+        else if (stressScore >= 41) category = 'Moderate';
+        else if (stressScore >= 21) category = 'Low';
 
         // Confidence: weighted completeness matching new distribution
+        // Confidence: inverse of stress, adjusted by volatility, buffers, events, and minimal missing-data penalty
+        const baseConfidence = 100 - stressScore;
+        let volatilityPenalty = 0;
+        // Sleep volatility (tail grows <7h; strong volatility <5h)
+        if (undersleepTail > 0.66) volatilityPenalty += 10; else if (undersleepTail > 0.33) volatilityPenalty += 5;
+        // Work volatility (>12h overtime)
+        if (overworkTail > 0.50) volatilityPenalty += 8; else if (overworkTail > 0.25) volatilityPenalty += 4;
+        // Psychological/episodes/screen extremes
+        if (rating >= 0.7) volatilityPenalty += 8; else if (rating >= 0.5) volatilityPenalty += 4;
+        if (episodes >= 0.7) volatilityPenalty += 8; else if (episodes >= 0.5) volatilityPenalty += 4;
+        if (screen >= 0.75) volatilityPenalty += 6; else if (screen >= 0.5) volatilityPenalty += 3;
+
+        // Strong buffers add a small confidence boost
+        let bufferBoost = 0;
+        if (exerciseRelief >= 0.8) bufferBoost += 5;
+        if (meditationRelief >= 0.8) bufferBoost += 3;
+        if (socialRelief >= 0.8) bufferBoost += 4;
+
+        // Minimal missing-data penalty (only penalize if many fields are empty)
         const pw = { sleepHours:.25, workHours:.20, stressRating:.12, stressEpisodes:.08, screenHours:.10, exerciseMins:.15, meditationMins:.05, socialMins:.05 };
-        const filled = (k) => {
-          const val = inp[k];
-          return val !== '' && val !== null && val !== undefined;
-        };
-        let coverage = 0;
-        Object.keys(pw).forEach(k => { if (filled(k)) coverage += pw[k]; });
-        const confidence = Math.max(30, Math.min(100, Math.round(coverage * 100)));
+        const filled = (k) => { const val = inp[k]; return val !== '' && val !== null && val !== undefined; };
+        let coverage = 0; Object.keys(pw).forEach(k => { if (filled(k)) coverage += pw[k]; });
+        let missingPenalty = 0; if (coverage < 0.5) missingPenalty = 10; else if (coverage < 0.75) missingPenalty = 5;
+
+        // Life event reduces certainty
+        const eventPenalty = (v.lifeEvent === 'major') ? 10 : (v.lifeEvent === 'minor' ? 5 : 0);
+
+        const confidence = Math.max(20, Math.min(95, Math.round(baseConfidence - volatilityPenalty - eventPenalty - missingPenalty + bufferBoost)));
 
         const drivers = {
-          sleep: Math.round(sleep * w.sleep),
+          sleep: Math.round(sleep * w.sleep + undersleepTail * sleepTailWeight),
           work: Math.round(work * w.work),
-          selfRating: Math.round(rating * w.rating),
-          episodes: Math.round(episodes * w.episodes),
+          selfRating: Math.round(rating * w.rating + ratingTail * psychTailRatingWeight),
+          episodes: Math.round(episodes * w.episodes + episodesTail * psychTailEpisodesWeight),
           screen: Math.round(screen * w.screen)
         };
         const buffers = {
-          exercise: Math.round(exerciseRelief * w.exercise),
-          meditation: Math.round(meditationRelief * w.meditation),
-          social: Math.round(socialRelief * w.social)
+          exercise: Math.round(exerciseRelief * w.exercise * bufferScale),
+          meditation: Math.round(meditationRelief * w.meditation * bufferScale),
+          social: Math.round(socialRelief * w.social * bufferScale)
         };
+        // Reflect overtime tail in driver view as part of work
+        drivers.work = Math.round(work * w.work + overworkTail * workTailWeight);
 
         return { stressScore, category, confidence, breakdown: { drivers, buffers }, lifeEventMultiplier: multiplier };
       };
@@ -12254,16 +12351,20 @@ ${habits.map(habit => {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Sleep hours</label>
-                    <input type="number" inputMode="numeric" min="0" step="0.5" value={stressForm.sleepHours}
-                      placeholder="8h ideal; deviation raises stress (25%)"
+                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Sleep hours <span className="text-red-500" title="Required">*</span></label>
+                    <input type="number" inputMode="numeric" min="4" step="0.5" value={stressForm.sleepHours} required aria-invalid={stressForm.sleepHours === '' || Number(stressForm.sleepHours) < 4}
+                      placeholder="8h ideal; &lt;7h adds heavy penalty (25% + tail)"
                       onChange={e=>setStressForm({...stressForm, sleepHours:e.target.value})}
-                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500 placeholder:text-[11px] md:placeholder:text-sm appearance-none" style={{MozAppearance:'textfield'}} />
+                      onBlur={e=>{ const val = Number(e.target.value); if (isNaN(val) || val < 4) { setStressForm({...stressForm, sleepHours:''}); } }}
+                      className={"w-full p-3 rounded-xl border bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 placeholder:text-[11px] md:placeholder:text-sm appearance-none " + ((stressForm.sleepHours === '' || Number(stressForm.sleepHours) < 4) ? "border-red-400 dark:border-red-500 focus:ring-red-500" : "border-gray-200 dark:border-gray-600 focus:ring-purple-500")} style={{MozAppearance:'textfield'}} />
+                    {(stressForm.sleepHours !== '' && Number(stressForm.sleepHours) < 4) && (
+                      <p className="mt-1 text-xs text-red-600 dark:text-red-400">Minimum 4 hours of sleep is required to compute your stress score.</p>
+                    )}
                   </div>
                   <div>
                     <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Work hours</label>
                     <input type="number" inputMode="numeric" min="0" step="0.5" value={stressForm.workHours}
-                      placeholder="More hours add stress; ~8h typical (20%)"
+                      placeholder="8h ideal; deviation raises stress (20%)"
                       onChange={e=>setStressForm({...stressForm, workHours:e.target.value})}
                       className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500 placeholder:text-[11px] md:placeholder:text-sm appearance-none" style={{MozAppearance:'textfield'}} />
                   </div>
@@ -12271,7 +12372,7 @@ ${habits.map(habit => {
                     <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Self‑rated stress (1–10)</label>
                     <input type="number" inputMode="numeric" min="1" max="10" value={stressForm.stressRating}
                       placeholder="Higher rating increases stress (12%)"
-                      onChange={e=>setStressForm({...stressForm, stressRating: Number(e.target.value)})}
+                      onChange={e=>setStressForm({...stressForm, stressRating: e.target.value})}
                       className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500 placeholder:text-[11px] md:placeholder:text-sm appearance-none" style={{MozAppearance:'textfield'}} />
                   </div>
                   <div>
@@ -12346,23 +12447,64 @@ ${habits.map(habit => {
                   
                 </div>
 
-                <div className="flex mt-4">
+                <div className="mt-4">
+                  {overBudget > 0 ? (
+                    <div className="mb-2 text-sm text-red-600 dark:text-red-400" aria-live="polite">
+                      Time exceeds 24h by {overBudget.toFixed(2)} hours. Reduce one or more inputs.
+                    </div>
+                  ) : (
+                    <div className="mb-2 text-xs text-gray-600 dark:text-gray-400" aria-live="polite">
+                      Time budget: {totalHours.toFixed(2)}h used • {(Math.max(0, 24 - totalHours)).toFixed(2)}h remaining
+                    </div>
+                  )}
                   <button
-                    onClick={() => { const r = computeStressScore(stressForm); setStressResult(r); setStressInsight(generateStressInsight(r, stressForm)); }}
-                    className="flex-grow bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold p-3 rounded-xl hover:from-purple-600 hover:to-pink-600 transition-all duration-200">
+                    onClick={() => {
+                      const th = Number(stressForm.sleepHours || 0)
+                        + Number(stressForm.workHours || 0)
+                        + Number(stressForm.exerciseMins || 0) / 60
+                        + Number(stressForm.meditationMins || 0) / 60
+                        + Number(stressForm.socialMins || 0) / 60;
+                      if (stressForm.sleepHours === '' || Number(stressForm.sleepHours) < 4) {
+                        setStressError('To compute your stress score, please enter at least 4 hours of sleep.');
+                        return;
+                      }
+                      if (th > 24) {
+                        setStressError('Your total time exceeds 24 hours. Please adjust your inputs.');
+                        return;
+                      }
+                      const r = computeStressScore(stressForm);
+                      setStressResult(r);
+                      setStressInsight(generateStressInsight(r, stressForm));
+                      setStressError('');
+                    }}
+                    disabled={stressForm.sleepHours === '' || Number(stressForm.sleepHours) < 4 || overBudget > 0}
+                    className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold p-3 rounded-xl hover:from-purple-600 hover:to-pink-600 transition-all duration-200 disabled:opacity-50">
                     Compute Stress Score
                   </button>
+                  {stressError && (
+                    <div className="mt-2 text-sm text-red-600 dark:text-red-400">{stressError}</div>
+                  )}
                 </div>
               </div>
 
               {stressResult && (
                 <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl border border-white/20">
                   <div className="flex items-center justify-between mb-4">
-                    <div className={`w-20 h-20 bg-gradient-to-br ${stressResult.stressScore >= 70 ? 'from-red-500 to-red-600' : (stressResult.stressScore >= 35 ? 'from-yellow-400 to-orange-500' : 'from-emerald-400 to-green-600')} rounded-3xl flex items-center justify-center text-white font-bold text-2xl shadow-lg`}>
-                      {stressResult.stressScore}
-                    </div>
+              <div className={`w-20 h-20 ${stressResult.stressScore === 0 
+                ? 'bg-transparent border-2 border-emerald-400 text-emerald-500' 
+                : 'bg-gradient-to-br ' + (stressResult.stressScore >= 81
+                    ? 'from-red-600 to-rose-700 text-white'
+                    : (stressResult.stressScore >= 61
+                        ? 'from-orange-500 to-red-500 text-white'
+                        : (stressResult.stressScore >= 41
+                            ? 'from-yellow-400 to-orange-500 text-white'
+                            : (stressResult.stressScore >= 21
+                                ? 'from-emerald-400 to-green-600 text-white'
+                                : 'from-emerald-200 to-emerald-400 text-white'))))} rounded-3xl flex items-center justify-center font-bold text-2xl shadow-lg`}>
+                {stressResult.stressScore}
+              </div>
                     <div className="text-right">
-                      <div className="text-2xl font-bold text-gray-800 dark:text-gray-200">{stressResult.category}</div>
+              <div className="text-2xl font-bold text-gray-800 dark:text-gray-200">{stressResult.stressScore === 0 ? '😊' : (stressResult.stressScore === 100 ? ('🚨 ' + stressResult.category) : stressResult.category)}</div>
                       <div className="text-sm text-gray-600 dark:text-gray-400">Confidence {stressResult.confidence}%</div>
                       {stressResult.lifeEventMultiplier > 1.0 && (
                         <div className="text-xs text-orange-600 dark:text-orange-400 mt-1">Life event: {stressResult.lifeEventMultiplier}× amplifier</div>
@@ -12380,7 +12522,7 @@ ${habits.map(habit => {
                       <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2 mb-1">
                         <div className="bg-gradient-to-r from-pink-400 to-pink-600 h-2 rounded-full" style={{width: `${Math.min(100, (stressResult.breakdown.drivers.sleep / 25) * 100)}%`}}></div>
                       </div>
-                      <div className="text-xs text-gray-600 dark:text-gray-400">Deviation from 8h optimal sleep</div>
+                      <div className="text-xs text-gray-600 dark:text-gray-400">Deviation from 8h; severe penalty when sleep &lt; 7h</div>
                     </div>
 
                     {/* Work Driver */}
@@ -12392,7 +12534,7 @@ ${habits.map(habit => {
                       <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2 mb-1">
                         <div className="bg-gradient-to-r from-purple-400 to-purple-600 h-2 rounded-full" style={{width: `${Math.min(100, (stressResult.breakdown.drivers.work / 20) * 100)}%`}}></div>
                       </div>
-                      <div className="text-xs text-gray-600 dark:text-gray-400">Higher work hours increase stress</div>
+                      <div className="text-xs text-gray-600 dark:text-gray-400">Deviation from 8h increases stress; heavy overtime (&gt;12h) adds extra penalty</div>
                     </div>
 
                     {/* Self-rating + Episodes Group */}
@@ -13478,5 +13620,38 @@ ${habits.map(habit => {
     };
   })();
 </script>
+<!-- PDF Buttons Top Positioning Styles -->
+<style id="pdf-top-styles">
+  /* Position download buttons at the top of plan sections */
+  .animate-fade-in { position: relative; padding-top: 72px; }
+  .pdf-btn-top {
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 50;
+    margin-top: 0 !important;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border-radius: 9999px;
+    padding: 0.6rem 1rem; /* compact, readable */
+    font-size: 0.95rem;
+    white-space: nowrap;
+    max-width: calc(100% - 40px); /* safe margins */
+    box-shadow: 0 6px 16px rgba(236, 72, 153, 0.35);
+  }
+  @media (max-width: 640px) {
+    .animate-fade-in { padding-top: 84px; }
+    .pdf-btn-top {
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 0.85rem;
+      padding: 0.5rem 0.75rem;
+      max-width: calc(100% - 32px);
+    }
+  }
+</style>
 </body>
 </html>
