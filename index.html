@@ -2506,7 +2506,17 @@ Respond ONLY with a valid JSON object in this exact format:
     
     // Feature flag: hide manual cloud sync UI (auto-sync is active)
     const SHOW_MANUAL_CLOUD_SYNC = false;
-    (function(){const installLimiter=()=>{if(window.__aiLimiterInstalled)return;const aiUrl=getDirectGeminiConfig().url;const orig=window.fetch.bind(window);window.__aiThinkingPending=window.__aiThinkingPending||0;window.fetch=async (input,init={})=>{try{const reqUrl=typeof input==='string'?input:((input&&input.url)||'');const method=(init&&init.method)?String(init.method).toUpperCase():'GET';const isAI=(reqUrl===aiUrl&&method==='POST');if(!isAI){return orig(input,init);}let hdrs=(init&&init.headers)||null;let ignore=false;try{if(hdrs&&typeof hdrs.get==='function'){ignore=!!hdrs.get('X-Fitmate-Ignore-Quota');}else if(hdrs&&typeof hdrs==='object'){ignore=!!(hdrs['X-Fitmate-Ignore-Quota']||hdrs['x-fitmate-ignore-quota']);}}catch(_){}let uid=null;try{if(auth&&auth.getSession){const { data:{ session } }=await auth.getSession();uid=session&&session.user?session.user.id:null;}}catch(_){}const todayISO=(typeof toLocalISODate==='function'?toLocalISODate(new Date()):new Date().toISOString().slice(0,10));let usage={};try{usage=JSON.parse(localStorage.getItem('aiUsage')||'{}')||{};}catch(_){}if(!usage[todayISO])usage[todayISO]={};const key=uid||'anon';let subscribed=false;try{subscribed=JSON.parse(localStorage.getItem('subscriptionActive')||'false');}catch(_){}const limit=subscribed?10:(uid?5:3);const count=Number(usage[todayISO][key]||0);if(count>=limit){try{if(uid){window.dispatchEvent(new Event('force-open-subscription-modal'));}else{window.dispatchEvent(new CustomEvent('ai-quota-exceeded',{detail:{key,limit}}));}}catch(_){}return new Response(JSON.stringify({error:'quota_exceeded'}),{status:429,headers:{'Content-Type':'application/json'}});}usage[todayISO][key]=count+1;try{localStorage.setItem('aiUsage',JSON.stringify(usage));
+    (function(){const installLimiter=()=>{if(window.__aiLimiterInstalled)return;const aiUrl=getDirectGeminiConfig().url;const orig=window.fetch.bind(window);window.__aiThinkingPending=window.__aiThinkingPending||0;window.fetch=async (input,init={})=>{try{const reqUrl=typeof input==='string'?input:((input&&input.url)||'');const method=(init&&init.method)?String(init.method).toUpperCase():'GET';const isAI=(reqUrl===aiUrl&&method==='POST');if(!isAI){return orig(input,init);}let hdrs=(init&&init.headers)||null;let ignore=false;try{if(hdrs&&typeof hdrs.get==='function'){ignore=!!hdrs.get('X-Fitmate-Ignore-Quota');}else if(hdrs&&typeof hdrs==='object'){ignore=!!(hdrs['X-Fitmate-Ignore-Quota']||hdrs['x-fitmate-ignore-quota']);}}catch(_){}let uid=null;try{if(auth&&auth.getSession){const { data:{ session } }=await auth.getSession();uid=session&&session.user?session.user.id:null;}}catch(_){}const todayISO=(typeof toLocalISODate==='function'?toLocalISODate(new Date()):new Date().toISOString().slice(0,10));let usage={};try{usage=JSON.parse(localStorage.getItem('aiUsage')||'{}')||{};}catch(_){}if(!usage[todayISO])usage[todayISO]={};const key=uid||'anon';let subscribed=false;try{subscribed=JSON.parse(localStorage.getItem('subscriptionActive')||'false');}catch(_){}const limit=subscribed?10:(uid?5:3);const count=Number(usage[todayISO][key]||0);if(count>=limit){
+              // If this request explicitly asks to ignore quota, do NOT dispatch
+              // subscription/quota events that would open modals. Still return
+              // a 429 so callers can gracefully handle fallback behavior.
+              if(ignore){
+                return new Response(JSON.stringify({error:'quota_exceeded'}),{status:429,headers:{'Content-Type':'application/json'}});
+              }
+              try{if(uid){window.dispatchEvent(new Event('force-open-subscription-modal'));}else{window.dispatchEvent(new CustomEvent('ai-quota-exceeded',{detail:{key,limit}}));}}catch(_){}
+              return new Response(JSON.stringify({error:'quota_exceeded'}),{status:429,headers:{'Content-Type':'application/json'}});
+            }
+            usage[todayISO][key]=count+1;try{localStorage.setItem('aiUsage',JSON.stringify(usage));
             try {
               // Sync AI usage to database immediately after incrementing
               if (uid && typeof supabase !== 'undefined' && typeof db !== 'undefined' && db.updateUser) {
@@ -7427,7 +7437,7 @@ Respond ONLY with a valid JSON object in this format:
           }
         } catch (err) {
           console.error("OpenRouter API call failed:", err);
-          setError('Could not analyze the image. Please try again.');
+          setError('Couldn’t analyze the image or prompt limit reached. Try again, or sign in, or subscribe to continue.');
         } finally {
           setIsLoading(false);
         }
@@ -7918,7 +7928,7 @@ Respond ONLY with a valid JSON object in this format:
           }));
         } catch (err) {
           console.error("Menu analysis failed:", err);
-          setError('Could not analyze menu. Please try again with a clearer image.');
+          setError('Couldn’t analyze the menu or prompt limit reached. Try again, or sign in, or subscribe to continue.');
         } finally {
           setIsLoading(false);
         }
@@ -8285,7 +8295,7 @@ Respond ONLY with a valid JSON object in this format:
           clearTimeout(timeoutId); // Clear timeout on success
         } catch (err) {
           console.error("Ingredient recognition failed:", err);
-          setError('Could not identify ingredients. Please try again.');
+          setError('Couldn’t analyze the ingredients or prompt limit reached. Try again, or sign in, or subscribe to continue.');
           clearTimeout(timeoutId); // Clear timeout on error
         } finally {
           setIsLoading(false);
@@ -8843,11 +8853,7 @@ Respond ONLY with a valid JSON object in this exact format:
                 <div className="animate-fade-in">
                   <button onClick={() => setMealPlan(null)} className="mb-4 text-pink-500 font-semibold">&larr; Back to Preferences</button>
                   
-                  {/* Voice Button with Pause/Resume - REMOVED */}
-                  
-                  <MealPlanDisplay mealPlan={mealPlan} />
-                  
-                  {/* Download Button */}
+                  {/* Download Button moved to top (responsive) */}
                   <button
                     onClick={async () => {
                       // Require sign-in before allowing PDF download
@@ -8904,10 +8910,16 @@ Respond ONLY with a valid JSON object in this exact format:
                       // Generate and download PDF
                       generatePDF(title, content, "meal-plan.pdf");
                     }}
-                    className="mt-6 mx-auto block bg-pink-500 text-white font-bold py-3 px-6 rounded-xl shadow-lg hover:bg-pink-600 transition-colors"
+                    className="mb-4 w-auto block mx-auto bg-pink-500 text-white font-bold py-2 sm:py-3 px-4 sm:px-6 text-sm sm:text-base rounded-xl shadow-lg hover:bg-pink-600 transition-colors"
                   >
                     📥 Download Meal Plan PDF
                   </button>
+
+                  {/* Voice Button with Pause/Resume - REMOVED */}
+                  
+                  <MealPlanDisplay mealPlan={mealPlan} />
+                  
+                  {/* Download Button moved from bottom */}
                 </div>
               )}
             </div>
@@ -9596,7 +9608,7 @@ Respond ONLY with a valid JSON object in this format:
           console.error('Form analysis failed:', err);
           
           // Provide specific error messages
-          let errorMessage = 'Could not analyze form. ';
+          let errorMessage = 'Could not analyze the form or prompt limit reached. ';
           
           if (err.message.includes('timeout')) {
             errorMessage += 'Video processing timed out. Please try a shorter video.';
@@ -10658,14 +10670,7 @@ Respond ONLY with a valid JSON object in this exact format:
                 <div className="animate-fade-in">
                   <button onClick={() => setWorkoutPlan(null)} className="mb-4 text-pink-500 font-semibold">&larr; Back to Preferences</button>
                   
-                  {/* Voice Button with Pause/Resume - REMOVED */}
-                  
-                  <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-md">
-                    <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200 mb-4">{workoutPlan.plan_name}</h2>
-                    <WorkoutPlanDisplay workoutPlan={workoutPlan} />
-                  </div>
-                  
-                  {/* Download Button */}
+                  {/* Download Button moved to top (responsive) */}
                   <button
                     onClick={async () => {
                       // Require sign-in before allowing PDF download
@@ -10695,10 +10700,19 @@ Respond ONLY with a valid JSON object in this exact format:
                       // Generate and download PDF
                       generatePDF(title, content, "workout-plan.pdf");
                     }}
-                    className="mt-6 mx-auto block bg-pink-500 text-white font-bold py-3 px-6 rounded-xl shadow-lg hover:bg-pink-600 transition-colors"
+                    className="mb-4 w-auto block mx-auto bg-pink-500 text-white font-bold py-2 sm:py-3 px-4 sm:px-6 text-sm sm:text-base rounded-xl shadow-lg hover:bg-pink-600 transition-colors"
                   >
                     📥 Download Workout Plan PDF
                   </button>
+
+                  {/* Voice Button with Pause/Resume - REMOVED */}
+                  
+                  <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-md">
+                    <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200 mb-4">{workoutPlan.plan_name}</h2>
+                    <WorkoutPlanDisplay workoutPlan={workoutPlan} />
+                  </div>
+                  
+                  {/* Download Button moved from bottom */}
                 </div>
               )}
             </div>
@@ -11083,7 +11097,7 @@ User's question: "${userMessage.text}"`;
           setMessages(prev => [...prev, { text: aiResponse, sender: 'ai' }]);
         } catch (err) {
           console.error("Chatbot error:", err);
-          setMessages(prev => [...prev, { text: "Sorry, I'm having trouble connecting. Please try again.", sender: 'ai' }]);
+          setMessages(prev => [...prev, { text: "Unable to connect or your prompt limit may be reached. Try again or sign in, or subscribe to continue.", sender: 'ai' }]);
         } finally {
           setIsLoading(false);
         }
@@ -11645,7 +11659,7 @@ User's question: "${userMessage.text}"`;
               </div>
               <h3 className="font-semibold text-gray-800 dark:text-gray-200">Day Streak</h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">Keep it going! 💪</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Counts consecutive days with Health Score &ge; 70.</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Counts days with Health Score &ge; 70.</p>
             </div>
 
             {/* Monthly Average */}
@@ -11868,7 +11882,7 @@ User's question: "${userMessage.text}"`;
                     </div>
                   </div>
                   
-                  {/* Weekly Activity Chart */}
+                  {/* Weekly Activity Chart (temporarily hidden)
                   <div className="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-2xl">
                     <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">7-Day Activity</h4>
                     <div className="flex items-end justify-between h-20 space-x-1">
@@ -11894,6 +11908,7 @@ User's question: "${userMessage.text}"`;
                       })}
                     </div>
                   </div>
+                  */}
                   
                   {/* Recent Workouts */}
                   {workoutHistory.length > 0 && (
@@ -11974,7 +11989,7 @@ User's question: "${userMessage.text}"`;
               
               return (
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                  {/* Health Score Achievements */}
+                  {/* Health Score Achievements (temporarily hidden)
                   <div className={`p-4 rounded-2xl text-center ${currentStreak >= 7 ? 'bg-gradient-to-br from-yellow-400 to-orange-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-400'}`}>
                     <div className="text-2xl mb-2">🔥</div>
                     <div className="text-xs font-semibold">Week Warrior</div>
@@ -11998,30 +12013,31 @@ User's question: "${userMessage.text}"`;
                     <div className="text-xs font-semibold">Perfectionist</div>
                     <div className="text-xs opacity-80">95+ best score</div>
                   </div>
+                  */}
                   
                   {/* Workout Achievements */}
                   <div className={`p-4 rounded-2xl text-center ${totalWorkouts >= 10 ? 'bg-gradient-to-br from-indigo-400 to-blue-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-400'}`}>
                     <div className="text-2xl mb-2">💪</div>
                     <div className="text-xs font-semibold">Fitness Starter</div>
-                    <div className="text-xs opacity-80">10 workouts</div>
+                    <div className="text-xs opacity-80">10 workouts in total</div>
                   </div>
                   
                   <div className={`p-4 rounded-2xl text-center ${workoutStreak >= 5 ? 'bg-gradient-to-br from-red-400 to-pink-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-400'}`}>
                     <div className="text-2xl mb-2">🏃</div>
                     <div className="text-xs font-semibold">Consistent</div>
-                    <div className="text-xs opacity-80">5 workout streak</div>
+                    <div className="text-xs opacity-80">5 workout out days in a row</div>
                   </div>
                   
                   <div className={`p-4 rounded-2xl text-center ${avgCompletionRate >= 90 ? 'bg-gradient-to-br from-emerald-400 to-teal-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-400'}`}>
                     <div className="text-2xl mb-2">🎯</div>
                     <div className="text-xs font-semibold">Finisher</div>
-                    <div className="text-xs opacity-80">90% completion</div>
+                    <div className="text-xs opacity-80">Average workout completion at 90% or higher</div>
                   </div>
                   
                   <div className={`p-4 rounded-2xl text-center ${totalWorkoutTime >= 600 ? 'bg-gradient-to-br from-amber-400 to-yellow-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-400'}`}>
                     <div className="text-2xl mb-2">⏰</div>
                     <div className="text-xs font-semibold">Time Master</div>
-                    <div className="text-xs opacity-80">10+ hours total workout time</div>
+                    <div className="text-xs opacity-80">10 hours total workout time</div>
                   </div>
                 </div>
               );
@@ -12377,7 +12393,7 @@ ${habits.map(habit => {
                     )}
                   </div>
                   <div>
-                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Work hours</label>
+                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Work hours nett.(without breaks)</label>
                     <input type="number" inputMode="numeric" min="0" step="0.5" value={stressForm.workHours}
                       placeholder="8h ideal; deviation increases stress (20%)"
                       onChange={e=>setStressForm({...stressForm, workHours:e.target.value})}
@@ -12427,9 +12443,9 @@ ${habits.map(habit => {
                       style={{MozAppearance:'textfield'}} />
                   </div>
                   <div>
-                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Screen time (hours)</label>
+                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Screen time Exclude work (hours)</label>
                     <input type="number" inputMode="numeric" min="0" step="0.5" value={stressForm.screenHours}
-                      placeholder="More non-work hours = +stress; 8h cap (10%)"
+                      placeholder="More hours add stress ~8h cap impact (10%)"
                       onChange={e=>setStressForm({...stressForm, screenHours:e.target.value})}
                       className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500 placeholder:text-[11px] md:placeholder:text-sm appearance-none" style={{MozAppearance:'textfield'}} />
                   </div>
