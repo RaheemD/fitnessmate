@@ -2506,7 +2506,7 @@ Respond ONLY with a valid JSON object in this exact format:
     
     // Feature flag: hide manual cloud sync UI (auto-sync is active)
     const SHOW_MANUAL_CLOUD_SYNC = false;
-    (function(){const installLimiter=()=>{if(window.__aiLimiterInstalled)return;const aiUrl=getDirectGeminiConfig().url;const orig=window.fetch.bind(window);window.__aiThinkingPending=window.__aiThinkingPending||0;window.fetch=async (input,init={})=>{try{const reqUrl=typeof input==='string'?input:((input&&input.url)||'');const method=(init&&init.method)?String(init.method).toUpperCase():'GET';const isAI=(reqUrl===aiUrl&&method==='POST');if(!isAI){return orig(input,init);}let hdrs=(init&&init.headers)||null;let ignore=false;try{if(hdrs&&typeof hdrs.get==='function'){ignore=!!hdrs.get('X-Fitmate-Ignore-Quota');}else if(hdrs&&typeof hdrs==='object'){ignore=!!(hdrs['X-Fitmate-Ignore-Quota']||hdrs['x-fitmate-ignore-quota']);}}catch(_){}let uid=null;try{if(auth&&auth.getSession){const { data:{ session } }=await auth.getSession();uid=session&&session.user?session.user.id:null;}}catch(_){}const todayISO=(typeof toLocalISODate==='function'?toLocalISODate(new Date()):new Date().toISOString().slice(0,10));let usage={};try{usage=JSON.parse(localStorage.getItem('aiUsage')||'{}')||{};}catch(_){}if(!usage[todayISO])usage[todayISO]={};const key=uid||'anon';let subscribed=false;try{subscribed=JSON.parse(localStorage.getItem('subscriptionActive')||'false');}catch(_){}const limit=subscribed?10:(uid?5:3);const count=Number(usage[todayISO][key]||0);if(!ignore&&count>=limit){try{if(uid){window.dispatchEvent(new Event('force-open-subscription-modal'));}else{window.dispatchEvent(new CustomEvent('ai-quota-exceeded',{detail:{key,limit}}));}}catch(_){}return new Response(JSON.stringify({error:'quota_exceeded'}),{status:429,headers:{'Content-Type':'application/json'}});}if(!ignore){usage[todayISO][key]=count+1;}try{localStorage.setItem('aiUsage',JSON.stringify(usage));
+    (function(){const installLimiter=()=>{if(window.__aiLimiterInstalled)return;const aiUrl=getDirectGeminiConfig().url;const orig=window.fetch.bind(window);window.__aiThinkingPending=window.__aiThinkingPending||0;window.fetch=async (input,init={})=>{try{const reqUrl=typeof input==='string'?input:((input&&input.url)||'');const method=(init&&init.method)?String(init.method).toUpperCase():'GET';const isAI=(reqUrl===aiUrl&&method==='POST');if(!isAI){return orig(input,init);}let hdrs=(init&&init.headers)||null;let ignore=false;try{if(hdrs&&typeof hdrs.get==='function'){ignore=!!hdrs.get('X-Fitmate-Ignore-Quota');}else if(hdrs&&typeof hdrs==='object'){ignore=!!(hdrs['X-Fitmate-Ignore-Quota']||hdrs['x-fitmate-ignore-quota']);}}catch(_){}let uid=null;try{if(auth&&auth.getSession){const { data:{ session } }=await auth.getSession();uid=session&&session.user?session.user.id:null;}}catch(_){}const todayISO=(typeof toLocalISODate==='function'?toLocalISODate(new Date()):new Date().toISOString().slice(0,10));let usage={};try{usage=JSON.parse(localStorage.getItem('aiUsage')||'{}')||{};}catch(_){}if(!usage[todayISO])usage[todayISO]={};const key=uid||'anon';let subscribed=false;try{subscribed=JSON.parse(localStorage.getItem('subscriptionActive')||'false');}catch(_){}const limit=subscribed?10:(uid?5:3);const count=Number(usage[todayISO][key]||0);if(count>=limit){try{if(uid){window.dispatchEvent(new Event('force-open-subscription-modal'));}else{window.dispatchEvent(new CustomEvent('ai-quota-exceeded',{detail:{key,limit}}));}}catch(_){}return new Response(JSON.stringify({error:'quota_exceeded'}),{status:429,headers:{'Content-Type':'application/json'}});}usage[todayISO][key]=count+1;try{localStorage.setItem('aiUsage',JSON.stringify(usage));
             try {
               // Sync AI usage to database immediately after incrementing
               if (uid && typeof supabase !== 'undefined' && typeof db !== 'undefined' && db.updateUser) {
@@ -4244,64 +4244,163 @@ const midnightTimerRef = useRef(null);
       const { setLocalStorageWithSync, user } = useAuth();
       const isSignedIn = !!user;
 
-      // Fetch daily motivational quote
+      // Fetch motivational quote (static list to avoid API calls)
       useEffect(() => {
         const today = new Date().toISOString().split('T')[0];
-        const lastFetchDate = localStorage.getItem('lastQuoteFetchDate');
-        const cachedQuote = localStorage.getItem('dailyQuote');
-
-        if (lastFetchDate === today && cachedQuote) {
-          setQuote(cachedQuote);
-          return;
-        }
+        // Disable daily cache reuse so the quote changes on each load
+        // const lastFetchDate = localStorage.getItem('lastQuoteFetchDate');
+        // const cachedQuote = localStorage.getItem('dailyQuote');
+        // if (lastFetchDate === today && cachedQuote) {
+        //   setQuote(cachedQuote);
+        //   return;
+        // }
 
         const fetchQuote = async () => {
           try {
-            const prompt = "Generate a short, motivational fitness quote (max 15 words). Just return the quote, nothing else.";
-            
-            const payload = {
-              model: OPENROUTER_QWEN_MODEL,
-              messages: [
-                { role: 'user', content: prompt }
-              ]
-            };
+            // COMMENTED OUT: Gemini/OpenRouter API call to save requests
+            // const payload = { model: OPENROUTER_QWEN_MODEL, messages: [{ role: 'user', content: prompt }] };
+            // const response = await fetch(getDirectGeminiConfig().url, { method: 'POST', headers: { ...getDirectGeminiConfig().headers, 'X-Fitmate-Ignore-Quota': 'true' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(10000) });
+            // ... consume response and set quote
 
-            const response = await fetch(getDirectGeminiConfig().url, {
-              method: 'POST',
-              headers: { ...getDirectGeminiConfig().headers, 'X-Fitmate-Ignore-Quota': 'true' },
-              body: JSON.stringify(payload),
-              signal: AbortSignal.timeout(10000)
-            });
-
-            if (!response.ok) {
-              throw new Error('API request failed');
-            }
-
-            const contentType = response.headers.get('content-type');
-            if (!contentType || !contentType.includes('application/json')) {
-              throw new Error('Invalid response format');
-            }
-
-            const result = await response.json();
-            const newQuote = (result.choices?.[0]?.message?.content || '').trim();
-            if (newQuote) {
-              setQuote(newQuote);
-              setLocalStorageWithSync('dailyQuote', newQuote);
-              setLocalStorageWithSync('lastQuoteFetchDate', today);
-            } else {
-              throw new Error('Empty quote received');
-            }
-          } catch (error) {
-            // Silently use fallback quote - don't spam console with CORS/network errors
-            const fallbackQuotes = [
-              "The only bad workout is the one that didn't happen.",
-              "Progress, not perfection.",
-              "Your body can do it. It's your mind you need to convince.",
-              "Stronger every day.",
-              "Fitness is not about being better than someone else. It's about being better than you used to be."
+            // Static motivational quotes; rotates randomly on each load
+            const STATIC_QUOTES = [
+              "Progress over perfection, every single day.",
+              "Small steps, big changes.",
+              "Consistency beats intensity.",
+              "Sweat today, strength tomorrow.",
+              "One more rep, one more win.",
+              "Start now, not later.",
+              "Your future self is watching.",
+              "Earn your energy.",
+              "Discipline builds confidence.",
+              "Strong body, strong mind.",
+              "Show up, even tired.",
+              "You are your best investment.",
+              "Make habits, not excuses.",
+              "Motion creates motivation.",
+              "Train like you mean it.",
+              "Keep going; momentum follows.",
+              "Storms pass; grit stays.",
+              "Do hard things daily.",
+              "Choose health, choose you.",
+              "Win the morning, win the day.",
+              "Better than yesterday.",
+              "Focus, breathe, move.",
+              "No zero days.",
+              "Turn pain into power.",
+              "Finish what you start.",
+              "Strength is earned, never given.",
+              "Practice progress, not perfection.",
+              "Your body loves consistency.",
+              "Sweat is your signature.",
+              "Make it a lifestyle.",
+              "A little daily goes far.",
+              "Push limits, build resilience.",
+              "Train for life, not looks.",
+              "Strong starts with one step.",
+              "Confidence is a side effect.",
+              "Routine is the cheat code.",
+              // Added more short fitness quotes
+              "Progress compounds; keep stacking days.",
+              "Your effort writes your story.",
+              "Fit is a feeling; chase it.",
+              "Strength begins with showing up.",
+              "Train smart, recover hard.",
+              "Move with intention.",
+              "Own the next minute.",
+              "Health is the best habit.",
+              "Make hard things normal.",
+              "Your pace, your race.",
+              "Energy in, energy out.",
+              "Sculpt your discipline.",
+              "Confidence loves consistency.",
+              "Win tiny battles daily.",
+              "Build the athlete within.",
+              "Your body deserves effort.",
+              "Sweat the excuses away.",
+              "Practice patience and effort.",
+              "Better form, better you.",
+              "Strong starts at home.",
+              "Results follow routines.",
+              "Keep promises to yourself.",
+              "Five minutes beats zero.",
+              "Turn pressure into practice.",
+              "Show up for you.",
+              "Fuel well, train well.",
+              "Every rep has purpose.",
+              "Be the most consistent.",
+              "Find your resilient self.",
+              "Stack reps, stack wins.",
+              "Make movement your default.",
+              "Start simple, stay steady.",
+              "You’re capable of more.",
+              "Balance effort and rest.",
+              "Consistency is courage repeated.",
+              "Build endurance of mind.",
+              "Less talk, more reps.",
+              "One set at a time.",
+              "Make sweat your reminder.",
+              "Celebrate tiny progress.",
+              "Track it, improve it.",
+              "Train today for tomorrow.",
+              "Muscles grow from moments.",
+              "Stay kind, stay strong.",
+              "Body follows the mind.",
+              "Cut the noise, move.",
+              "Rise, move, repeat.",
+              "Your discipline is freedom.",
+              "Commit and don’t quit.",
+              "Make fitness non-negotiable.",
+              "Routine fuels resilience.",
+              "Ownership beats motivation.",
+              "Hard now, easy later.",
+              "Strong choices, strong results.",
+              "Practice wins, performance follows.",
+              "Keep it sustainable.",
+              "Breathe; you’re progressing.",
+              "Turn intent into action.",
+              "Lift your standards daily.",
+              "Start where you are.",
+              "Move through the doubts.",
+              "Earn your rest.",
+              "Hustle for health.",
+              "Momentum loves consistency.",
+              "Make training time sacred.",
+              "Strength is a lifestyle.",
+              "Tiny steps, mighty outcomes.",
+              "Be proud of effort.",
+              "Train with gratitude.",
+              "Your body remembers.",
+              "Show up and simplify.",
+              "Build the habit first.",
+              "Motion beats hesitation.",
+              "Finish the session strong.",
+              "Your health is priority.",
+              "Power up your day.",
+              "Let discipline lead.",
+              "Keep stacking clean days.",
+              "Form first, then intensity.",
+              "Respect rest and recovery.",
+              "Repeat the basics.",
+              "Choose effort over excuses.",
+              "Make routine your coach.",
+              "Every day is a chance.",
+              "Build strength you can use.",
+              "Train safe, train smart.",
+              "Play the long game.",
+              "Consistency makes champions.",
+              "Progress loves patience.",
+              "Move well, live well.",
+              "Confidence comes from reps."
             ];
-            const randomQuote = fallbackQuotes[Math.floor(Math.random() * fallbackQuotes.length)];
+
+            const randomQuote = STATIC_QUOTES[Math.floor(Math.random() * STATIC_QUOTES.length)];
             setQuote(randomQuote);
+            setLocalStorageWithSync('dailyQuote', randomQuote);
+            setLocalStorageWithSync('lastQuoteFetchDate', today);
+          } catch (_) {
+            // As a safety net, keep a minimal default quote
+            setQuote("The only bad workout is the one that didn't happen.");
           }
         };
 
