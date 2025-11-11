@@ -1216,11 +1216,27 @@ Respond ONLY with a valid JSON object in this exact format:
                   try {
                     const todayISO = toLocalISODate(new Date());
                     const remoteUpdateIsToday = !!userData.updated_at && toLocalISODate(new Date(userData.updated_at)) === todayISO;
+                    const remoteDayStamp = userData.daily_intake?.__day;
+                    const remoteDayMatchesToday = remoteDayStamp ? (remoteDayStamp === todayISO) : remoteUpdateIsToday;
                     const resetAt = parseInt(localStorage.getItem('midnightResetAt') || '0');
                     const remoteTs = userData.updated_at ? new Date(userData.updated_at).getTime() : 0;
                     const remoteOlderThanReset = resetAt && remoteTs && (remoteTs <= resetAt);
-                    if (!remoteUpdateIsToday || remoteOlderThanReset) {
-                      console.log(remoteOlderThanReset ? '⏭️ Remote-only: skipping remote daily_intake (stale vs midnight reset)' : '⏭️ Remote-only: skipping remote daily_intake (updated_at not today)');
+                    if (!remoteDayMatchesToday || remoteOlderThanReset) {
+                      console.log(remoteOlderThanReset ? '⏭️ Remote-only: skipping remote daily_intake (stale vs midnight reset)' : '⏭️ Remote-only: skipping remote daily_intake (day stamp mismatch)');
+                      // Archive past-day intake to history
+                      try {
+                        if (remoteDayStamp && remoteDayStamp !== todayISO) {
+                          const remoteHasNonZero = ['calories','protein','carbs','fat','activity','water'].some(k => Number(userData.daily_intake?.[k]||0) > 0);
+                          if (remoteHasNonZero) {
+                            const dh = (() => { try { return JSON.parse(localStorage.getItem('dailyHistory')||'{}')||{}; } catch { return {}; } })();
+                            const prev = dh[remoteDayStamp] || {};
+                            const prevIntake = prev.intake || {};
+                            dh[remoteDayStamp] = { ...prev, intake: { ...prevIntake, ...userData.daily_intake } };
+                            localStorage.setItem('dailyHistory', JSON.stringify(dh));
+                            console.log('📦 Remote-only: archived remote intake into history for past day', remoteDayStamp);
+                          }
+                        }
+                      } catch (_) {}
                     } else {
                       const localIntakeDate = localStorage.getItem('dailyIntakeDate');
                       const lastSaved = localStorage.getItem('lastSavedDate');
@@ -1297,11 +1313,27 @@ Respond ONLY with a valid JSON object in this exact format:
                   try {
                     const todayISO = toLocalISODate(new Date());
                     const remoteUpdateIsToday = !!userData.updated_at && toLocalISODate(new Date(userData.updated_at)) === todayISO;
+                    const remoteDayStamp = userData.daily_intake?.__day;
+                    const remoteDayMatchesToday = remoteDayStamp ? (remoteDayStamp === todayISO) : remoteUpdateIsToday;
                     const resetAt = parseInt(localStorage.getItem('midnightResetAt') || '0');
                     const remoteTs = userData.updated_at ? new Date(userData.updated_at).getTime() : 0;
                     const remoteOlderThanReset = resetAt && remoteTs && (remoteTs <= resetAt);
-                    if (!remoteUpdateIsToday || remoteOlderThanReset) {
-                      console.log(remoteOlderThanReset ? '⏭️ Normal sync: skipping remote daily_intake (stale vs midnight reset)' : '⏭️ Normal sync: skipping remote daily_intake (updated_at not today)');
+                    if (!remoteDayMatchesToday || remoteOlderThanReset) {
+                      console.log(remoteOlderThanReset ? '⏭️ Normal sync: skipping remote daily_intake (stale vs midnight reset)' : '⏭️ Normal sync: skipping remote daily_intake (day stamp mismatch)');
+                      // Archive past-day intake to history
+                      try {
+                        if (remoteDayStamp && remoteDayStamp !== todayISO) {
+                          const remoteHasNonZero = ['calories','protein','carbs','fat','activity','water'].some(k => Number(userData.daily_intake?.[k]||0) > 0);
+                          if (remoteHasNonZero) {
+                            const dh = (() => { try { return JSON.parse(localStorage.getItem('dailyHistory')||'{}')||{}; } catch { return {}; } })();
+                            const prev = dh[remoteDayStamp] || {};
+                            const prevIntake = prev.intake || {};
+                            dh[remoteDayStamp] = { ...prev, intake: { ...prevIntake, ...userData.daily_intake } };
+                            localStorage.setItem('dailyHistory', JSON.stringify(dh));
+                            console.log('📦 Normal sync: archived remote intake into history for past day', remoteDayStamp);
+                          }
+                        }
+                      } catch (_) {}
                     } else {
                       const localIntakeDate = localStorage.getItem('dailyIntakeDate');
                       const lastSaved = localStorage.getItem('lastSavedDate');
@@ -2005,13 +2037,15 @@ Respond ONLY with a valid JSON object in this exact format:
           if (payload && typeof payload === 'object' && 'daily_intake' in payload) {
             const localIntake = payload.daily_intake || {};
             const isLocalDefault = Object.values(localIntake).every(v => Number(v) === 0);
-            const localSyncTs = parseInt(localStorage.getItem('lastSyncTimestamp') || '0');
             try {
               const remote = await db.getUser(user.id);
               const remoteIntake = remote?.daily_intake || {};
               const remoteHasNonZero = Object.values(remoteIntake).some(v => Number(v) > 0);
-              if (localSyncTs === 0 && isLocalDefault && remoteHasNonZero) {
-                // Skip overwriting remote with zeros
+              const todayISO = toLocalISODate(new Date());
+              const remoteDayStamp = typeof remoteIntake.__day === 'string' ? remoteIntake.__day : '';
+              const remoteIsToday = remoteDayStamp === todayISO;
+              if (isLocalDefault && remoteHasNonZero && remoteIsToday) {
+                // Skip overwriting today's remote non-zero intake with local defaults
                 delete payload.daily_intake;
               } else {
                 // CRITICAL: Never import activity from remote; only explicit local logging allowed
@@ -2221,12 +2255,26 @@ Respond ONLY with a valid JSON object in this exact format:
                   const todayISO = toLocalISODate(new Date());
                   const remoteUpdateIsToday = !!remoteTimestamp && toLocalISODate(new Date(remoteTimestamp)) === todayISO;
                   const remoteDayStamp = remoteData.daily_intake?.__day;
-                  const remoteDayMatchesToday = remoteDayStamp ? ((remoteDayStamp === todayISO) && remoteUpdateIsToday) : remoteUpdateIsToday;
+                  const remoteDayMatchesToday = remoteDayStamp ? (remoteDayStamp === todayISO) : remoteUpdateIsToday;
                   const resetAt = parseInt(localStorage.getItem('midnightResetAt') || '0');
                   const remoteTs = remoteTimestamp ? new Date(remoteTimestamp).getTime() : 0;
                   const remoteOlderThanReset = resetAt && remoteTs && (remoteTs <= resetAt);
                   if (!remoteDayMatchesToday || remoteOlderThanReset) {
                     console.log(remoteOlderThanReset ? '⏭️ Realtime(sub): skipping remote daily_intake (stale vs midnight reset)' : '⏭️ Realtime(sub): skipping remote daily_intake (day stamp mismatch)');
+                    // Fallback: if this is a past-day intake, archive it into local history to avoid loss
+                    try {
+                      if (remoteDayStamp && remoteDayStamp !== todayISO) {
+                        const remoteHasNonZero = ['calories','protein','carbs','fat','activity','water'].some(k => Number(remoteData.daily_intake?.[k]||0) > 0);
+                        if (remoteHasNonZero) {
+                          const dh = (() => { try { return JSON.parse(localStorage.getItem('dailyHistory')||'{}')||{}; } catch { return {}; } })();
+                          const prev = dh[remoteDayStamp] || {};
+                          const prevIntake = prev.intake || {};
+                          dh[remoteDayStamp] = { ...prev, intake: { ...prevIntake, ...remoteData.daily_intake } };
+                          localStorage.setItem('dailyHistory', JSON.stringify(dh));
+                          console.log('📦 Realtime(sub): archived remote intake into history for past day', remoteDayStamp);
+                        }
+                      }
+                    } catch (_) {}
                   } else {
                     const currentLocal = (() => { try { return JSON.parse(localStorage.getItem('dailyIntake') || '{}') || {}; } catch { return {}; } })();
                     const localIsZero = ['calories','protein','carbs','fat','activity','water'].every(k => Number(currentLocal[k]||0) === 0);
@@ -3104,8 +3152,10 @@ Respond ONLY with a valid JSON object in this exact format:
             try {
               const todayISO = toLocalISODate(new Date());
               const remoteUpdateIsToday = !!payload.updated_at && toLocalISODate(new Date(payload.updated_at)) === todayISO;
-              if (!remoteUpdateIsToday) {
-                console.log('⏭️ Skipping remote daily_intake from event payload (updated_at not today)');
+              const remoteDayStamp = payload.daily_intake?.__day;
+              const remoteDayMatchesToday = remoteDayStamp ? (remoteDayStamp === todayISO) : remoteUpdateIsToday;
+              if (!remoteDayMatchesToday) {
+                console.log('⏭️ Skipping remote daily_intake from event payload (day stamp mismatch)');
               } else {
                 const localIntakeDate = localStorage.getItem('dailyIntakeDate');
                 const lastSaved = localStorage.getItem('lastSavedDate');
@@ -3115,13 +3165,8 @@ Respond ONLY with a valid JSON object in this exact format:
                 const remoteHasNonZero = ['calories','protein','carbs','fat','activity','water'].some(k => Number(payload.daily_intake?.[k]||0) > 0);
                 const localMeals = (() => { try { return JSON.parse(localStorage.getItem('recentMeals') || '[]') || []; } catch { return []; } })();
                 const localHasStarted = !localIsZero || (Array.isArray(localMeals) && localMeals.length > 0);
-                const localTs = parseInt(localStorage.getItem('lastSyncTimestamp') || '0');
-                const remoteTs = payload.updated_at ? new Date(payload.updated_at).getTime() : 0;
-                const remoteNotNewerThanLocal = remoteTs && remoteTs <= localTs;
                 if (rolledToToday && !localHasStarted && remoteHasNonZero) {
                   console.log('⏭️ Skipping remote daily_intake from event payload until local day start');
-                } else if (remoteNotNewerThanLocal) {
-                  console.log('⏭️ Skipping remote daily_intake from event payload (not newer than local)');
                 } else {
                   const merged = {
                     ...payload.daily_intake,
@@ -3297,12 +3342,26 @@ Respond ONLY with a valid JSON object in this exact format:
                 const todayISO = toLocalISODate(new Date());
                 const remoteUpdateIsToday = !!payload.updated_at && toLocalISODate(new Date(payload.updated_at)) === todayISO;
                 const remoteDayStamp = payload.daily_intake?.__day;
-                const remoteDayMatchesToday = remoteDayStamp ? ((remoteDayStamp === todayISO) && remoteUpdateIsToday) : remoteUpdateIsToday;
+                const remoteDayMatchesToday = remoteDayStamp ? (remoteDayStamp === todayISO) : remoteUpdateIsToday;
                 const resetAt = parseInt(localStorage.getItem('midnightResetAt') || '0');
                 const remoteTs = payload.updated_at ? new Date(payload.updated_at).getTime() : 0;
                 const remoteOlderThanReset = resetAt && remoteTs && (remoteTs <= resetAt);
                 if (!remoteDayMatchesToday || remoteOlderThanReset) {
                   console.log(remoteOlderThanReset ? '⏭️ Hydrate: skipping remote intake (stale vs midnight reset)' : '⏭️ Hydrate: skipping remote intake (day stamp mismatch)');
+                  // Fallback: archive past-day intake into local history
+                  try {
+                    if (remoteDayStamp && remoteDayStamp !== todayISO) {
+                      const remoteHasNonZero = ['calories','protein','carbs','fat','activity','water'].some(k => Number(payload.daily_intake?.[k]||0) > 0);
+                      if (remoteHasNonZero) {
+                        const dh = (() => { try { return JSON.parse(localStorage.getItem('dailyHistory')||'{}')||{}; } catch { return {}; } })();
+                        const prev = dh[remoteDayStamp] || {};
+                        const prevIntake = prev.intake || {};
+                        dh[remoteDayStamp] = { ...prev, intake: { ...prevIntake, ...payload.daily_intake } };
+                        localStorage.setItem('dailyHistory', JSON.stringify(dh));
+                        console.log('📦 Hydrate: archived remote intake into history for past day', remoteDayStamp);
+                      }
+                    }
+                  } catch (_) {}
                 } else {
                   const localIntake = (() => { try { return JSON.parse(localStorage.getItem('dailyIntake')||'{}'); } catch { return {}; } })();
                   const localIsZero = ['calories','protein','carbs','fat','activity','water'].every(k => Number(localIntake[k]||0) === 0);
@@ -3513,16 +3572,26 @@ const midnightTimerRef = useRef(null);
                   const todayISO = toLocalISODate(new Date());
                   const remoteUpdateIsToday = !!userData.updated_at && toLocalISODate(new Date(userData.updated_at)) === todayISO;
                   const remoteDayStamp = userData.daily_intake?.__day;
-                  const remoteDayMatchesToday = remoteDayStamp ? ((remoteDayStamp === todayISO) && remoteUpdateIsToday) : remoteUpdateIsToday;
+                  const remoteDayMatchesToday = remoteDayStamp ? (remoteDayStamp === todayISO) : remoteUpdateIsToday;
                   const resetAt = parseInt(localStorage.getItem('midnightResetAt') || '0');
                   const remoteTs = userData.updated_at ? new Date(userData.updated_at).getTime() : 0;
                   const remoteOlderThanReset = resetAt && remoteTs && (remoteTs <= resetAt);
-                  const localTs = parseInt(localStorage.getItem('lastSyncTimestamp') || '0');
-                  const remoteNotNewerThanLocal = remoteTs && remoteTs <= localTs;
                 if (!remoteDayMatchesToday || remoteOlderThanReset) {
                   console.log(remoteOlderThanReset ? '⏭️ Realtime(sub-2): skipping remote daily_intake (stale vs midnight reset)' : '⏭️ Realtime(sub-2): skipping remote daily_intake (day stamp mismatch)');
-                } else if (remoteNotNewerThanLocal) {
-                  console.log('⏭️ Realtime(sub-2): skipping remote daily_intake (not newer than local)');
+                  // Fallback: archive past-day intake into local history
+                  try {
+                    if (remoteDayStamp && remoteDayStamp !== todayISO) {
+                      const remoteHasNonZero = ['calories','protein','carbs','fat','activity','water'].some(k => Number(userData.daily_intake?.[k]||0) > 0);
+                      if (remoteHasNonZero) {
+                        const dh = (() => { try { return JSON.parse(localStorage.getItem('dailyHistory')||'{}')||{}; } catch { return {}; } })();
+                        const prev = dh[remoteDayStamp] || {};
+                        const prevIntake = prev.intake || {};
+                        dh[remoteDayStamp] = { ...prev, intake: { ...prevIntake, ...userData.daily_intake } };
+                        localStorage.setItem('dailyHistory', JSON.stringify(dh));
+                        console.log('📦 Realtime(sub-2): archived remote intake into history for past day', remoteDayStamp);
+                      }
+                    }
+                  } catch (_) {}
                 } else {
                   const merged = {
                     ...userData.daily_intake,
@@ -3600,18 +3669,18 @@ const midnightTimerRef = useRef(null);
             // Also directly notify UI with latest payload
             try { window.dispatchEvent(new CustomEvent('subscription-status-changed', { detail: { active: !!userData.subscription.active } })); } catch (_) {}
             try {
-              localStorage.setItem('pendingHydratePayload', JSON.stringify(userData));
-              if (window.fitmateHydrateFromRemote) window.fitmateHydrateFromRemote(userData);
+              localStorage.setItem('pendingHydratePayload', JSON.stringify(remoteData));
+              if (window.fitmateHydrateFromRemote) window.fitmateHydrateFromRemote(remoteData);
             } catch (_) {}
             isRemoteSyncRef.current = true;
             try { localStorage.setItem('pendingUserDataSynced', '1'); } catch (_) {}
-            window.dispatchEvent(new CustomEvent('userDataSynced', { detail: { userData: userData } }));
+            window.dispatchEvent(new CustomEvent('userDataSynced', { detail: { userData: remoteData } }));
             // Also signal that remote data has been applied (for initial-sync gating)
-            window.dispatchEvent(new CustomEvent('remoteDataApplied', { detail: { userData: userData } }));
+            window.dispatchEvent(new CustomEvent('remoteDataApplied', { detail: { userData: remoteData } }));
             // Re-dispatch after short delays to catch listeners that mount slightly later
-            setTimeout(() => { try { window.dispatchEvent(new CustomEvent('userDataSynced', { detail: { userData: userData } })); } catch (_) {} }, 300);
-            setTimeout(() => { try { window.dispatchEvent(new CustomEvent('userDataSynced', { detail: { userData: userData } })); } catch (_) {} try { localStorage.removeItem('pendingUserDataSynced'); } catch (_) {} }, 800);
-            setTimeout(() => { try { window.dispatchEvent(new CustomEvent('userDataSynced', { detail: { userData: userData } })); } catch (_) {} }, 1500);
+            setTimeout(() => { try { window.dispatchEvent(new CustomEvent('userDataSynced', { detail: { userData: remoteData } })); } catch (_) {} }, 300);
+            setTimeout(() => { try { window.dispatchEvent(new CustomEvent('userDataSynced', { detail: { userData: remoteData } })); } catch (_) {} try { localStorage.removeItem('pendingUserDataSynced'); } catch (_) {} }, 800);
+            setTimeout(() => { try { window.dispatchEvent(new CustomEvent('userDataSynced', { detail: { userData: remoteData } })); } catch (_) {} }, 1500);
             setTimeout(() => { isRemoteSyncRef.current = false; }, 300);
           }
         }, { filter: `id=eq.${user.id}` });
