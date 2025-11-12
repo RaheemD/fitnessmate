@@ -7168,7 +7168,7 @@ const midnightTimerRef = useRef(null);
               throw new Error('Password must be at least 6 characters');
             }
             await signUp(formData.email, formData.password, formData.displayName);
-            if (window.showToast) { showToast('✅ Account created successfully!', 'success'); } else { console.log('✅ Account created successfully!'); }
+            if (window.showToast) { showToast('✅ Account created successfully! Confirm your email', 'success'); } else { console.log('✅ Account created successfully! Confirm your email'); }
           } else {
             await signIn(formData.email, formData.password);
             if (window.showToast) { showToast('✅ Successfully signed in!', 'success'); } else { console.log('✅ Successfully signed in!'); }
@@ -7389,7 +7389,7 @@ const midnightTimerRef = useRef(null);
                       try {
                         await resetPassword(formData.email);
                         setAuthError('');
-                        if (window.showToast) { showToast('Password reset email sent! Check your inbox.', 'success'); } else { console.log('Password reset email sent! Check your inbox.'); }
+                    if (window.showToast) { showToast('Reset email sent! It may take a minute or two to appear in your inbox. Check spam too', 'success'); } else { console.log('Reset email sent! It may take a minute or two to appear in your inbox. Check spam too'); }
                       } catch (error) {
                         // Error is already handled in resetPassword function
                       }
@@ -13279,9 +13279,9 @@ ${habits.map(habit => {
         { label: 'Squat University', value: 'squatuniversity', handle: '@SquatUniversity' },
         { label: 'Calisthenic Movement', value: 'calimove', handle: '@calimove' },
         { label: 'FitnessFAQs', value: 'fitnessfaqs', handle: '@FitnessFAQs' },
-        { label: 'ThenX', value: 'thenx', handle: '@OFFICIALTHENX' },
-        { label: 'StrongFirst', value: 'strongfirst', handle: '@strongfirst' },
-        { label: 'Kettlebell Kings', value: 'kettlebellkings', handle: '@KettlebellKings' },
+        // { label: 'ThenX', value: 'thenx', handle: '@OFFICIALTHENX' },
+        // { label: 'StrongFirst', value: 'strongfirst', handle: '@strongfirst' },
+        // { label: 'Kettlebell Kings', value: 'kettlebellkings', handle: '@KettlebellKings' },
         { label: 'Onnit Academy', value: 'onnit', handle: '@OnnitAcademy' },
         { label: 'Catalyst Athletics', value: 'catalyst', handle: '@catalystathletics' },
         { label: 'California Strength', value: 'calstrength', handle: '@CaliforniaStrength' },
