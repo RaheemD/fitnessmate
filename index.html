@@ -4511,6 +4511,33 @@ const midnightTimerRef = useRef(null);
         return computeHealthScoreForDate(dailyIntake, goals, todayStr).score;
       });
 
+      // UI-only stabilization: prevent brief backtracks while async sync completes.
+      // This does NOT change app data or logic; it only smooths the displayed number.
+      const [displayScore, setDisplayScore] = useState(() => {
+        const todayStr = toLocalISODate(new Date());
+        return computeHealthScoreForDate(dailyIntake, goals, todayStr).score;
+      });
+      const lastScoreRef = useRef(healthScore);
+      const freezeRef = useRef(null);
+      useEffect(() => {
+        // If score increases, show immediately and start short freeze window.
+        if (healthScore >= lastScoreRef.current) {
+          setDisplayScore(healthScore);
+          lastScoreRef.current = healthScore;
+          if (freezeRef.current) clearTimeout(freezeRef.current);
+          freezeRef.current = setTimeout(() => { freezeRef.current = null; }, 1200);
+          return;
+        }
+        // For brief dips during the freeze window, keep the higher value to avoid flicker.
+        if (freezeRef.current) {
+          return; // ignore short backtrack
+        }
+        // Outside freeze window, reflect the lower score normally.
+        setDisplayScore(healthScore);
+        lastScoreRef.current = healthScore;
+        return () => { if (freezeRef.current) { clearTimeout(freezeRef.current); freezeRef.current = null; } };
+      }, [healthScore]);
+
       // Recalculate health score when dailyIntake or goals change
       useEffect(() => {
         const todayStr = toLocalISODate(new Date());
@@ -4576,10 +4603,10 @@ const midnightTimerRef = useRef(null);
                 <div className="relative w-32 h-32 mx-auto">
                   <svg className="w-full h-full" viewBox="0 0 36 36">
                     <path className="text-gray-200 dark:text-gray-700" strokeWidth="3" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                    <path className="text-green-500" strokeWidth="3" strokeLinecap="round" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" strokeDasharray={`${isSignedIn ? healthScore : 0}, 100`} />
+                    <path className="text-green-500" strokeWidth="3" strokeLinecap="round" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" strokeDasharray={`${isSignedIn ? displayScore : 0}, 100`} />
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-3xl font-bold text-green-500">{isSignedIn ? healthScore : '—'}</span>
+                    <span className="text-3xl font-bold text-green-500">{isSignedIn ? displayScore : '—'}</span>
                   </div>
                 </div>
                 <p className="text-gray-600 dark:text-gray-400 mt-2">Today's Score / 100</p>
