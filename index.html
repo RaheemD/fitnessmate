@@ -2554,7 +2554,7 @@ Respond ONLY with a valid JSON object in this exact format:
     
     // Feature flag: hide manual cloud sync UI (auto-sync is active)
     const SHOW_MANUAL_CLOUD_SYNC = false;
-    (function(){const installLimiter=()=>{if(window.__aiLimiterInstalled)return;const aiUrl=getDirectGeminiConfig().url;const orig=window.fetch.bind(window);window.__aiThinkingPending=window.__aiThinkingPending||0;window.fetch=async (input,init={})=>{try{const reqUrl=typeof input==='string'?input:((input&&input.url)||'');const method=(init&&init.method)?String(init.method).toUpperCase():'GET';const isAI=(reqUrl===aiUrl&&method==='POST');if(!isAI){return orig(input,init);}let hdrs=(init&&init.headers)||null;let ignore=false;try{if(hdrs&&typeof hdrs.get==='function'){ignore=!!hdrs.get('X-Fitmate-Ignore-Quota');}else if(hdrs&&typeof hdrs==='object'){ignore=!!(hdrs['X-Fitmate-Ignore-Quota']||hdrs['x-fitmate-ignore-quota']);}}catch(_){}let uid=null;try{if(auth&&auth.getSession){const { data:{ session } }=await auth.getSession();uid=session&&session.user?session.user.id:null;}}catch(_){}const todayISO=(typeof toLocalISODate==='function'?toLocalISODate(new Date()):new Date().toISOString().slice(0,10));let usage={};try{usage=JSON.parse(localStorage.getItem('aiUsage')||'{}')||{};}catch(_){}if(!usage[todayISO])usage[todayISO]={};const key=uid||'anon';let subscribed=false;try{subscribed=JSON.parse(localStorage.getItem('subscriptionActive')||'false');}catch(_){}const limit=subscribed?10:(uid?5:3);const count=Number(usage[todayISO][key]||0);if(count>=limit){try{if(uid){window.dispatchEvent(new Event('force-open-subscription-modal'));}else{window.dispatchEvent(new CustomEvent('ai-quota-exceeded',{detail:{key,limit}}));}}catch(_){}return new Response(JSON.stringify({error:'quota_exceeded'}),{status:429,headers:{'Content-Type':'application/json'}});}usage[todayISO][key]=count+1;try{localStorage.setItem('aiUsage',JSON.stringify(usage));
+    (function(){const installLimiter=()=>{if(window.__aiLimiterInstalled)return;const aiUrl=getDirectGeminiConfig().url;const orig=window.fetch.bind(window);window.__aiThinkingPending=window.__aiThinkingPending||0;window.fetch=async (input,init={})=>{try{const reqUrl=typeof input==='string'?input:((input&&input.url)||'');const method=(init&&init.method)?String(init.method).toUpperCase():'GET';const isAI=(reqUrl===aiUrl&&method==='POST');if(!isAI){return orig(input,init);}let hdrs=(init&&init.headers)||null;let ignore=false;try{if(hdrs&&typeof hdrs.get==='function'){ignore=!!hdrs.get('X-Fitmate-Ignore-Quota');}else if(hdrs&&typeof hdrs==='object'){ignore=!!(hdrs['X-Fitmate-Ignore-Quota']||hdrs['x-fitmate-ignore-quota']);}}catch(_){}let uid=null;try{if(auth&&auth.getSession){const { data:{ session } }=await auth.getSession();uid=session&&session.user?session.user.id:null;}}catch(_){}const todayISO=(typeof toLocalISODate==='function'?toLocalISODate(new Date()):new Date().toISOString().slice(0,10));let usage={};try{usage=JSON.parse(localStorage.getItem('aiUsage')||'{}')||{};}catch(_){}if(!usage[todayISO])usage[todayISO]={};const key=uid||'anon';let subscribed=false;try{subscribed=JSON.parse(localStorage.getItem('subscriptionActive')||'false');}catch(_){}const limit=subscribed?15:(uid?5:3);const count=Number(usage[todayISO][key]||0);if(count>=limit){try{if(uid){window.dispatchEvent(new Event('force-open-subscription-modal'));}else{window.dispatchEvent(new CustomEvent('ai-quota-exceeded',{detail:{key,limit}}));}}catch(_){}return new Response(JSON.stringify({error:'quota_exceeded'}),{status:429,headers:{'Content-Type':'application/json'}});}usage[todayISO][key]=count+1;try{localStorage.setItem('aiUsage',JSON.stringify(usage));
             try {
               // Sync AI usage to database immediately after incrementing
               if (uid && typeof supabase !== 'undefined' && typeof db !== 'undefined' && db.updateUser) {
@@ -2977,7 +2977,7 @@ Respond ONLY with a valid JSON object in this exact format:
         const count = Number((usage[todayISO] && usage[todayISO][key]) || 0);
         let subscribed = false;
         try { subscribed = JSON.parse(localStorage.getItem('subscriptionActive') || 'false'); } catch (_) {}
-        const limit = subscribed ? 10 : (uid ? 5 : 3);
+        const limit = subscribed ? 15 : (uid ? 5 : 3);
         setAiRemainingGlobal({ count, limit });
       }, []);
 
@@ -3013,7 +3013,7 @@ Respond ONLY with a valid JSON object in this exact format:
           const count = Number((usage[todayISO] && usage[todayISO][key]) || 0);
           let subscribed = false;
           try { subscribed = JSON.parse(localStorage.getItem('subscriptionActive') || 'false'); } catch (_) {}
-          const limit = subscribed ? 10 : (uid ? 5 : 3);
+          const limit = subscribed ? 15 : (uid ? 5 : 3);
           setAiRemainingGlobal({ count, limit });
           
           if (!user) {
@@ -3043,7 +3043,7 @@ Respond ONLY with a valid JSON object in this exact format:
           const count = Number((usage[todayISO] && usage[todayISO][key]) || 0);
           let subscribed = false;
           try { subscribed = JSON.parse(localStorage.getItem('subscriptionActive') || 'false'); } catch (_) {}
-          const limit = subscribed ? 10 : (uid ? 5 : 3);
+          const limit = subscribed ? 15 : (uid ? 5 : 3);
           
           console.log('🔍 Force-open modal debug:', { uid, key, todayISO, count, limit, subscribed, usage: usage[todayISO] });
           
@@ -4152,7 +4152,7 @@ const midnightTimerRef = useRef(null);
                   {subActiveGlobal ? (
                     <div className="text-sm text-gray-600 dark:text-gray-400">You've used your daily AI quota. It resets at midnight.</div>
                   ) : (
-                    <div className="text-sm text-gray-600 dark:text-gray-400">Subscribed users get 10 prompts per day and ads are removed.</div>
+                    <div className="text-sm text-gray-600 dark:text-gray-400">Subscribed users get 15 prompts per day and ads are removed.</div>
                   )}
                 </div>
                 <div className="p-6 pt-0 flex items-center justify-between">
@@ -4787,7 +4787,7 @@ const midnightTimerRef = useRef(null);
 
         let isSub = false;
         try { isSub = !!uid && JSON.parse(localStorage.getItem('subscriptionActive') || 'false') === true; } catch (_) { isSub = false; }
-        const limit = isSub ? 10 : (uid ? 5 : 3);
+        const limit = isSub ? 15 : (uid ? 5 : 3);
         setAiRemaining({ count, limit });
       }, []);
 
@@ -12027,7 +12027,7 @@ User's question: "${userMessage.text}"`;
                   {/* Key Metrics */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="bg-gradient-to-br from-purple-500 to-pink-500 p-4 rounded-2xl text-white text-center">
-                      <div className="text-2xl font-bold">{totalWorkouts}</div>
+                      <div className="text-2xl font-bold">{totalWorkouts >= 100 ? '100+' : totalWorkouts}</div>
                       <div className="text-xs opacity-90">Total Workouts</div>
                     </div>
                     <div className="bg-gradient-to-br from-blue-500 to-cyan-500 p-4 rounded-2xl text-white text-center">
@@ -12257,13 +12257,13 @@ User's question: "${userMessage.text}"`;
                 </h3>
                 
                 {/* Add New Habit */}
-                <div className="flex mb-6">
+                <div className="flex mb-6 w-full min-w-0">
                   <input 
                     type="text" 
                     value={newHabit}
                     onChange={(e) => setNewHabit(e.target.value)}
                     placeholder="Add a new habit..."
-                    className="flex-grow p-3 rounded-l-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="flex-grow min-w-0 p-3 rounded-l-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500"
                   />
                   <button 
                     onClick={() => {
@@ -12278,7 +12278,7 @@ User's question: "${userMessage.text}"`;
                         setNewHabit('');
                       }
                     }}
-                    className="bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold p-3 rounded-r-xl hover:from-purple-600 hover:to-pink-600 transition-all duration-200"
+                    className="flex-shrink-0 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold p-3 rounded-r-xl hover:from-purple-600 hover:to-pink-600 transition-all duration-200"
                   >
                     Add
                   </button>
@@ -13062,11 +13062,11 @@ ${habits.map(habit => {
       return (
         <div className="space-y-2">
           {pendingMins > 0 && (
-            <div className="p-3 bg-yellow-100 dark:bg-yellow-900 rounded-lg flex flex-wrap items-center justify-between gap-2">
-              <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">Log {pendingMins} min activity?</span>
-              <div className="flex items-center gap-2 whitespace-nowrap shrink-0">
-                <button onClick={confirmPending} className="inline-flex items-center justify-center px-2 sm:px-3 py-1 text-xs sm:text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg">Log</button>
-                <button onClick={dismissPending} className="inline-flex items-center justify-center px-2 sm:px-3 py-1 text-xs sm:text-sm bg-gray-300 dark:bg-gray-600 text-gray-800 dark:text-gray-200 rounded-lg">Dismiss</button>
+            <div className="p-3 bg-yellow-100 dark:bg-yellow-900 rounded-lg flex flex-wrap items-center gap-2 justify-center sm:justify-between">
+              <span className="text-sm font-semibold text-gray-800 dark:text-gray-200 text-center sm:text-left">Log {pendingMins} min activity?</span>
+              <div className="flex items-center gap-2 whitespace-nowrap shrink-0 w-full sm:w-auto justify-center">
+                <button onClick={confirmPending} className="inline-flex items-center justify-center w-24 px-2 sm:px-3 py-1 text-xs sm:text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg">Log</button>
+                <button onClick={dismissPending} className="inline-flex items-center justify-center w-24 px-2 sm:px-3 py-1 text-xs sm:text-sm bg-gray-300 dark:bg-gray-600 text-gray-800 dark:text-gray-200 rounded-lg">Dismiss</button>
               </div>
             </div>
           )}
