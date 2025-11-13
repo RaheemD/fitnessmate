@@ -4316,7 +4316,28 @@ const midnightTimerRef = useRef(null);
 
     // Dashboard Screen Component
     const Dashboard = ({ dailyIntake, recentMeals, goals, onLogActivity, onLogWater }) => {
-      const rawCalorieProgress = goals.calories > 0 ? (Number(dailyIntake.calories) / Number(goals.calories)) * 100 : 0;
+      // UI-only stabilization for Calories bar and value (prevents brief backtracks)
+      const [displayCalories, setDisplayCalories] = useState(() => Math.round(Number(dailyIntake.calories) || 0));
+      const calFreezeRef = useRef(null);
+      const lastCaloriesRef = useRef(displayCalories);
+      useEffect(() => {
+        const cals = Math.round(Number(dailyIntake.calories) || 0);
+        if (cals >= lastCaloriesRef.current) {
+          setDisplayCalories(cals);
+          lastCaloriesRef.current = cals;
+          if (calFreezeRef.current) clearTimeout(calFreezeRef.current);
+          calFreezeRef.current = setTimeout(() => { calFreezeRef.current = null; }, 1200);
+          return;
+        }
+        if (calFreezeRef.current) {
+          return; // ignore short backtrack during freeze window
+        }
+        setDisplayCalories(cals);
+        lastCaloriesRef.current = cals;
+        return () => { if (calFreezeRef.current) { clearTimeout(calFreezeRef.current); calFreezeRef.current = null; } };
+      }, [dailyIntake.calories]);
+
+      const rawCalorieProgress = goals.calories > 0 ? (Number(displayCalories) / Number(goals.calories)) * 100 : 0;
       const calorieProgress = Math.min(100, Math.max(0, isFinite(rawCalorieProgress) ? rawCalorieProgress : 0));
       const [quote, setQuote] = useState('');
       const { setLocalStorageWithSync, user } = useAuth();
@@ -4637,7 +4658,7 @@ const midnightTimerRef = useRef(null);
           <div className="bg-gradient-to-br from-cyan-400 to-pink-500 rounded-2xl p-6 mb-6 text-white shadow-lg">
             <p className="font-semibold">Calories</p>
             <div className="flex items-end my-2">
-              <p className="text-5xl font-bold">{isSignedIn ? Math.round(dailyIntake.calories) : '—'}</p>
+              <p className="text-5xl font-bold">{isSignedIn ? displayCalories : '—'}</p>
               <p className="ml-2 mb-1">/ {isSignedIn ? goals.calories : '—'} kcal</p>
             </div>
             <div className="w-full bg-white/30 rounded-full h-2.5 overflow-hidden">
