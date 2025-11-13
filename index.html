@@ -3389,20 +3389,34 @@ Respond ONLY with a valid JSON object in this exact format:
               try {
                 const todayISO = toLocalISODate(new Date());
                 const remoteUpdateIsToday = !!payload.updated_at && toLocalISODate(new Date(payload.updated_at)) === todayISO;
-                if (!remoteUpdateIsToday) {
-                  console.log('⏭️ Hydrate: skipping recent_meals (updated_at not today)');
+                const resetAt = parseInt(localStorage.getItem('midnightResetAt') || '0');
+                const remoteTs = payload.updated_at ? new Date(payload.updated_at).getTime() : 0;
+                const lastSyncTs = parseInt(localStorage.getItem('lastSyncTimestamp') || '0');
+                const remoteOlderThanReset = resetAt && remoteTs && (remoteTs <= resetAt);
+
+                if (!remoteUpdateIsToday || remoteOlderThanReset) {
+                  console.log(remoteOlderThanReset ? '⏭️ Hydrate: skipping recent_meals (stale vs midnight reset)' : '⏭️ Hydrate: skipping recent_meals (updated_at not today)');
                 } else {
                   const localMeals = (() => { try { return JSON.parse(localStorage.getItem('recentMeals') || '[]') || []; } catch { return []; } })();
                   const localIsEmpty = !Array.isArray(localMeals) || localMeals.length === 0;
                   const remoteHasMeals = Array.isArray(payload.recent_meals) && payload.recent_meals.length > 0;
-                  const resetAt = parseInt(localStorage.getItem('midnightResetAt') || '0');
                   const shouldDeferMeals = !!resetAt && localIsEmpty && remoteHasMeals;
+                  const remoteOlderThanLocalWrite = !!lastSyncTs && !!remoteTs && remoteTs <= lastSyncTs;
                   if (shouldDeferMeals) {
                     console.log('⏭️ Hydrate: deferring recent_meals until local activity starts', { resetAt, localIsEmpty, remoteHasMeals });
+                  } else if (remoteOlderThanLocalWrite) {
+                    console.log('⏭️ Hydrate: skipping recent_meals (local newer write)');
                   } else {
-                    const todaysMeals = (Array.isArray(payload.recent_meals) ? payload.recent_meals.filter(m => m && m.__day === todayISO) : []);
-                    setRecentMeals(todaysMeals);
-                    try { localStorage.setItem('recentMeals', JSON.stringify(todaysMeals)); } catch (_) {}
+                    const todaysRemote = (Array.isArray(payload.recent_meals) ? payload.recent_meals.filter(m => m && m.__day === todayISO) : []);
+                    const todaysLocal = (Array.isArray(localMeals) ? localMeals.filter(m => m && m.__day === todayISO) : []);
+                    const seen = new Set();
+                    const key = (m) => m && (m.id ? String(m.id) : `${m.name||''}|${m.calories||0}|${m.image||''}`);
+                    const merged = [];
+                    todaysLocal.forEach(m => { const k = key(m); if (!seen.has(k)) { merged.push(m); seen.add(k); } });
+                    todaysRemote.forEach(m => { const k = key(m); if (!seen.has(k)) { merged.push(m); seen.add(k); } });
+                    const capped = merged.slice(0, 10);
+                    setRecentMeals(capped);
+                    try { localStorage.setItem('recentMeals', JSON.stringify(capped)); } catch (_) {}
                   }
                 }
               } catch (_) {
@@ -3611,13 +3625,25 @@ const midnightTimerRef = useRef(null);
               const remoteUpdateIsToday = !!userData.updated_at && toLocalISODate(new Date(userData.updated_at)) === todayISO;
               const resetAt = parseInt(localStorage.getItem('midnightResetAt') || '0');
               const remoteTs = userData.updated_at ? new Date(userData.updated_at).getTime() : 0;
+              const lastSyncTs = parseInt(localStorage.getItem('lastSyncTimestamp') || '0');
               const remoteOlderThanReset = resetAt && remoteTs && (remoteTs <= resetAt);
+              const remoteOlderThanLocalWrite = !!lastSyncTs && !!remoteTs && remoteTs <= lastSyncTs;
               if (!remoteUpdateIsToday || remoteOlderThanReset) {
                 console.log(remoteOlderThanReset ? '⏭️ Realtime(sub-2): skipping remote recent_meals (stale vs midnight reset)' : '⏭️ Realtime(sub-2): skipping remote recent_meals (updated_at not today)');
+              } else if (remoteOlderThanLocalWrite) {
+                console.log('⏭️ Realtime(sub-2): skipping remote recent_meals (local newer write)');
               } else {
-                const todaysMeals = (Array.isArray(userData.recent_meals) ? userData.recent_meals.filter(m => m && m.__day === todayISO) : []);
-                localStorage.setItem('recentMeals', JSON.stringify(todaysMeals));
-                try { setRecentMeals(todaysMeals); } catch (_) {}
+                const localMeals = (() => { try { return JSON.parse(localStorage.getItem('recentMeals') || '[]') || []; } catch { return []; } })();
+                const todaysRemote = (Array.isArray(userData.recent_meals) ? userData.recent_meals.filter(m => m && m.__day === todayISO) : []);
+                const todaysLocal = (Array.isArray(localMeals) ? localMeals.filter(m => m && m.__day === todayISO) : []);
+                const seen = new Set();
+                const key = (m) => m && (m.id ? String(m.id) : `${m.name||''}|${m.calories||0}|${m.image||''}`);
+                const merged = [];
+                todaysLocal.forEach(m => { const k = key(m); if (!seen.has(k)) { merged.push(m); seen.add(k); } });
+                todaysRemote.forEach(m => { const k = key(m); if (!seen.has(k)) { merged.push(m); seen.add(k); } });
+                const capped = merged.slice(0, 10);
+                localStorage.setItem('recentMeals', JSON.stringify(capped));
+                try { setRecentMeals(capped); } catch (_) {}
               }
             }
             if (userData.daily_history) {
