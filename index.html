@@ -13064,9 +13064,9 @@ ${habits.map(habit => {
           {pendingMins > 0 && (
             <div className="p-3 bg-yellow-100 dark:bg-yellow-900 rounded-lg flex flex-wrap items-center justify-between gap-2">
               <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">Log {pendingMins} min activity?</span>
-              <div className="flex items-center gap-2 whitespace-nowrap shrink-0">
-                <button onClick={confirmPending} className="inline-flex items-center justify-center px-2 sm:px-3 py-1 text-xs sm:text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg">Log</button>
-                <button onClick={dismissPending} className="inline-flex items-center justify-center px-2 sm:px-3 py-1 text-xs sm:text-sm bg-gray-300 dark:bg-gray-600 text-gray-800 dark:text-gray-200 rounded-lg">Dismiss</button>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <button onClick={confirmPending} className="inline-flex items-center justify-center px-2 sm:px-3 py-1 text-xs sm:text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg flex-1">Log</button>
+                <button onClick={dismissPending} className="inline-flex items-center justify-center px-2 sm:px-3 py-1 text-xs sm:text-sm bg-gray-300 dark:bg-gray-600 text-gray-800 dark:text-gray-200 rounded-lg flex-1">Dismiss</button>
               </div>
             </div>
           )}
