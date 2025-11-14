@@ -11762,6 +11762,37 @@ User's question: "${userMessage.text}"`;
       // Helper: use shared timezone-aware formatter so calendar keys match archive keys
       const getLocalDateString = (date) => toLocalISODate(date);
 
+      useEffect(() => {
+        let timeoutId;
+        let lastKey = getLocalDateString(new Date());
+
+        const scheduleNextMidnight = () => {
+          const now = new Date();
+          const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+          const ms = nextMidnight.getTime() - now.getTime();
+          timeoutId = setTimeout(() => {
+            setCurrentDate(new Date());
+            lastKey = getLocalDateString(new Date());
+            scheduleNextMidnight();
+          }, Math.max(ms, 1000));
+        };
+
+        scheduleNextMidnight();
+
+        const pollId = setInterval(() => {
+          const key = getLocalDateString(new Date());
+          if (key !== lastKey) {
+            lastKey = key;
+            setCurrentDate(new Date());
+          }
+        }, 60000);
+
+        return () => {
+          clearTimeout(timeoutId);
+          clearInterval(pollId);
+        };
+      }, []);
+
       // Save habits to localStorage and sync with Firebase whenever they change
       useEffect(() => {
         localStorage.setItem('habits', JSON.stringify(habits));
@@ -12454,7 +12485,7 @@ User's question: "${userMessage.text}"`;
                     </div>
                   ) : (
                     habits.map(habit => {
-                      const today = new Date().toISOString().split('T')[0];
+                      const today = getLocalDateString(new Date());
                       const isCompletedToday = habit.completed && habit.completed[today];
                       
                       return (
@@ -12490,7 +12521,7 @@ User's question: "${userMessage.text}"`;
                                       let currentDate = new Date();
                                       
                                       while (true) {
-                                        const dateStr = currentDate.toISOString().split('T')[0];
+                                        const dateStr = getLocalDateString(currentDate);
                                         if (completed[dateStr]) {
                                           streak++;
                                           currentDate.setDate(currentDate.getDate() - 1);
@@ -12674,7 +12705,7 @@ ${habits.map(habit => {
                   Habit Statistics
                 </h3>
                 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-center">
                   <div className="bg-gradient-to-br from-purple-500/10 to-pink-500/10 dark:from-purple-500/5 dark:to-pink-500/5 p-4 rounded-2xl">
                     <div className="text-2xl font-bold text-purple-500 mb-1">{habits.length}</div>
                     <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">Active Habits</div>
@@ -12683,7 +12714,7 @@ ${habits.map(habit => {
                   <div className="bg-gradient-to-br from-blue-500/10 to-cyan-500/10 dark:from-blue-500/5 dark:to-cyan-500/5 p-4 rounded-2xl">
                     <div className="text-2xl font-bold text-blue-500 mb-1">
                       {habits.reduce((total, habit) => {
-                        const today = new Date().toISOString().split('T')[0];
+                        const today = getLocalDateString(new Date());
                         return total + (habit.completed && habit.completed[today] ? 1 : 0);
                       }, 0)}
                     </div>
@@ -12699,6 +12730,27 @@ ${habits.map(habit => {
                     </div>
                     <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">Longest Streak</div>
                     <div className="text-xs text-gray-600 dark:text-gray-400">Highest consecutive-day count</div>
+                    
+                  </div>
+
+                  {/* Daily Score (percent) */}
+                  <div className="bg-gradient-to-br from-amber-500/10 to-yellow-500/10 dark:from-amber-500/5 dark:to-yellow-500/5 p-4 rounded-2xl">
+                    <div className="text-2xl font-bold text-amber-600 mb-1">
+                      {(() => {
+                        const total = habits.length;
+                        if (total === 0) return '0%';
+                        const today = getLocalDateString(new Date());
+                        const completed = habits.reduce((acc, h) => acc + ((h.completed && h.completed[today]) ? 1 : 0), 0);
+                        const perBasis = Math.floor(10000 / total); // basis points per habit (0.01%)
+                        let scoreBasis = perBasis * completed;
+                        if (completed === total) scoreBasis += (10000 - perBasis * total); // remainder to reach exactly 100%
+                        const val = (scoreBasis / 100).toFixed(2);
+                        return `${val}%`;
+                      })()}
+                    </div>
+                    <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">Daily Score</div>
+                    <div className="text-xs text-gray-600 dark:text-gray-400">Equal‑weighted; resets at midnight</div>
+                    
                   </div>
                 </div>
               </div>
