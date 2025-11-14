@@ -1249,10 +1249,12 @@ Respond ONLY with a valid JSON object in this exact format:
                       // Accept today's remote intake on sign-in to enable immediate cross-device sync
                       const merged = {
                         ...userData.daily_intake,
-                        activity: Number(userData.daily_intake?.activity || 0)
+                        // Monotonic today-only merge: keep the higher values to avoid backtracks
+                        activity: Math.max(Number(userData.daily_intake?.activity || 0), Number(currentLocal.activity || 0)),
+                        water: Math.max(Number(userData.daily_intake?.water || 0), Number(currentLocal.water || 0))
                       };
                       localStorage.setItem('dailyIntake', JSON.stringify(merged));
-                      console.log('🔒 Remote-only: set daily_intake from remote (activity remote-only; cross-device sync enabled)');
+                      console.log('🔒 Remote-only: set daily_intake from remote (activity/water monotonic; cross-device sync enabled)');
                     }
                   } catch (_) {
                     console.log('⚠️ Remote-only: intake import failed; leaving local untouched');
@@ -1344,12 +1346,20 @@ Respond ONLY with a valid JSON object in this exact format:
                       if (rolledToToday && localIsZero && remoteHasNonZero) {
                         console.log('⏭️ Normal sync: skipping remote daily_intake after midnight reset (no overwrites)');
                       } else {
-                        const merged = { 
-                          ...userData.daily_intake, 
-                          activity: Number(userData.daily_intake?.activity || 0)
-                        };
-                        localStorage.setItem('dailyIntake', JSON.stringify(merged));
-                        console.log('✅ Daily intake synced (activity remote-only)');
+                        const lastSyncTs = parseInt(localStorage.getItem('lastSyncTimestamp') || '0');
+                        const remoteOlderThanLocalWrite = !!lastSyncTs && !!remoteTs && remoteTs <= lastSyncTs;
+                        if (remoteOlderThanLocalWrite) {
+                          console.log('⏭️ Normal sync: skipping remote daily_intake (local newer write)');
+                        } else {
+                          const merged = { 
+                            ...userData.daily_intake, 
+                            // Monotonic today-only merge: keep the higher values to avoid backtracks
+                            activity: Math.max(Number(userData.daily_intake?.activity || 0), Number(currentLocal.activity || 0)),
+                            water: Math.max(Number(userData.daily_intake?.water || 0), Number(currentLocal.water || 0))
+                          };
+                          localStorage.setItem('dailyIntake', JSON.stringify(merged));
+                          console.log('✅ Daily intake synced (activity/water monotonic merge)');
+                        }
                       }
                     }
                   } catch (_) {
@@ -2286,7 +2296,13 @@ Respond ONLY with a valid JSON object in this exact format:
                     if (shouldDeferIntake) {
                       console.log('⏭️ Realtime(sub): deferring remote daily_intake until local activity starts', { resetAt, localHasStarted, remoteHasNonZero });
                     } else {
-                      const merged = { ...remoteData.daily_intake, activity: Number(remoteData.daily_intake?.activity || 0) };
+                      const mergedLocal = (() => { try { return JSON.parse(localStorage.getItem('dailyIntake') || '{}') || {}; } catch { return {}; } })();
+                      const merged = { 
+                        ...remoteData.daily_intake, 
+                        // Monotonic today-only merge: prefer higher values to prevent UI backtrack
+                        activity: Math.max(Number(remoteData.daily_intake?.activity || 0), Number(mergedLocal.activity || 0)),
+                        water: Math.max(Number(remoteData.daily_intake?.water || 0), Number(mergedLocal.water || 0)) 
+                      };
                       localStorage.setItem('dailyIntake', JSON.stringify(merged));
                       console.log('✅ Realtime(sub): daily_intake synced');
                     }
@@ -3369,16 +3385,22 @@ Respond ONLY with a valid JSON object in this exact format:
                   const localMeals = (() => { try { return JSON.parse(localStorage.getItem('recentMeals') || '[]') || []; } catch { return []; } })();
                   const localHasStarted = !localIsZero || (Array.isArray(localMeals) && localMeals.length > 0);
                   const shouldDeferIntake = !!resetAt && !localHasStarted && remoteHasNonZero;
+                  const lastSyncTs = parseInt(localStorage.getItem('lastSyncTimestamp') || '0');
+                  const remoteOlderThanLocalWrite = !!lastSyncTs && !!remoteTs && remoteTs <= lastSyncTs;
                   if (shouldDeferIntake) {
                     console.log('⏭️ Hydrate: deferring remote intake until local activity starts', { resetAt, localHasStarted, remoteHasNonZero });
+                  } else if (remoteOlderThanLocalWrite) {
+                    console.log('⏭️ Hydrate: skipping remote intake (local newer write)');
                   } else {
                     const merged = { 
                       ...payload.daily_intake, 
-                      activity: Number(payload.daily_intake?.activity || 0)
+                      // Monotonic today-only merge: keep the higher values
+                      activity: Math.max(Number(payload.daily_intake?.activity || 0), Number(localIntake.activity || 0)),
+                      water: Math.max(Number(payload.daily_intake?.water || 0), Number(localIntake.water || 0))
                     };
                     setDailyIntake(merged);
                     try { localStorage.setItem('dailyIntake', JSON.stringify(merged)); } catch (_) {}
-                    console.log('✅ Hydrate: applied intake');
+                    console.log('✅ Hydrate: applied intake (activity/water monotonic merge)');
                   }
                 }
               } catch (_e) {
@@ -3607,15 +3629,29 @@ const midnightTimerRef = useRef(null);
                     }
                   } catch (_) {}
                 } else {
-                  const merged = {
-                    ...userData.daily_intake,
-                    activity: Number(userData.daily_intake?.activity || 0)
-                  };
-                  localStorage.setItem('dailyIntake', JSON.stringify(merged));
-                  try { setDailyIntake(merged); } catch (_) {}
+                  const lastSyncTs = parseInt(localStorage.getItem('lastSyncTimestamp') || '0');
+                  const remoteOlderThanLocalWrite = !!lastSyncTs && !!remoteTs && remoteTs <= lastSyncTs;
+                  if (remoteOlderThanLocalWrite) {
+                    console.log('⏭️ Realtime(sub-2): skipping remote daily_intake (local newer write)');
+                  } else {
+                    const existingLocal = (() => { try { return JSON.parse(localStorage.getItem('dailyIntake') || '{}') || {}; } catch { return {}; } })();
+                      const merged = {
+                        ...userData.daily_intake,
+                        // Monotonic merge: prefer higher values for today
+                        activity: Math.max(Number(userData.daily_intake?.activity || 0), Number(existingLocal.activity || 0)),
+                        water: Math.max(Number(userData.daily_intake?.water || 0), Number(existingLocal.water || 0))
+                      };
+                      localStorage.setItem('dailyIntake', JSON.stringify(merged));
+                      try { setDailyIntake(merged); } catch (_) {}
+                  }
                 }
               } catch (_) {
-                const merged = { ...userData.daily_intake, activity: Number(userData.daily_intake?.activity || 0) };
+                const existingLocal = (() => { try { return JSON.parse(localStorage.getItem('dailyIntake') || '{}') || {}; } catch { return {}; } })();
+                const merged = { 
+                  ...userData.daily_intake, 
+                  activity: Math.max(Number(userData.daily_intake?.activity || 0), Number(existingLocal.activity || 0)),
+                  water: Math.max(Number(userData.daily_intake?.water || 0), Number(existingLocal.water || 0)) 
+                };
                 localStorage.setItem('dailyIntake', JSON.stringify(merged));
                 try { setDailyIntake(merged); } catch (_) {}
               }
@@ -6572,13 +6608,21 @@ const midnightTimerRef = useRef(null);
                             if (userData.daily_intake) {
                               try {
                                 const localIntake = (() => { try { return JSON.parse(localStorage.getItem('dailyIntake') || '{}') || {}; } catch { return {}; } })();
-                                const merged = { ...userData.daily_intake, activity: Number(userData.daily_intake?.activity || 0) };
+                                const merged = { 
+                                  ...userData.daily_intake, 
+                                  activity: Math.max(Number(userData.daily_intake?.activity || 0), Number(localIntake.activity || 0)),
+                                  water: Math.max(Number(userData.daily_intake?.water || 0), Number(localIntake.water || 0))
+                                };
                                 localStorage.setItem('dailyIntake', JSON.stringify(merged));
-                                console.log('✅ Manual download: synced daily_intake (activity remote-only)');
+                                console.log('✅ Manual download: synced daily_intake (activity/water monotonic)');
                               } catch (_) {
-                                const merged = { ...userData.daily_intake, activity: Number(userData.daily_intake?.activity || 0) };
+                                const merged = { 
+                                  ...userData.daily_intake, 
+                                  activity: Number(userData.daily_intake?.activity || 0),
+                                  water: Number(userData.daily_intake?.water || 0)
+                                };
                                 localStorage.setItem('dailyIntake', JSON.stringify(merged));
-                                console.log('✅ Manual download: synced daily_intake (remote activity used)');
+                                console.log('✅ Manual download: synced daily_intake (remote values used)');
                               }
                             }
                             if (userData.recent_meals) {
@@ -11505,6 +11549,8 @@ User's question: "${userMessage.text}"`;
       const [stressResult, setStressResult] = useState(null);
       const [stressInsight, setStressInsight] = useState('');
       const [lifeEventInfoOpen, setLifeEventInfoOpen] = useState(false);
+      // UI-only: track focus on Work hours to show helper when empty
+      const [workHoursFocused, setWorkHoursFocused] = useState(false);
 
       useEffect(() => {
         try { localStorage.setItem('stressForm', JSON.stringify(stressForm)); } catch (_) {}
@@ -11658,11 +11704,11 @@ User's question: "${userMessage.text}"`;
         ].filter(e => (e[1]||0) > 0).sort((a,b)=> (b[1]||0) - (a[1]||0));
 
         const act = [];
-        if (top.includes('sleep') || Number(inp.sleepHours || 0) < 7) act.push('aim for 7.5–8h sleep tonight and keep screens away 1h before bed');
-        if (top.includes('work') || Number(inp.workHours || 0) > 9) act.push('add two 5‑min breaks every 90 minutes and end work at a firm time');
-        if (top.includes('screen time') || Number(inp.screenHours || 0) > 6) act.push('set a 30‑min app limit after 9pm');
-        if (top.includes('self rating') || Number(inp.stressRating || 0) >= 7) act.push('do 4‑7‑8 breathing for 3 cycles when stress spikes');
-        if (top.includes('episodes') || Number(inp.stressEpisodes || 0) >= 3) act.push('log triggers and use a quick walk to reset when one appears');
+        if (top.includes('sleep') || Number(inp.sleepHours || 0) < 7) act.push('sleeping less or more than the ideal 8 hours can raise stress by disrupting recovery and mood. Any deviation from this target affects your score, so aim for 7.5–8 hours tonight and keep screens away for an hour before bed');
+        if (top.includes('work') || Number(inp.workHours || 0) > 9) act.push('working less or more than the ideal 8 hours can elevate stress by affecting productivity and routine, and any deviation from this target impacts your score negatively. Once you reach 8 hours, take 10-minute breaks every 90 minutes and aim to finish work at a consistent, firm time');
+        if (top.includes('screen time') || Number(inp.screenHours || 0) > 6) act.push('excessive screen time can heighten stress by overstimulating the mind and disrupting wind-down. Set a 30-minute app limit after 9 PM to help reduce late-evening screen use');
+        if (top.includes('self rating') || Number(inp.stressRating || 0) >= 7) act.push('high stress ratings signal elevated tension in your system. Use the 4-7-8 breathing technique for three cycles whenever stress spikes to help calm your mind and body');
+        if (top.includes('episodes') || Number(inp.stressEpisodes || 0) >= 3) act.push('frequent stress episodes indicate recurring triggers. Log each trigger and take a brief walk to reset when an episode appears');
 
         let s1 = `Stress is ${res.category} (score ${res.stressScore}). Top drivers: ${top.join(' and ') || 'balanced factors'}.`;
         let s2 = `Action: ${act.slice(0,2).join('; ')}.`;
@@ -12634,13 +12680,18 @@ ${habits.map(habit => {
                     )}
                   </div>
                   <div>
-                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Work hours nett.(without breaks)</label>
+                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Work hours nett.(without breaks) <span className="text-red-500">*</span></label>
                     <input type="number" inputMode="numeric" min="0" step="0.5" value={stressForm.workHours}
                       placeholder="8h ideal; deviation increases stress (20%)"
                       onChange={e=>setStressForm({...stressForm, workHours:e.target.value})}
-                      aria-invalid={exceedsDayHours}
-                      className={`w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 placeholder:text-[11px] md:placeholder:text-sm appearance-none ${exceedsDayHours ? 'border-red-500 focus:ring-red-500 ring-1 ring-red-500' : 'focus:ring-purple-500'}`}
+                      onFocus={()=>setWorkHoursFocused(true)}
+                      onBlur={()=>setWorkHoursFocused(false)}
+                      aria-invalid={!stressForm.workHours || exceedsDayHours}
+                      className={`w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 placeholder:text-[11px] md:placeholder:text-sm appearance-none ${(!stressForm.workHours || exceedsDayHours) ? 'border-red-500 focus:ring-red-500 ring-1 ring-red-500' : 'focus:ring-purple-500'}`}
                       style={{MozAppearance:'textfield'}} />
+                    {(!stressForm.workHours) && (
+                      <div className="mt-1 text-[11px] md:text-xs text-red-600">Minimum 0 hours is required — enter 0 if you don’t work.</div>
+                    )}
                   </div>
                   <div>
                     <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Self‑rated stress (1–10)</label>
@@ -12734,10 +12785,14 @@ ${habits.map(habit => {
                 <div className="flex mt-4">
                   <button
                     onClick={() => { const r = computeStressScore(stressForm); setStressResult(r); setStressInsight(generateStressInsight(r, stressForm)); }}
-                    disabled={!String(stressForm.sleepHours || '').trim() || Number(stressForm.sleepHours) < 4 || exceedsDayHours}
+                    disabled={!String(stressForm.sleepHours || '').trim() || Number(stressForm.sleepHours) < 4 || !String(stressForm.workHours || '').trim() || exceedsDayHours}
                     className="flex-grow bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold p-3 rounded-xl hover:from-purple-600 hover:to-pink-600 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed">
                     Compute Stress Score
                   </button>
+                </div>
+
+                <div className="mt-3 text-[11px] md:text-xs text-gray-500 dark:text-gray-400 text-center">
+                  Disclaimer: This is a simulated stress estimate. Real stress varies due to personal, financial, health, and work–life factors. This is not a medical tool.
                 </div>
               </div>
 
