@@ -385,6 +385,87 @@
       }
     })();
   </script>
+  <script>
+    // Android Play Billing bridge (no product IDs or web-side billing logic)
+    (function(){
+      try {
+        // Public API expected by UI buttons
+        window.FitnessMateBilling = {
+          subscribe: async function(){
+            try {
+              if (window.Android && typeof window.Android.subscribe === 'function') {
+                // Delegate to native Android bridge; result (if any) is handled on Android
+                return await window.Android.subscribe();
+              }
+            } catch(_) {}
+            // If not available, return false (no-op in web)
+            return false;
+          },
+          restore: async function(){
+            try {
+              if (window.Android && typeof window.Android.restore === 'function') {
+                return await window.Android.restore();
+              }
+            } catch(_) {}
+            return false;
+          }
+        };
+
+        // Lightweight toast utility (used for subscription activation/restoration)
+        window.fmToast = function(message, opts){
+          try {
+            opts = opts || {};
+            var duration = typeof opts.duration === 'number' ? opts.duration : 2200;
+            var type = opts.type || 'success';
+            var bg = type === 'error' ? '#dc2626' : (type === 'info' ? '#2563eb' : '#16a34a');
+            var el = document.createElement('div');
+            el.textContent = message;
+            el.style.position = 'fixed';
+            el.style.left = '50%';
+            el.style.bottom = '24px';
+            el.style.transform = 'translateX(-50%) translateY(8px)';
+            el.style.zIndex = '9999';
+            el.style.background = bg;
+            el.style.color = '#fff';
+            el.style.padding = '8px 12px';
+            el.style.borderRadius = '10px';
+            el.style.boxShadow = '0 6px 18px rgba(0,0,0,0.25)';
+            el.style.fontSize = '13px';
+            el.style.lineHeight = '1.2';
+            el.style.pointerEvents = 'none';
+            el.style.opacity = '0';
+            el.style.transition = 'opacity 180ms ease, transform 180ms ease';
+            document.body.appendChild(el);
+            requestAnimationFrame(function(){
+              el.style.opacity = '1';
+              el.style.transform = 'translateX(-50%) translateY(0)';
+            });
+            setTimeout(function(){
+              el.style.opacity = '0';
+              el.style.transform = 'translateX(-50%) translateY(8px)';
+              setTimeout(function(){
+                try { document.body.removeChild(el); } catch(_) {}
+              }, 220);
+            }, duration);
+          } catch(_) {}
+        };
+
+        // Called by Android after successful purchase/restore
+        window.fmSetProStatus = function(isPro){
+          try {
+            // Persist subscription flag so AI limiter uses 15 prompts when true
+            localStorage.setItem('subscriptionActive', JSON.stringify(!!isPro));
+          } catch(_) {}
+          // Notify any listeners (ads, UI) that subscription changed
+          try { window.dispatchEvent(new CustomEvent('subscription-status-changed', { detail: { active: !!isPro } })); } catch(_) {}
+          // Trigger AI quota recompute in UI without navigating
+          try { document.dispatchEvent(new Event('visibilitychange')); } catch(_) {}
+          // Toast confirmation for successful activation/restoration
+          try { if (!!isPro) { window.fmToast('Subscription activated', { type: 'success' }); } } catch(_) {}
+        };
+      } catch(_) { /* no-op */ }
+    })();
+  </script>
 </head>
 <body class="bg-gray-50 dark:bg-gray-900">
   <!-- Hidden Netlify Form for Support -->
@@ -4239,12 +4320,12 @@ const midnightTimerRef = useRef(null);
                       </button>
                       {/* Play Store button (native Android app) */}
                       <button
-                        onClick={async ()=>{ try { if (!user) { setShowSubscriptionModal(false); setScreen('profile'); setTimeout(()=>{ try { window.dispatchEvent(new Event('open-account-modal')); } catch(_) {} }, 50); return; } const ok = await (window.fitmateIAP && window.fitmateIAP.subscribe ? window.fitmateIAP.subscribe() : Promise.resolve(false)); if (ok) { setShowSubscriptionModal(false); computeAiRemainingGlobal(); } } catch(_){} }}
+                        onClick={async ()=>{ try { if (!user) { setShowSubscriptionModal(false); setScreen('profile'); setTimeout(()=>{ try { window.dispatchEvent(new Event('open-account-modal')); } catch(_) {} }, 50); return; } const ok = await (window.FitnessMateBilling && window.FitnessMateBilling.subscribe ? window.FitnessMateBilling.subscribe() : Promise.resolve(false)); if (ok) { setShowSubscriptionModal(false); } } catch(_){} }}
                         className={(window.__isNativeAndroidApp ? '' : 'hidden ') + 'bg-blue-500 hover:bg-blue-600 text-white text-sm px-4 py-2 rounded-lg shadow whitespace-nowrap leading-tight'}
                       >
                         Subscribe via Play Store
                       </button>
-                      <button onClick={async ()=>{ try { await (window.fitmateIAP && window.fitmateIAP.restore ? window.fitmateIAP.restore() : Promise.resolve(false)); computeAiRemainingGlobal(); } catch(_){} }} className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 underline">Restore</button>
+                      <button onClick={async ()=>{ try { await (window.FitnessMateBilling && window.FitnessMateBilling.restore ? window.FitnessMateBilling.restore() : Promise.resolve(false)); } catch(_){} }} className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 underline">Restore</button>
                     </div>
                   )}
                   <button onClick={()=> setShowSubscriptionModal(false)} className="text-sm text-gray-600 dark:text-gray-300">Not now</button>
@@ -6511,14 +6592,14 @@ const midnightTimerRef = useRef(null);
                         Subscribe via Stripe
                       </button>
                       <button
-                        onClick={async ()=>{ try { if (!user) { openAccountModal(); return; } await (window.fitmateIAP && window.fitmateIAP.subscribe ? window.fitmateIAP.subscribe() : Promise.resolve(false)); } catch(_){} }}
+                        onClick={async ()=>{ try { if (!user) { openAccountModal(); return; } await (window.FitnessMateBilling && window.FitnessMateBilling.subscribe ? window.FitnessMateBilling.subscribe() : Promise.resolve(false)); } catch(_){} }}
                         className={(window.__isNativeAndroidApp ? '' : 'hidden ') + 'w-full max-w-[340px] mx-auto bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2.5 rounded-lg shadow-sm transition-colors whitespace-nowrap leading-tight'}
                       >
                         Subscribe via Play Store
                       </button>
                     </div>
                     <button
-                      onClick={async ()=>{ try { await (window.fitmateIAP && window.fitmateIAP.restore ? window.fitmateIAP.restore() : Promise.resolve(false)); } catch(_){} }}
+                      onClick={async ()=>{ try { await (window.FitnessMateBilling && window.FitnessMateBilling.restore ? window.FitnessMateBilling.restore() : Promise.resolve(false)); } catch(_){} }}
                       className="text-xs text-center text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                     >
                       Already subscribed? Restore
