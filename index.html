@@ -386,8 +386,8 @@
         var isOperaAndroid = /OPR\/\d+/i.test(ua) || /Opera/i.test(ua);
         var isSamsungAndroid = /SamsungBrowser\/\d+/i.test(ua);
         window.__isAndroidWebBrowser = !!(isAndroid && (isChromeAndroid || isEdgeAndroid || isFirefoxAndroid || isOperaAndroid || isSamsungAndroid) && !isWebView && !hasDigitalGoods);
-        // Native app contexts include WebView or DigitalGoods (TWA). Browsers are excluded.
-        window.__isNativeAndroidApp = !!(isAndroid && (hasDigitalGoods || isWebView || isTWA) && !window.__isAndroidWebBrowser);
+        // Native app contexts: ONLY WebView or TWA (hasDigitalGoods + standalone). Never regular browsers.
+        window.__isNativeAndroidApp = !!(isAndroid && (hasDigitalGoods || isWebView) && !window.__isAndroidWebBrowser);
       } catch(_) {
         window.__isNativeAndroidApp = false;
         window.__isAndroidWebBrowser = false;
