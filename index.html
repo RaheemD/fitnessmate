@@ -388,10 +388,12 @@
         window.__isAndroidWebBrowser = !!(isAndroid && (isChromeAndroid || isEdgeAndroid || isFirefoxAndroid || isOperaAndroid || isSamsungAndroid) && !isWebView && !hasDigitalGoods);
         // Strong signal: native WebView bridge injected by the app
         var hasAndroidBridge = !!(window.Android && (typeof window.Android.subscribe === 'function' || typeof window.Android.restore === 'function'));
+        window.__hasAndroidBridge = !!hasAndroidBridge;
         // Native app contexts: WebView with bridge OR TWA/DigitalGoods. Browsers are excluded.
         window.__isNativeAndroidApp = !!(isAndroid && (hasAndroidBridge || hasDigitalGoods || isWebView || isTWA) && !window.__isAndroidWebBrowser);
       } catch(_) {
         window.__isNativeAndroidApp = false;
+        window.__hasAndroidBridge = false;
         window.__isAndroidWebBrowser = false;
       }
     })();
@@ -4313,7 +4315,7 @@ const midnightTimerRef = useRef(null);
                   {subActiveGlobal ? (
                     <div className="flex items-center gap-3">
                       <button
-                        onClick={async ()=>{ const openPlay=()=>{ const sku=(window.fitmateIAP&&window.fitmateIAP.PRODUCT_ID)?window.fitmateIAP.PRODUCT_ID:'fitmate_monthly_149'; const manageUrl=`https://play.google.com/store/account/subscriptions?sku=${encodeURIComponent(sku)}`; try{window.open(manageUrl,'_blank');}catch(_){} }; const openStripeLogin=()=>{ try{ window.open('https://billing.stripe.com/p/login/28E14o3tE3dP9Uhfnc3sI00','_blank'); }catch(_){} }; try { if (supabase && supabase.functions) { const { data, error } = await supabase.functions.invoke('stripe-webhook', { body: { action: 'create_portal_session' } }); if (!error && data && data.url) { window.location.assign(data.url); return; } } } catch(_){} if (typeof window.getDigitalGoodsService === 'function' || /Android/i.test(navigator.userAgent)) { openPlay(); } else { openStripeLogin(); } }}
+                        onClick={async ()=>{ const openPlay=()=>{ const sku=(window.fitmateIAP&&window.fitmateIAP.PRODUCT_ID)?window.fitmateIAP.PRODUCT_ID:'fitmate_monthly_149'; const manageUrl=`https://play.google.com/store/account/subscriptions?sku=${encodeURIComponent(sku)}`; try{window.open(manageUrl,'_blank');}catch(_){} }; const openStripeLogin=()=>{ try{ window.open('https://billing.stripe.com/p/login/28E14o3tE3dP9Uhfnc3sI00','_blank'); }catch(_){} }; try { if (supabase && supabase.functions) { const { data, error } = await supabase.functions.invoke('stripe-webhook', { body: { action: 'create_portal_session' } }); if (!error && data && data.url) { window.location.assign(data.url); return; } } } catch(_){} if (window.__hasAndroidBridge) { openPlay(); } else { openStripeLogin(); } }}
                         className="bg-gray-800 hover:bg-gray-900 text-white text-sm px-4 py-2 rounded-lg shadow"
                       >
                         Manage
@@ -4325,14 +4327,14 @@ const midnightTimerRef = useRef(null);
                       {/* Stripe button (web) */}
                       <button
                         onClick={()=>{ try { if (window.openStripePricingModal) window.openStripePricingModal(); } catch(_) {} }}
-                        className={(window.__isNativeAndroidApp ? 'hidden ' : '') + 'bg-pink-500 hover:bg-pink-600 text-white text-sm px-4 py-2 rounded-lg shadow whitespace-nowrap leading-tight'}
+                        className={(window.__hasAndroidBridge ? 'hidden ' : '') + 'bg-pink-500 hover:bg-pink-600 text-white text-sm px-4 py-2 rounded-lg shadow whitespace-nowrap leading-tight'}
                       >
                         Subscribe via Stripe
                       </button>
                       {/* Play Store button (native Android app) */}
                       <button
                         onClick={async ()=>{ try { if (!user) { setShowSubscriptionModal(false); setScreen('profile'); setTimeout(()=>{ try { window.dispatchEvent(new Event('open-account-modal')); } catch(_) {} }, 50); return; } const ok = await (window.FitnessMateBilling && window.FitnessMateBilling.subscribe ? window.FitnessMateBilling.subscribe() : Promise.resolve(false)); if (ok) { setShowSubscriptionModal(false); } } catch(_){} }}
-                        className={(window.__isNativeAndroidApp ? '' : 'hidden ') + 'bg-blue-500 hover:bg-blue-600 text-white text-sm px-4 py-2 rounded-lg shadow whitespace-nowrap leading-tight'}
+                        className={(window.__hasAndroidBridge ? '' : 'hidden ') + 'bg-blue-500 hover:bg-blue-600 text-white text-sm px-4 py-2 rounded-lg shadow whitespace-nowrap leading-tight'}
                       >
                         Subscribe via Play Store
                       </button>
@@ -6585,7 +6587,7 @@ const midnightTimerRef = useRef(null);
                 {subActive ? (
                   <div className="flex flex-col gap-2 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
                     <button
-                      onClick={async ()=>{ const openPlay=()=>{ const sku=(window.fitmateIAP&&window.fitmateIAP.PRODUCT_ID)?window.fitmateIAP.PRODUCT_ID:'fitmate_monthly_149'; const manageUrl=`https://play.google.com/store/account/subscriptions?sku=${encodeURIComponent(sku)}`; try{window.open(manageUrl,'_blank');}catch(_){} }; const openStripeLogin=()=>{ try{ window.open('https://billing.stripe.com/p/login/28E14o3tE3dP9Uhfnc3sI00','_blank'); }catch(_){} }; try { if (supabase && supabase.functions) { const { data, error } = await supabase.functions.invoke('stripe-webhook', { body: { action: 'create_portal_session' } }); if (!error && data && data.url) { window.location.assign(data.url); return; } } } catch(_){} if (typeof window.getDigitalGoodsService === 'function' || /Android/i.test(navigator.userAgent)) { openPlay(); } else { openStripeLogin(); } }}
+                      onClick={async ()=>{ const openPlay=()=>{ const sku=(window.fitmateIAP&&window.fitmateIAP.PRODUCT_ID)?window.fitmateIAP.PRODUCT_ID:'fitmate_monthly_149'; const manageUrl=`https://play.google.com/store/account/subscriptions?sku=${encodeURIComponent(sku)}`; try{window.open(manageUrl,'_blank');}catch(_){} }; const openStripeLogin=()=>{ try{ window.open('https://billing.stripe.com/p/login/28E14o3tE3dP9Uhfnc3sI00','_blank'); }catch(_){} }; try { if (supabase && supabase.functions) { const { data, error } = await supabase.functions.invoke('stripe-webhook', { body: { action: 'create_portal_session' } }); if (!error && data && data.url) { window.location.assign(data.url); return; } } } catch(_){} if (window.__hasAndroidBridge) { openPlay(); } else { openStripeLogin(); } }}
                       className="w-full bg-gray-800 hover:bg-gray-900 text-white text-sm font-medium px-4 py-2.5 rounded-lg shadow-sm transition-colors"
                     >
                       Manage subscription
@@ -6596,13 +6598,13 @@ const midnightTimerRef = useRef(null);
                     <div className={"grid gap-2 justify-items-center " + (window.__isNativeAndroidApp ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1")}>
                       <button
                         onClick={()=>{ try { if (!user) { openAccountModal(); return; } if (window.openStripePricingModal) window.openStripePricingModal(); } catch(_){} }}
-                        className={(window.__isNativeAndroidApp ? 'hidden ' : '') + 'w-full max-w-[340px] mx-auto bg-pink-500 hover:bg-pink-600 text-white text-sm font-medium px-4 py-2.5 rounded-lg shadow-sm transition-colors whitespace-nowrap leading-tight'}
+                        className={(window.__hasAndroidBridge ? 'hidden ' : '') + 'w-full max-w-[340px] mx-auto bg-pink-500 hover:bg-pink-600 text-white text-sm font-medium px-4 py-2.5 rounded-lg shadow-sm transition-colors whitespace-nowrap leading-tight'}
                       >
                         Subscribe via Stripe
                       </button>
                       <button
                         onClick={async ()=>{ try { if (!user) { openAccountModal(); return; } await (window.FitnessMateBilling && window.FitnessMateBilling.subscribe ? window.FitnessMateBilling.subscribe() : Promise.resolve(false)); } catch(_){} }}
-                        className={(window.__isNativeAndroidApp ? '' : 'hidden ') + 'w-full max-w-[340px] mx-auto bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2.5 rounded-lg shadow-sm transition-colors whitespace-nowrap leading-tight'}
+                        className={(window.__hasAndroidBridge ? '' : 'hidden ') + 'w-full max-w-[340px] mx-auto bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2.5 rounded-lg shadow-sm transition-colors whitespace-nowrap leading-tight'}
                       >
                         Subscribe via Play Store
                       </button>
