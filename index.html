@@ -386,8 +386,10 @@
         var isOperaAndroid = /OPR\/\d+/i.test(ua) || /Opera/i.test(ua);
         var isSamsungAndroid = /SamsungBrowser\/\d+/i.test(ua);
         window.__isAndroidWebBrowser = !!(isAndroid && (isChromeAndroid || isEdgeAndroid || isFirefoxAndroid || isOperaAndroid || isSamsungAndroid) && !isWebView && !hasDigitalGoods);
-        // Native app contexts: ONLY WebView or TWA (hasDigitalGoods + standalone). Never regular browsers.
-        window.__isNativeAndroidApp = !!(isAndroid && (hasDigitalGoods || isWebView) && !window.__isAndroidWebBrowser);
+        // Strong signal: native WebView bridge injected by the app
+        var hasAndroidBridge = !!(window.Android && (typeof window.Android.subscribe === 'function' || typeof window.Android.restore === 'function'));
+        // Native app contexts: WebView with bridge OR TWA/DigitalGoods. Browsers are excluded.
+        window.__isNativeAndroidApp = !!(isAndroid && (hasAndroidBridge || hasDigitalGoods || isWebView || isTWA) && !window.__isAndroidWebBrowser);
       } catch(_) {
         window.__isNativeAndroidApp = false;
         window.__isAndroidWebBrowser = false;
