@@ -465,16 +465,29 @@
 
         // Called by Android after successful purchase/restore
         window.fmSetProStatus = function(isPro){
+          var newStatus = !!isPro;
+          var prevStatus = false;
           try {
-            // Persist subscription flag so AI limiter uses 15 prompts when true
-            localStorage.setItem('subscriptionActive', JSON.stringify(!!isPro));
-          } catch(_) {}
+            prevStatus = JSON.parse(localStorage.getItem('subscriptionActive') || 'false') === true;
+          } catch(_) { prevStatus = false; }
+
+          // Persist subscription flag so AI limiter uses 15 prompts when true
+          try { localStorage.setItem('subscriptionActive', JSON.stringify(newStatus)); } catch(_) {}
+
           // Notify any listeners (ads, UI) that subscription changed
-          try { window.dispatchEvent(new CustomEvent('subscription-status-changed', { detail: { active: !!isPro } })); } catch(_) {}
+          try { window.dispatchEvent(new CustomEvent('subscription-status-changed', { detail: { active: newStatus } })); } catch(_) {}
+
           // Trigger AI quota recompute in UI without navigating
           try { document.dispatchEvent(new Event('visibilitychange')); } catch(_) {}
-          // Toast confirmation for successful activation/restoration
-          try { if (!!isPro) { window.fmToast('Subscription activated', { type: 'success' }); } } catch(_) {}
+
+          // Show toast ONLY on actual transition from non-pro -> pro to avoid repeats
+          try {
+            if (newStatus && !prevStatus) {
+              window.fmToast('Subscription activated', { type: 'success' });
+              // Mark that we acknowledged the activation in this session
+              window.__fmLastSubToastAt = Date.now();
+            }
+          } catch(_) {}
         };
       } catch(_) { /* no-op */ }
     })();
