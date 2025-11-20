@@ -33,13 +33,13 @@
     html,body{ height:100%; color:#111827; font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto; -webkit-font-smoothing:antialiased;}
     .dark html,.dark body{ color:#f9fafb; }
     .hero-pattern {
-      background-image: linear-gradient(135deg, rgba(99,102,241,0.12), rgba(236,72,153,0.12));
+      background-image: linear-gradient(135deg, rgba(59,130,246,0.12), rgba(6,182,212,0.12));
       background-color: #f9fafb; /* light surface to match app */
       background-size: cover;
       background-position: center;
     }
     .dark .hero-pattern {
-      background-image: linear-gradient(135deg, rgba(99,102,241,0.08), rgba(236,72,153,0.12)), linear-gradient(180deg, rgba(17,24,39,0.85), rgba(17,24,39,0.85));
+      background-image: linear-gradient(135deg, rgba(37,99,235,0.10), rgba(6,182,212,0.14)), linear-gradient(180deg, rgba(17,24,39,0.85), rgba(17,24,39,0.85));
       background-color: #111827; /* dark surface to match app */
       background-size: cover;
       background-position: center;
@@ -84,29 +84,30 @@
       overflow:hidden; 
       padding-bottom:0 !important; 
     }
-    body.dark.player-active { }
+    
 
-    /* Unified bubble wallpaper across all views */
+    /* Pink‑tinted Progress gradient; configurable via CSS var */
     body {
       background-color: #f9fafb; /* light surface */
-      background-image:
-        radial-gradient(circle at 25px 25px, rgba(59,130,246,0.14) 6px, transparent 6px),
-        radial-gradient(circle at 75px 75px, rgba(236,72,153,0.12) 8px, transparent 8px),
-        radial-gradient(circle at 50px 100px, rgba(168,85,247,0.10) 5px, transparent 5px);
-      background-size: 100px 100px;
+      background-image: var(
+        --wallpaperImage,
+        linear-gradient(135deg, #eff6ff 0%, #ecfeff 45%, #eef2ff 100%)
+      );
+      background-size: cover;
       background-attachment: fixed;
-      background-repeat: repeat;
+      background-repeat: no-repeat;
     }
     .dark body {
       background-color: #111827; /* dark surface */
-      background-image:
-        radial-gradient(circle at 25px 25px, rgba(59,130,246,0.24) 6px, transparent 6px),
-        radial-gradient(circle at 75px 75px, rgba(236,72,153,0.20) 8px, transparent 8px),
-        radial-gradient(circle at 50px 100px, rgba(168,85,247,0.18) 5px, transparent 5px);
-      background-size: 100px 100px;
+      background-image: var(
+        --wallpaperImage,
+        linear-gradient(135deg, rgba(17,24,39,1) 0%, rgba(29,78,216,0.20) 55%, rgba(6,182,212,0.20) 100%)
+      );
+      background-size: cover;
       background-attachment: fixed;
-      background-repeat: repeat;
+      background-repeat: no-repeat;
     }
+    body.wallpaper-off { --wallpaperImage: none; }
     #app.player-active { padding-top:0 !important; padding-bottom:0 !important; height:100vh; min-height:100vh; overflow:hidden; }
     /* Universal title spacing fix for workout cards */
     .hero-pattern .absolute { padding-top: 1.25rem; padding-left: 1.25rem; padding-right: 1.25rem; }
@@ -122,6 +123,15 @@
       } else {
         document.documentElement.classList.remove('dark')
       }
+      // Allow disabling gradient only via explicit query flag (runs early)
+      try {
+        const params = new URLSearchParams(location.search);
+        const noWallpaperFlag = params.get('no_wallpaper');
+        const disableWallpaper = noWallpaperFlag === '1' || noWallpaperFlag === 'true' || params.has('no_wallpaper');
+        if (disableWallpaper) {
+          document.documentElement.style.setProperty('--wallpaperImage', 'none');
+        }
+      } catch(_) { /* noop */ }
     </script>
   <!-- PWA manifest + theme -->
   <link rel="manifest" href="/manifest.json">
