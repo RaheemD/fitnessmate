@@ -480,12 +480,19 @@
           // Trigger AI quota recompute in UI without navigating
           try { document.dispatchEvent(new Event('visibilitychange')); } catch(_) {}
 
-          // Show toast ONLY on actual transition from non-pro -> pro to avoid repeats
+          // Show toast ONLY on actual transition from non-pro -> pro,
+          // and guard with a session flag + short cooldown to avoid sporadic repeats.
           try {
-            if (newStatus && !prevStatus) {
+            var now = Date.now();
+            var COOLDOWN_MS = 2 * 60 * 1000; // 2 minutes
+            var lastToastAt = 0;
+            try { lastToastAt = parseInt(localStorage.getItem('subscriptionLastToastAt') || '0', 10) || 0; } catch(_) {}
+            var sessionShown = !!window.__fmActivationToastShown;
+
+            if (newStatus && !prevStatus && !sessionShown && (now - lastToastAt > COOLDOWN_MS)) {
               window.fmToast('Subscription activated', { type: 'success' });
-              // Mark that we acknowledged the activation in this session
-              window.__fmLastSubToastAt = Date.now();
+              window.__fmActivationToastShown = true; // session guard
+              try { localStorage.setItem('subscriptionLastToastAt', String(now)); } catch(_) {}
             }
           } catch(_) {}
         };
