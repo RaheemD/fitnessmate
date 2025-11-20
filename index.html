@@ -497,6 +497,11 @@
   
   <div id="root"></div>
 
+  <!-- Preload Exercises app at startup; kept off-screen until shown -->
+  <div id="workout-preload-container" style="position:fixed;width:1px;height:1px;top:-9999px;left:-9999px;opacity:0;pointer-events:none;z-index:-1;">
+    <iframe src="./workout.html" id="workout-preload" loading="eager" style="width:1px;height:1px;border:0;"></iframe>
+  </div>
+
   <!-- React + ReactDOM + Babel (for JSX in-browser) -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
@@ -4760,7 +4765,7 @@ const midnightTimerRef = useRef(null);
               <img src="logo.png" alt="FitnessMate logo" className="w-8 h-8 sm:w-9 sm:h-9 md:w-10 md:h-10 mr-3 object-contain"/>
               <div>
                 <h1 className="truncate text-lg sm:text-2xl md:text-3xl font-bold leading-tight text-gray-800 dark:text-gray-200">FitnessMate - AI Workout Hub</h1>
-                <p className="truncate text-xs sm:text-base text-gray-500 dark:text-gray-400">Personalized AI workout plans for home and gym</p>
+                <p className="truncate text-xs sm:text-base text-gray-500 dark:text-gray-400">Personalized AI workout plans for home</p>
               </div>
               </div>
               <div className="merch-teaser starry blink text-gray-900 dark:text-white text-xs sm:text-sm md:text-base text-center sm:text-right w-full sm:w-auto sm:max-w-[60%] md:max-w-[50%] whitespace-normal md:whitespace-nowrap leading-tight mt-1 sm:mt-0 mx-auto sm:mx-0 self-center sm:self-auto">
@@ -9115,7 +9120,7 @@ Respond ONLY with a valid JSON object in this exact format:
       };
 
       return (
-        <div className="p-6 pb-24">
+        <div className="p-6 pb-24 bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 dark:from-gray-900 dark:via-purple-900/20 dark:to-blue-900/20 min-h-screen">
           <header className="mb-6 text-center">
             <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-200">Meal Planning</h1>
             <p className="text-gray-500 dark:text-gray-400">Plan meals, use ingredients, or decode menus</p>
@@ -10354,6 +10359,29 @@ Respond ONLY with a valid JSON object in this format:
         };
 
         if (activeTab === 'exercises') {
+          // Adopt preloaded iframe into the exercises host for instant show
+          try {
+            const host = document.getElementById('exercises-host');
+            let iframe = document.getElementById('workout-iframe');
+            if (!iframe) {
+              const preload = document.getElementById('workout-preload');
+              if (preload) {
+                iframe = preload;
+                iframe.id = 'workout-iframe';
+                iframe.removeAttribute('style');
+              } else {
+                iframe = document.createElement('iframe');
+                iframe.src = './workout.html';
+                iframe.loading = 'eager';
+                iframe.id = 'workout-iframe';
+              }
+              iframe.className = 'w-full border-0';
+              if (host && iframe.parentElement !== host) host.appendChild(iframe);
+            } else {
+              if (host && iframe.parentElement !== host) host.appendChild(iframe);
+            }
+          } catch (_) {}
+
           updateHeight();
           window.addEventListener('resize', updateHeight);
           window.addEventListener('orientationchange', updateHeight);
@@ -10920,7 +10948,9 @@ Respond ONLY with a valid JSON object in this exact format:
       };
 
       return (
-        <div className={`${activeTab === 'exercises' ? 'p-0 m-0 min-h-screen flex flex-col' : 'p-4 sm:p-6 pb-24 mb-20 flex flex-col'}`}>
+        <div className={`${activeTab === 'exercises' 
+          ? 'pt-4 sm:pt-6 px-0 pb-0 m-0 min-h-screen flex flex-col bg-gradient-to-br from-blue-50 via-cyan-50 to-indigo-50 dark:from-gray-900 dark:via-blue-900/20 dark:to-cyan-900/20'
+          : 'p-4 sm:p-6 pb-24 mb-20 min-h-screen flex flex-col bg-gradient-to-br from-blue-50 via-cyan-50 to-indigo-50 dark:from-gray-900 dark:via-blue-900/20 dark:to-cyan-900/20'}`}>
           <header className="mb-4 sm:mb-6 text-center px-2">
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-gray-200">Workout Hub</h1>
             <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400">Plan workouts or perfect your form</p>
@@ -11100,13 +11130,7 @@ Respond ONLY with a valid JSON object in this exact format:
           )}
 
           <div id="exercises-wrapper" className={`${activeTab === 'exercises' ? 'block' : 'hidden'}`}>
-            <iframe 
-              src="./workout.html" 
-              loading="eager"
-              id="workout-iframe"
-              className="w-full border-0"
-              title="Workout Application"
-            />
+            <div id="exercises-host" className="w-full"></div>
           </div>
         </div>
       );
