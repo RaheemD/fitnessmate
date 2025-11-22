@@ -58,7 +58,7 @@
   ],
   "screenshots": [
     {
-      "src": "/mnt/data/brand_gradient_texture_1080x2400.png",
+      "src": "/splash-1080x2400.png",
       "sizes": "1080x2400",
       "type": "image/png",
       "form_factor": "narrow",
@@ -68,3 +68,4 @@
   "prefer_related_applications": false,
   "related_applications": []
 }
+
