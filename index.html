@@ -47,11 +47,13 @@
   <script>
     // Prevent white flash on page load - apply background immediately
     (function() {
-      const isDarkMode = localStorage.getItem('fitmate-dark-mode') === 'true';
+      const rawTheme = localStorage.getItem('fitmate-dark-mode');
+      const isDarkMode = (rawTheme === null) ? true : (rawTheme === 'true'); // default to dark
       if (isDarkMode) {
         document.documentElement.classList.add('dark');
         document.documentElement.style.backgroundColor = '#111827';
       } else {
+        document.documentElement.classList.remove('dark');
         document.documentElement.style.backgroundColor = '#f9fafb';
       }
     })();
@@ -2986,7 +2988,7 @@ Respond ONLY with a valid JSON object in this exact format:
       // --- Clean Theme State Management ---
       const [isDarkMode, setIsDarkMode] = useState(() => {
         const saved = localStorage.getItem('fitmate-dark-mode');
-        return saved === 'true';
+        return saved === null ? true : saved === 'true'; // default to dark on first launch
       });
 
       // --- Global AI Thinking Indicator ---
@@ -6848,17 +6850,17 @@ const midnightTimerRef = useRef(null);
                 </button>
               )}
               
-              {/* Existing Dark Mode toggle */}
+              {/* Theme toggle: defaults to dark; switch enables Light Mode */}
               <div className="flex justify-between items-center p-3">
-                <span className="text-gray-700 dark:text-gray-300">Dark Mode</span>
+                <span className="text-gray-700 dark:text-gray-300">Light Mode</span>
                 <button 
                   onClick={toggleDarkMode} 
                   className={`relative w-14 h-7 rounded-full p-1 transition-colors duration-200 focus:outline-none ${
-                    isDarkMode ? 'bg-pink-500' : 'bg-gray-300'
+                    isDarkMode ? 'bg-gray-300' : 'bg-pink-500'
                   }`}
                 >
                   <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-200 ${
-                    isDarkMode ? 'translate-x-7' : 'translate-x-0'
+                    isDarkMode ? 'translate-x-0' : 'translate-x-7'
                   }`}></div>
                 </button>
               </div>
@@ -11685,11 +11687,86 @@ User's question: "${userMessage.text}"`;
           return { sleepHours:'', workHours:'', stressRating:'', stressEpisodes:'', exerciseMins:'', meditationMins:'', socialMins:'', screenHours:'', lifeEvent:'none', notes:'' };
         }
       });
-      const [stressResult, setStressResult] = useState(null);
-      const [stressInsight, setStressInsight] = useState('');
+        const [stressResult, setStressResult] = useState(null);
+        const [stressInsight, setStressInsight] = useState('');
+        // Persist and restore computed stress result so it survives tab changes
+        useEffect(() => {
+          try {
+            const raw = localStorage.getItem('stressResult');
+            if (raw) {
+              const r = JSON.parse(raw);
+              setStressResult(r);
+              setStressInsight(generateStressInsight(r, stressForm));
+            }
+          } catch (_) {}
+        }, []);
+        useEffect(() => {
+          try {
+            if (stressResult) localStorage.setItem('stressResult', JSON.stringify(stressResult));
+          } catch (_) {}
+        }, [stressResult]);
       const [lifeEventInfoOpen, setLifeEventInfoOpen] = useState(false);
       // UI-only: track focus on Work hours to show helper when empty
       const [workHoursFocused, setWorkHoursFocused] = useState(false);
+
+      // Breathing exercise state (UI-only; self-contained)
+      const [showBreathing, setShowBreathing] = useState(false);
+      const [breathStepIndex, setBreathStepIndex] = useState(0);
+      const [breathPhaseLabel, setBreathPhaseLabel] = useState('');
+      const [breathPhaseSecondsLeft, setBreathPhaseSecondsLeft] = useState(0);
+      const [breathTotalSecondsLeft, setBreathTotalSecondsLeft] = useState(180); // default ~3 minutes
+      const breathTimerRef = useRef(null);
+      const breathPlanRef = useRef([
+        { label: 'Breathe In!', duration: 4, scale: 1.12 },
+        { label: 'Hold!', duration: 7, scale: 1.12 },
+        { label: 'Exhale', duration: 8, scale: 0.95 }
+      ]);
+      const formatMMSS = (s) => {
+        const m = Math.floor(s / 60);
+        const sec = String(s % 60).padStart(2, '0');
+        return `${String(m).padStart(2, '0')}:${sec}`;
+      };
+      const startBreathing = (total = 180) => {
+        try { if (breathTimerRef.current) { clearInterval(breathTimerRef.current); breathTimerRef.current = null; } } catch(_) {}
+        setBreathTotalSecondsLeft(total);
+        setBreathStepIndex(0);
+        setBreathPhaseLabel(breathPlanRef.current[0].label);
+        setBreathPhaseSecondsLeft(breathPlanRef.current[0].duration);
+        setShowBreathing(true);
+      };
+      const stopBreathing = () => {
+        try { if (breathTimerRef.current) { clearInterval(breathTimerRef.current); breathTimerRef.current = null; } } catch(_) {}
+        setShowBreathing(false);
+        setBreathTotalSecondsLeft(180);
+        setBreathPhaseSecondsLeft(0);
+        setBreathStepIndex(0);
+      };
+      useEffect(() => {
+        if (!showBreathing) return;
+        try { if (breathTimerRef.current) clearInterval(breathTimerRef.current); } catch(_) {}
+        breathTimerRef.current = setInterval(() => {
+          setBreathTotalSecondsLeft(prev => {
+            const next = Math.max(0, prev - 1);
+            if (next === 0) { stopBreathing(); }
+            return next;
+          });
+          setBreathPhaseSecondsLeft(prev => {
+            const nxt = prev - 1;
+            if (nxt <= 0) {
+              setBreathStepIndex(idx => {
+                const newIdx = (idx + 1) % breathPlanRef.current.length;
+                const step = breathPlanRef.current[newIdx];
+                setBreathPhaseLabel(step.label);
+                setBreathPhaseSecondsLeft(step.duration);
+                return newIdx;
+              });
+              return 0;
+            }
+            return nxt;
+          });
+        }, 1000);
+        return () => { try { clearInterval(breathTimerRef.current); } catch(_) {} breathTimerRef.current = null; };
+      }, [showBreathing]);
 
       useEffect(() => {
         try { localStorage.setItem('stressForm', JSON.stringify(stressForm)); } catch (_) {}
@@ -13022,7 +13099,7 @@ ${habits.map(habit => {
 
                 <div className="flex mt-4">
                   <button
-                    onClick={() => { const r = computeStressScore(stressForm); setStressResult(r); setStressInsight(generateStressInsight(r, stressForm)); }}
+                          onClick={() => { const r = computeStressScore(stressForm); setStressResult(r); setStressInsight(generateStressInsight(r, stressForm)); try { localStorage.setItem('stressResult', JSON.stringify(r)); } catch (_) {} }}
                     disabled={!String(stressForm.sleepHours || '').trim() || Number(stressForm.sleepHours) < 4 || !String(stressForm.workHours || '').trim() || exceedsDayHours}
                     className="flex-grow bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold p-3 rounded-xl hover:from-purple-600 hover:to-pink-600 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed">
                     Compute Stress Score
@@ -13167,7 +13244,7 @@ ${habits.map(habit => {
                   )}
 
                   {stressResult && stressResult.stressScore >= 26 && (
-                    <div className="mt-4 mb-24 bg-gradient-to-r from-purple-500/10 to-pink-500/10 dark:from-purple-500/5 dark:to-pink-500/5 p-4 rounded-2xl border border-pink-200/50 dark:border-pink-700/40">
+                    <div className="mt-4 mb-4 bg-gradient-to-r from-purple-500/10 to-pink-500/10 dark:from-purple-500/5 dark:to-pink-500/5 p-4 rounded-2xl border border-pink-200/50 dark:border-pink-700/40">
                       <div className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2 flex items-center">
                         <span className="mr-2">🪄</span>
                         Stress‑Linked Habit Suggestions
@@ -13197,8 +13274,46 @@ ${habits.map(habit => {
                       </div>
                     </div>
                   )}
+
+                  {/* Breathing Exercise CTA when stress is elevated (>25) */}
+                  {stressResult && stressResult.stressScore > 25 && (
+                    <div className="mt-2 bg-white dark:bg-gray-800 p-4 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-lg flex items-center justify-between">
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold text-gray-600 dark:text-gray-400">Guided Breathing</div>
+                        <div className="text-lg font-bold text-gray-800 dark:text-gray-200">Release Tension</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">4–7–8 cycle • ~3 minutes</div>
+                      </div>
+                      <button onClick={() => startBreathing(180)} className="ml-3 px-4 py-2 rounded-lg bg-gradient-to-r from-teal-500 to-indigo-500 text-white text-sm font-bold shadow hover:from-teal-600 hover:to-indigo-600">Start</button>
+                    </div>
+                  )}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Breathing Exercise Overlay (self-contained; mobile/tablet responsive) */}
+          {showBreathing && (
+            <div className="fixed inset-0 z-[10000] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4" onClick={stopBreathing}>
+              <div className="w-full max-w-sm md:max-w-md bg-white dark:bg-gray-800 rounded-3xl shadow-2xl border border-gray-200 dark:border-gray-700 p-6" onClick={e => e.stopPropagation()}>
+                <div className="text-center mb-4">
+                  <div className="text-gray-800 dark:text-gray-200 font-semibold">Release Tension</div>
+                  <div className="mt-1 text-gray-900 dark:text-white text-2xl font-bold">{formatMMSS(breathTotalSecondsLeft)}</div>
+                </div>
+                <div className="flex items-center justify-center mb-4">
+                  <div className="relative" style={{ transform: `scale(${(breathPlanRef.current[breathStepIndex]||{}).scale || 1})`, transition: 'transform 0.8s ease-in-out' }}>
+                    <div className="w-48 h-48 sm:w-64 sm:h-64 md:w-72 md:h-72 rounded-full p-[6px] bg-gradient-to-r from-teal-300 via-emerald-300 to-indigo-300 shadow-xl">
+                      <div className="w-full h-full rounded-full bg-gradient-to-b from-indigo-100 to-pink-100 dark:from-indigo-800/40 dark:to-pink-700/40"></div>
+                    </div>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="text-4xl sm:text-5xl">💗</div>
+                    </div>
+                  </div>
+                </div>
+                <div className="text-center text-gray-900 dark:text-white font-semibold text-lg sm:text-xl mb-6">{breathPhaseLabel || 'Breathe In!'}</div>
+                <div className="flex items-center justify-center">
+                  <button onClick={stopBreathing} className="px-6 py-2 rounded-xl bg-gradient-to-r from-pink-500 via-rose-500 to-fuchsia-500 text-white font-semibold shadow hover:from-pink-600 hover:via-rose-600 hover:to-fuchsia-600 focus:outline-none focus:ring-2 focus:ring-pink-400">Stop</button>
+                </div>
+              </div>
             </div>
           )}
 
