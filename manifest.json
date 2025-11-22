@@ -10,7 +10,7 @@
   "lang": "en",
   "categories": ["health", "fitness", "productivity"],
 
-  "background_color": "#5B6CF0",
+  "background_color": "#1e40af",
   "theme_color": "#2563EB",
 
   "display_override": [
@@ -54,4 +54,5 @@
   "prefer_related_applications": false,
   "related_applications": []
 }
+
 
