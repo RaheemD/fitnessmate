@@ -8,11 +8,13 @@
   "orientation": "portrait-primary",
   "dir": "ltr",
   "lang": "en",
-  "categories": ["health", "fitness", "productivity"],
-
+  "categories": [
+    "health",
+    "fitness",
+    "productivity"
+  ],
   "background_color": "#5B6CF0",
   "theme_color": "#2563EB",
-
   "display_override": [
     "window-controls-overlay",
     "standalone",
@@ -20,7 +22,6 @@
     "minimal-ui",
     "browser"
   ],
-
   "icons": [
     {
       "src": "/icon-192.png",
@@ -33,9 +34,14 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable any"
     }
   ],
-
   "shortcuts": [
     {
       "name": "Start Workout",
@@ -50,8 +56,15 @@
       ]
     }
   ],
-
+  "screenshots": [
+    {
+      "src": "/mnt/data/brand_gradient_texture_1080x2400.png",
+      "sizes": "1080x2400",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Startup Splash"
+    }
+  ],
   "prefer_related_applications": false,
   "related_applications": []
 }
-
