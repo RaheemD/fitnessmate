@@ -116,8 +116,9 @@
   </style>
     <script>
       // Dark mode detection - must run before body renders
-      // Sync with index.html dark mode settings
-      const isDarkMode = localStorage.getItem('fitmate-dark-mode') === 'true';
+      // Sync with index.html dark mode settings (default to dark when unset)
+      const rawTheme = localStorage.getItem('fitmate-dark-mode');
+      const isDarkMode = (rawTheme === null) ? true : (rawTheme === 'true');
       if (isDarkMode) {
         document.documentElement.classList.add('dark')
       } else {
