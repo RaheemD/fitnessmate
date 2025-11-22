@@ -2729,7 +2729,7 @@ Respond ONLY with a valid JSON object in this exact format:
       if (window.__iapSetupInstalled) return;
       window.__iapSetupInstalled = true;
 
-      const PRODUCT_ID = 'fitmate_monthly_149'; // configure in Play Console
+      const PRODUCT_ID = 'fitnessmate_monthly'; // configure in Play Console
       const BILLING_METHOD = 'https://play.google.com/billing';
 
       const setSubActive = (active) => {
@@ -2784,8 +2784,9 @@ Respond ONLY with a valid JSON object in this exact format:
       const subscribe = async (productId = PRODUCT_ID) => {
         const isNative = !!window.__isNativeAndroidApp;
         const openPlayManage = () => {
-          const sku = (window.fitmateIAP && window.fitmateIAP.PRODUCT_ID) ? window.fitmateIAP.PRODUCT_ID : 'fitmate_monthly_149';
-          const manageUrl = `https://play.google.com/store/account/subscriptions?sku=${encodeURIComponent(sku)}`;
+          const sku = (window.fitmateIAP && window.fitmateIAP.PRODUCT_ID) ? window.fitmateIAP.PRODUCT_ID : PRODUCT_ID;
+          const pkg = 'app.netlify.fitnessmate.twa';
+          const manageUrl = `https://play.google.com/store/account/subscriptions?sku=${encodeURIComponent(sku)}&package=${encodeURIComponent(pkg)}`;
           try { window.open(manageUrl, '_blank'); } catch(_) {}
         };
 
@@ -4340,7 +4341,7 @@ const midnightTimerRef = useRef(null);
                   {subActiveGlobal ? (
                     <div className="flex items-center gap-3">
                       <button
-                        onClick={async ()=>{ const openPlay=()=>{ const sku=(window.fitmateIAP&&window.fitmateIAP.PRODUCT_ID)?window.fitmateIAP.PRODUCT_ID:'fitmate_monthly_149'; const manageUrl=`https://play.google.com/store/account/subscriptions?sku=${encodeURIComponent(sku)}`; try{window.open(manageUrl,'_blank');}catch(_){} }; const openStripeLogin=()=>{ try{ window.open('https://billing.stripe.com/p/login/28E14o3tE3dP9Uhfnc3sI00','_blank'); }catch(_){} }; try { if (supabase && supabase.functions) { const { data, error } = await supabase.functions.invoke('stripe-webhook', { body: { action: 'create_portal_session' } }); if (!error && data && data.url) { window.location.assign(data.url); return; } } } catch(_){} if (window.__hasAndroidBridge) { openPlay(); } else { openStripeLogin(); } }}
+                        onClick={async ()=>{ const openPlay=()=>{ const sku=(window.fitmateIAP&&window.fitmateIAP.PRODUCT_ID)?window.fitmateIAP.PRODUCT_ID:'fitnessmate_monthly'; const pkg='app.netlify.fitnessmate.twa'; const manageUrl=`https://play.google.com/store/account/subscriptions?sku=${encodeURIComponent(sku)}&package=${encodeURIComponent(pkg)}`; try{window.open(manageUrl,'_blank');}catch(_){} }; const openStripeLogin=()=>{ try{ window.open('https://billing.stripe.com/p/login/28E14o3tE3dP9Uhfnc3sI00','_blank'); }catch(_){} }; try { if (supabase && supabase.functions) { const { data, error } = await supabase.functions.invoke('stripe-webhook', { body: { action: 'create_portal_session' } }); if (!error && data && data.url) { window.location.assign(data.url); return; } } } catch(_){} if (window.__hasAndroidBridge) { openPlay(); } else { openStripeLogin(); } }}
                         className="bg-gray-800 hover:bg-gray-900 text-white text-sm px-4 py-2 rounded-lg shadow"
                       >
                         Manage
@@ -4888,7 +4889,7 @@ const midnightTimerRef = useRef(null);
       const [profilePicture, setProfilePicture] = useState(() => {
         // Initialize from localStorage for both signed-in and guest users to avoid placeholder flicker
         const saved = localStorage.getItem('profilePicture');
-        return saved || "https://placehold.co/100x100/EAB543/ffffff?text=User";
+        return saved || "/icon-192.png";
       });
       const [isGeneratingAvatar, setIsGeneratingAvatar] = useState(false);
       const [notificationsEnabled, setNotificationsEnabled] = useState(() => {
@@ -6428,7 +6429,7 @@ const midnightTimerRef = useRef(null);
             <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-200">My Profile</h1>
             {user && (
               <button 
-                onClick={() => document.getElementById('virtual-trainer-card')?.scrollIntoView({ behavior: 'smooth' })}
+                onClick={openSupportModal}
                 className="flex items-center gap-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white px-3 py-2 rounded-full shadow-lg hover:scale-105 transition-transform text-sm md:text-base md:px-4"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z"/><path d="M15 7v2a2 2 0 012 2v5a2 2 0 01-2 2H9a2 2 0 01-2-2v-2h6V7z"/></svg>
@@ -6507,7 +6508,8 @@ const midnightTimerRef = useRef(null);
             </div>
           </div>
 
-          {/* Virtual Trainer Section */}
+          {/* Virtual Trainer Section (temporarily hidden) */}
+          {false && (
           <div id="virtual-trainer-card" className="mb-6">
             <h3 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-4">Virtual Trainer</h3>
             <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-md p-6">
@@ -6579,6 +6581,7 @@ const midnightTimerRef = useRef(null);
               </div>
             </div>
           </div>
+          )}
 
           <div>
             <h3 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-4">Settings</h3>
@@ -6612,7 +6615,7 @@ const midnightTimerRef = useRef(null);
                 {subActive ? (
                   <div className="flex flex-col gap-2 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
                     <button
-                      onClick={async ()=>{ const openPlay=()=>{ const sku=(window.fitmateIAP&&window.fitmateIAP.PRODUCT_ID)?window.fitmateIAP.PRODUCT_ID:'fitmate_monthly_149'; const manageUrl=`https://play.google.com/store/account/subscriptions?sku=${encodeURIComponent(sku)}`; try{window.open(manageUrl,'_blank');}catch(_){} }; const openStripeLogin=()=>{ try{ window.open('https://billing.stripe.com/p/login/28E14o3tE3dP9Uhfnc3sI00','_blank'); }catch(_){} }; try { if (supabase && supabase.functions) { const { data, error } = await supabase.functions.invoke('stripe-webhook', { body: { action: 'create_portal_session' } }); if (!error && data && data.url) { window.location.assign(data.url); return; } } } catch(_){} if (window.__hasAndroidBridge) { openPlay(); } else { openStripeLogin(); } }}
+                      onClick={async ()=>{ const openPlay=()=>{ const sku=(window.fitmateIAP&&window.fitmateIAP.PRODUCT_ID)?window.fitmateIAP.PRODUCT_ID:'fitnessmate_monthly'; const pkg='app.netlify.fitnessmate.twa'; const manageUrl=`https://play.google.com/store/account/subscriptions?sku=${encodeURIComponent(sku)}&package=${encodeURIComponent(pkg)}`; try{window.open(manageUrl,'_blank');}catch(_){} }; const openStripeLogin=()=>{ try{ window.open('https://billing.stripe.com/p/login/28E14o3tE3dP9Uhfnc3sI00','_blank'); }catch(_){} }; try { if (supabase && supabase.functions) { const { data, error } = await supabase.functions.invoke('stripe-webhook', { body: { action: 'create_portal_session' } }); if (!error && data && data.url) { window.location.assign(data.url); return; } } } catch(_){} if (window.__hasAndroidBridge) { openPlay(); } else { openStripeLogin(); } }}
                       className="w-full bg-gray-800 hover:bg-gray-900 text-white text-sm font-medium px-4 py-2.5 rounded-lg shadow-sm transition-colors"
                     >
                       Manage subscription
@@ -14028,9 +14031,7 @@ ${habits.map(habit => {
   
   <div id="installBanner">
     <span class="android-icon" aria-hidden="true">
-      <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-        <path d="M4 9h2V7a2 2 0 1 1 4 0v10a2 2 0 1 1-4 0v-2H4V9zm14 0h2v6h-2v2a2 2 0 1 1-4 0V7a2 2 0 1 1 4 0v2zM9 11h6v2H9v-2z"/>
-      </svg>
+      <img src="/logo.png" alt="FitnessMate logo" style="width:100%; height:100%; object-fit:contain;" />
     </span>
     Install <b>FitnessMate</b> for faster access!
     <button id="installBtn">Install</button>
