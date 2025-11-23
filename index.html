@@ -7389,6 +7389,8 @@ const midnightTimerRef = useRef(null);
         displayName: ''
       });
       const [isLoading, setIsLoading] = useState(false);
+      const [isDeleting, setIsDeleting] = useState(false);
+      const [deleteError, setDeleteError] = useState('');
 
       const handleInputChange = (field, value) => {
         setFormData(prev => ({ ...prev, [field]: value }));
@@ -7468,6 +7470,89 @@ const midnightTimerRef = useRef(null);
                 >
                   Sign Out
                 </button>
+
+                {/* Delete Account */}
+                <div className="pt-2">
+                  <button
+                    onClick={async () => {
+                      if (!user || isDeleting) return;
+                      setDeleteError('');
+                      const proceed = window.confirm('This will permanently delete your account and all synced data. Continue?');
+                      if (!proceed) return;
+                      const typed = window.prompt('Type DELETE to confirm permanent deletion.');
+                      if (!typed || typed.toUpperCase() !== 'DELETE') return;
+                      setIsDeleting(true);
+                      try {
+                        // Ensure we have the current session and user id
+                        let uid = user.id;
+                        let token = '';
+                        try {
+                          const { data: { session } } = await auth.getSession();
+                          uid = session?.user?.id || uid;
+                          token = session?.access_token || '';
+                        } catch (_) {}
+
+                        // Invoke secure delete Edge Function (preferred path)
+                        let edgeOk = false;
+                        try {
+                          if (supabase && supabase.functions) {
+                            const { data, error } = await supabase.functions.invoke('delete-account', {
+                              headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+                              body: { user_id: uid }
+                            });
+                            edgeOk = !!(data && (data.ok === true));
+                            if (error) throw error;
+                          }
+                        } catch (e) {
+                          // If SDK invocation fails, try direct fetch to the provided endpoint
+                          try {
+                            if (supabaseConfig && supabaseConfig.url) {
+                              const res = await fetch(`${supabaseConfig.url}/functions/v1/delete-account`, {
+                                method: 'POST',
+                                headers: {
+                                  ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                                  'Content-Type': 'application/json',
+                                  // Some deployments require apikey when called directly
+                                  apikey: supabaseConfig.anonKey
+                                },
+                                body: JSON.stringify({ user_id: uid })
+                              });
+                              if (res.ok) {
+                                const json = await res.json().catch(() => ({}));
+                                edgeOk = !!json?.ok || res.status === 200;
+                              }
+                            }
+                          } catch (_) {}
+                          // Edge function may not be configured locally; continue with best-effort cleanup
+                          console.warn('Edge delete-account invocation failed; falling back to client cleanup:', e);
+                        }
+
+                        // Best-effort client-side data cleanup (guarded by RLS; harmless if denied)
+                        try { await supabase.from('workout_history').delete().eq('user_id', uid); } catch (_) {}
+                        try { await supabase.from('bookings').delete().eq('user_id', uid); } catch (_) {}
+                        try { await supabase.from('users').delete().eq('id', uid); } catch (_) {}
+
+                        // Sign the user out and redirect
+                        try { await auth.signOut({ scope: 'local' }); } catch (_) {}
+                        try { localStorage.setItem('subscriptionActive', JSON.stringify(false)); } catch (_) {}
+                        try { window.dispatchEvent(new CustomEvent('subscription-status-changed', { detail: { active: false } })); } catch (_) {}
+                        window.location.assign('/');
+                      } catch (err) {
+                        console.error('Delete account failed:', err);
+                        setDeleteError(err?.message || 'Failed to delete account');
+                      } finally {
+                        setIsDeleting(false);
+                      }
+                    }}
+                    className={`w-full ${isDeleting ? 'bg-gray-400' : 'bg-gray-800 hover:bg-gray-900'} text-white py-3 px-4 rounded-xl font-semibold transition-colors`}
+                    disabled={isDeleting}
+                  >
+                    {isDeleting ? 'Deleting…' : 'Delete My Account'}
+                  </button>
+                  {deleteError && (
+                    <p className="mt-2 text-sm text-red-500">{deleteError}</p>
+                  )}
+                </div>
               </div>
             </div>
           </div>
