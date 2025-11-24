@@ -7571,7 +7571,16 @@ const midnightTimerRef = useRef(null);
                                   try { await auth.signOut({ scope: 'local' }); } catch (_) {}
                                   try { localStorage.setItem('subscriptionActive', JSON.stringify(false)); } catch (_) {}
                                   try { window.dispatchEvent(new CustomEvent('subscription-status-changed', { detail: { active: false } })); } catch (_) {}
-                                  window.location.assign('/');
+                                  
+                                  // Show success notification before redirect
+                                  try { 
+                                    window.fmToast('Account deleted successfully', { type: 'success', duration: 2500 }); 
+                                  } catch (_) {}
+                                  
+                                  // Delay redirect slightly to show the toast
+                                  setTimeout(() => {
+                                    window.location.assign('/');
+                                  }, 1500);
                                 } catch (err) {
                                   console.error('Delete account failed:', err);
                                   setDeleteError(err?.message || 'Failed to delete account');
