@@ -1128,6 +1128,11 @@ Respond ONLY with a valid JSON object in this exact format:
             // Only clear aiUsage on an explicit SIGNED_OUT event; preserve counts on initial load
             if (event === 'SIGNED_OUT') {
               try { localStorage.removeItem('aiUsage'); } catch (_) {}
+              try { localStorage.removeItem('dailyIntake'); } catch (_) {}
+              try { localStorage.removeItem('recentMeals'); } catch (_) {}
+              try { localStorage.removeItem('dailyHistory'); } catch (_) {}
+              try { localStorage.removeItem('workoutHistory'); } catch (_) {}
+              try { localStorage.removeItem('goals'); } catch (_) {}
             }
             try { window.dispatchEvent(new Event('userDataSynced')); } catch (_) {}
           }
@@ -7574,7 +7579,7 @@ const midnightTimerRef = useRef(null);
                                   
                                   // Show success notification before redirect
                                   try { 
-                                    window.fmToast('Account deleted successfully', { type: 'success', duration: 2500 }); 
+                                    window.fmToast('Account Deleted', { type: 'success', duration: 2500 }); 
                                   } catch (_) {}
                                   
                                   // Delay redirect slightly to show the toast
@@ -13712,8 +13717,8 @@ ${habits.map(habit => {
             <div className="p-3 bg-yellow-100 dark:bg-yellow-900 rounded-lg flex flex-wrap items-center justify-between gap-2">
               <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">Log {pendingMins} min activity?</span>
               <div className="flex items-center gap-2 w-full sm:w-auto">
-                <button onClick={confirmPending} className="inline-flex items-center justify-center px-2 sm:px-3 py-1 text-xs sm:text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg flex-1">Log</button>
-                <button onClick={dismissPending} className="inline-flex items-center justify-center px-2 sm:px-3 py-1 text-xs sm:text-sm bg-gray-300 dark:bg-gray-600 text-gray-800 dark:text-gray-200 rounded-lg flex-1">Dismiss</button>
+                <button onClick={confirmPending} className="inline-flex items-center justify-center px-2 sm:px-3 py-2 text-xs sm:text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg flex-1">Log</button>
+                <button onClick={dismissPending} className="inline-flex items-center justify-center px-2 sm:px-3 py-2 text-xs sm:text-sm bg-gray-300 dark:bg-gray-600 text-gray-800 dark:text-gray-200 rounded-lg flex-1">Dismiss</button>
               </div>
             </div>
           )}
