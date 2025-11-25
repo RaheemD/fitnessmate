@@ -1513,7 +1513,7 @@
           <button class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 text-xl" onclick="this.closest('.fixed').remove()">&times;</button>
         </div>
         <div class="rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-700">
-          <video class="w-full h-64 object-contain" autoplay loop muted controls>
+          <video class="w-full h-64 object-contain" autoplay loop muted controls controlslist="nodownload">
             <source src="./animations/${animationFile}" type="video/mp4">
           </video>
         </div>
@@ -1522,19 +1522,30 @@
   }
 
   function showAppToast(message, type = 'info') {
-    const colors = {
-      info: 'bg-blue-600',
-      success: 'bg-green-600',
-      warning: 'bg-yellow-500',
-      error: 'bg-red-600'
-    };
+    const tone = {
+      info: 'from-blue-500 to-blue-600',
+      success: 'from-green-500 to-emerald-600',
+      warning: 'from-yellow-500 to-amber-600',
+      error: 'from-red-500 to-rose-600'
+    }[type] || 'from-blue-500 to-blue-600';
     const bar = document.createElement('div');
-    bar.className = `fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg shadow-lg text-white ${colors[type] || colors.info}`;
-    bar.style.backdropFilter = 'blur(6px)';
-    bar.textContent = message;
+    bar.className = 'fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-3 rounded-xl shadow-lg text-white bg-gradient-to-r ' + tone;
+    bar.style.cssText += 'backdrop-filter:blur(8px); opacity:0; transform:translate(-50%,-6px); transition:opacity 220ms ease, transform 220ms ease;';
+    bar.setAttribute('role','status');
+    bar.setAttribute('aria-live','polite');
+    bar.innerHTML = `
+      <div class="flex items-center gap-3">
+        <span class="font-semibold text-sm">${message}</span>
+      </div>
+      <div class="mt-2 h-1 bg-white/25 rounded">
+        <div class="h-1 bg-white/90 rounded" style="width:0%; transition:width 2400ms linear"></div>
+      </div>`;
     document.body.appendChild(bar);
-    setTimeout(() => { bar.classList.add('opacity-0'); bar.style.transition = 'opacity 300ms'; }, 2200);
-    setTimeout(() => { try { bar.remove(); } catch(_) {} }, 2600);
+    // animate in
+    requestAnimationFrame(() => { bar.style.opacity = '1'; bar.style.transform = 'translate(-50%,0)'; const prog = bar.querySelector('div > div'); if (prog) prog.style.width = '100%'; });
+    // fade out and remove
+    setTimeout(() => { bar.style.opacity = '0'; bar.style.transform = 'translate(-50%,-6px)'; }, 2500);
+    setTimeout(() => { try { bar.remove(); } catch(_) {} }, 2800);
   }
 
   function startPlayerTimer(){
