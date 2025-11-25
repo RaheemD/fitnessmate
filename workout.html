@@ -697,6 +697,32 @@
     }
   ];
 
+  // --- Customise Workout (aggregates all unique exercises) ---
+  const CUSTOM_SELECT_KEY = 'customWorkoutSelection';
+  function loadCustomSelection(){ try { const m = JSON.parse(localStorage.getItem(CUSTOM_SELECT_KEY)||'{}'); return (m && typeof m === 'object') ? m : {}; } catch(_) { return {}; } }
+  function saveCustomSelection(k,v){ try { const m = loadCustomSelection(); m[k] = !!v; localStorage.setItem(CUSTOM_SELECT_KEY, JSON.stringify(m)); } catch(_) {} }
+  function collectAllExercises() {
+    const seen = new Set();
+    const all = [];
+    const map = loadCustomSelection();
+    WORKOUTS.forEach(w => {
+      (w.exercises || []).forEach(ex => {
+        const key = `${ex.title||''}|${ex.animation||''}`;
+        if (!seen.has(key)) { seen.add(key); all.push({ ...ex, __selected: !!map[key] }); }
+      });
+    });
+    return all;
+  }
+
+  WORKOUTS.push({
+    title: 'Customise',
+    desc: 'Create your own workout by selecting exercises',
+    duration: 'Varies',
+    difficulty: 'custom',
+    tag: 'Your Plan',
+    exercises: collectAllExercises()
+  });
+
   // DOM references
   const viewList = document.getElementById('view-list');
   const viewDetail = document.getElementById('view-detail');
@@ -976,7 +1002,7 @@
           <div class="absolute inset-0 flex items-start px-5 pt-5 z-10">
             <span class="text-2xl md:text-3xl font-extrabold text-gray-900 dark:text-white">${w.title}</span>
             <div class="ml-auto">
-              <span class="inline-block text-xs font-semibold uppercase px-3 py-1 rounded-full ${w.difficulty==='beginner' ? 'bg-green-500 text-black' : w.difficulty==='intermediate' ? 'bg-pink-500 text-white' : 'bg-red-500 text-white'}">${w.difficulty.charAt(0).toUpperCase() + w.difficulty.slice(1)}</span>
+              <span class="inline-block text-xs font-semibold uppercase px-3 py-1 rounded-full ${w.difficulty==='beginner' ? 'bg-green-500 text-black' : w.difficulty==='intermediate' ? 'bg-pink-500 text-white' : w.difficulty==='custom' ? 'bg-blue-500 text-white' : 'bg-red-500 text-white'}">${w.difficulty.charAt(0).toUpperCase() + w.difficulty.slice(1)}</span>
             </div>
           </div>
           <div class="absolute left-0 right-0 bottom-0 p-4 card-stats">
@@ -1024,6 +1050,18 @@
   function openDetail(idx){
     currentWorkoutIndex = idx;
     const wx = WORKOUTS[idx];
+    if (wx && wx.difficulty === 'custom') {
+      // Reset to full catalog each time detail opens
+      wx.exercises = collectAllExercises();
+      detailStart.innerHTML = `
+        <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Create Workout`;
+    }
+    else {
+      detailStart.innerHTML = `
+        <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 5v14l11-7z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Start Workout`;
+    }
     detailTitle.textContent = wx.title;
     detailDesc.textContent = wx.desc;
     detailDuration.textContent = '~' + wx.duration;
@@ -1033,6 +1071,7 @@
     detailBadge.className = `ml-auto text-xs font-bold px-3 py-1 rounded-full ${
       wx.difficulty === 'beginner' ? 'bg-green-500 text-black' : 
       wx.difficulty === 'intermediate' ? 'bg-pink-500 text-white' : 
+      wx.difficulty === 'custom' ? 'bg-blue-500 text-white' :
       'bg-red-500 text-white'
     }`;
 
@@ -1041,9 +1080,17 @@
     wx.exercises.forEach((ex, i) => {
       const el = document.createElement('div');
       el.className = 'p-4 bg-white dark:bg-gray-800 rounded-xl shadow-md border border-blue-200 dark:border-blue-700';
+      const controls = (wx.difficulty === 'custom')
+        ? `<div class="flex items-center gap-2">
+             <button class="text-xs px-2 py-1 rounded-md bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white flex-shrink-0" data-info="${i}">ℹ️</button>
+             <label class="inline-flex items-center">
+               <input type="checkbox" data-select="${i}" ${ex.__selected===true ? 'checked' : ''} class="w-4 h-4 rounded border-gray-300 dark:border-gray-600">
+             </label>
+           </div>`
+        : `<button class="text-xs px-2 py-1 rounded-md bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white flex-shrink-0" data-info="${i}">ℹ️</button>`;
       el.innerHTML = `
         <div class="flex items-start gap-3">
-          <div class="w-12 h-12 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700 overflow-hidden flex-shrink-0">
+          <div class="w-12 h-12 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700 overflow-hidden flex-shrink-0 cursor-pointer" ${ex.animation ? `data-video="${ex.animation}" data-title="${ex.title}"` : ''}>
             ${ex.animation ? 
               `<video class="w-full h-full object-cover" autoplay loop muted>
                  <source src="./animations/${ex.animation}" type="video/mp4">
@@ -1057,7 +1104,7 @@
                  <h3 class="font-semibold text-gray-900 dark:text-white truncate">${ex.title}</h3>
                  <p class="text-pink-500 text-sm">${ex.muscles}</p>
                </div>
-               <button class="text-xs px-2 py-1 rounded-md bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white flex-shrink-0" data-info="${i}">ℹ️</button>
+               ${controls}
              </div>
              <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                <div class="flex items-center gap-1">
@@ -1101,11 +1148,30 @@
 
   // Start workout from detail -> go to player
   detailStart.addEventListener('click', ()=> {
+    const w = WORKOUTS[currentWorkoutIndex];
+    if (w && w.difficulty === 'custom') {
+      const selected = (w.exercises || []).filter(e => e.__selected === true);
+      if (selected.length > 0) {
+        w.exercises = selected.map(e => ({ ...e }));
+        w.title = 'Custom Workout';
+        detailCount.textContent = w.exercises.length + ' exercises';
+      } else {
+        alert('Select at least one exercise to create your workout');
+        return;
+      }
+    }
     openPlayer(currentWorkoutIndex);
   });
 
-  // Handle Info button clicks
+  // Handle Info and animation preview
   detailExList.addEventListener('click', (e) => {
+    const preview = e.target.closest('[data-video]');
+    if (preview) {
+      const file = preview.getAttribute('data-video');
+      const title = preview.getAttribute('data-title') || 'Exercise';
+      showExerciseAnimation(title, file);
+      return;
+    }
     if (e.target.hasAttribute('data-info')) {
       const exerciseIndex = parseInt(e.target.getAttribute('data-info'));
       const workout = WORKOUTS[currentWorkoutIndex];
@@ -1114,6 +1180,20 @@
       if (exercise.description) {
         // Create and show modal with exercise description
         showExerciseInfo(exercise.title, exercise.description);
+      }
+    }
+  });
+
+  // Handle selection toggles (Customise)
+  detailExList.addEventListener('change', (e) => {
+    if (e.target && e.target.hasAttribute('data-select')) {
+      const idx = parseInt(e.target.getAttribute('data-select'));
+      const workout = WORKOUTS[currentWorkoutIndex];
+      if (workout && workout.difficulty === 'custom' && workout.exercises[idx]) {
+        workout.exercises[idx].__selected = !!e.target.checked;
+        const ex = workout.exercises[idx];
+        const k = `${ex.title||''}|${ex.animation||''}`;
+        saveCustomSelection(k, !!e.target.checked);
       }
     }
   });
@@ -1421,6 +1501,24 @@
       const tips = (Array.isArray(ex.tips) && ex.tips.length > 0) ? ex.tips : defaultTips;
       tipsEl.innerHTML = tips.map(t => `<li>${t}</li>`).join('');
     }
+  }
+
+  function showExerciseAnimation(title, animationFile) {
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
+    modal.innerHTML = `
+      <div class="bg-white dark:bg-gray-800 rounded-xl p-4 max-w-lg w-full shadow-xl">
+        <div class="flex justify-between items-center mb-3">
+          <h3 class="text-lg font-semibold text-gray-900 dark:text-white">${title}</h3>
+          <button class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 text-xl" onclick="this.closest('.fixed').remove()">&times;</button>
+        </div>
+        <div class="rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-700">
+          <video class="w-full h-64 object-contain" autoplay loop muted controls>
+            <source src="./animations/${animationFile}" type="video/mp4">
+          </video>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
   }
 
   function startPlayerTimer(){
