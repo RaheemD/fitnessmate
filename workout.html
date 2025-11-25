@@ -1156,7 +1156,7 @@
         w.title = 'Custom Workout';
         detailCount.textContent = w.exercises.length + ' exercises';
       } else {
-        alert('Select at least one exercise to create your workout');
+        showAppToast('Select at least one exercise to start', 'warning');
         return;
       }
     }
@@ -1519,6 +1519,22 @@
         </div>
       </div>`;
     document.body.appendChild(modal);
+  }
+
+  function showAppToast(message, type = 'info') {
+    const colors = {
+      info: 'bg-blue-600',
+      success: 'bg-green-600',
+      warning: 'bg-yellow-500',
+      error: 'bg-red-600'
+    };
+    const bar = document.createElement('div');
+    bar.className = `fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg shadow-lg text-white ${colors[type] || colors.info}`;
+    bar.style.backdropFilter = 'blur(6px)';
+    bar.textContent = message;
+    document.body.appendChild(bar);
+    setTimeout(() => { bar.classList.add('opacity-0'); bar.style.transition = 'opacity 300ms'; }, 2200);
+    setTimeout(() => { try { bar.remove(); } catch(_) {} }, 2600);
   }
 
   function startPlayerTimer(){
