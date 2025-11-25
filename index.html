@@ -187,12 +187,14 @@
       inset: 0;
       pointer-events: none;
       mix-blend-mode: screen;
-      /* Remove extreme left/right dots; keep central sparkle */
+      /* Starry overlay; keep subtle sparkles for larger screens */
       background:
-        radial-gradient(circle at 32% 62%, rgba(255,255,255,0.8) 0, rgba(255,255,255,0.8) 1.2px, transparent 2.2px),
-        radial-gradient(circle at 56% 28%, rgba(255,255,255,0.85) 0, rgba(255,255,255,0.85) 1.2px, transparent 2.2px),
-        radial-gradient(circle at 72% 66%, rgba(255,255,255,0.8) 0, rgba(255,255,255,0.8) 1.2px, transparent 2.2px);
+        radial-gradient(circle at 56% 28%, rgba(255,255,255,0.85) 0, rgba(255,255,255,0.85) 1.2px, transparent 2.2px);
       animation: sparkle 2.8s ease-in-out infinite;
+    }
+    /* Mobile: remove side dots entirely to avoid visual bullets */
+    @media (max-width: 640px) {
+      .merch-teaser.starry::after { background: none !important; }
     }
     /* Hard blink on/off for the whole line */
     .merch-teaser.blink { animation: blinker 1.6s steps(2, start) infinite; }
@@ -14446,4 +14448,3 @@ ${habits.map(habit => {
 </script>
 </body>
 </html>
-
