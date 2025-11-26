@@ -11916,10 +11916,11 @@ User's question: "${userMessage.text}"`;
       const stressTotalHours = (() => {
         const sh = Number(stressForm.sleepHours || 0);
         const wh = Number(stressForm.workHours || 0);
+        const scr = Number(stressForm.screenHours || 0);
         const ex = Number(stressForm.exerciseMins || 0) / 60;
         const med = Number(stressForm.meditationMins || 0) / 60;
         const soc = Number(stressForm.socialMins || 0) / 60;
-        return sh + wh + ex + med + soc;
+        return sh + wh + scr + ex + med + soc;
       })();
       const exceedsDayHours = stressTotalHours > 24;
 
@@ -11936,7 +11937,7 @@ User's question: "${userMessage.text}"`;
           lifeEvent: inp.lifeEvent || 'none'
         };
         // Guard: total of time-based inputs must not exceed 24h
-        const _totalHours = v.sleepHours + v.workHours + (v.exerciseMins/60) + (v.meditationMins/60) + (v.socialMins/60);
+        const _totalHours = v.sleepHours + v.workHours + v.screenHours + (v.exerciseMins/60) + (v.meditationMins/60) + (v.socialMins/60);
         if (_totalHours > 24) {
           return {
             stressScore: 0,
@@ -13100,7 +13101,7 @@ ${habits.map(habit => {
                         const perBasis = Math.floor(10000 / total); // basis points per habit (0.01%)
                         let scoreBasis = perBasis * completed;
                         if (completed === total) scoreBasis += (10000 - perBasis * total); // remainder to reach exactly 100%
-                        const val = (scoreBasis / 100).toFixed(2);
+                        const val = Math.ceil(scoreBasis / 100);
                         return `${val}%`;
                       })()}
                     </div>
@@ -13234,7 +13235,7 @@ ${habits.map(habit => {
                 </div>
 
                 {exceedsDayHours && (
-                  <div className="mt-2 text-[11px] md:text-xs text-red-600">Total time across Sleep, Work, Exercise, Meditation, and Social must be ≤ 24 hours.</div>
+                  <div className="mt-2 text-[11px] md:text-xs text-red-600">Total time across Sleep, Work, Screen time, Exercise, Meditation, and Social must be ≤ 24 hours.</div>
                 )}
 
                 <div className="flex mt-4">
