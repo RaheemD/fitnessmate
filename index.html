@@ -13195,7 +13195,9 @@ ${habits.map(habit => {
                     <input type="number" inputMode="numeric" min="0" step="0.5" value={stressForm.screenHours}
                       placeholder="More hours add stress ~8h cap impact (10%)"
                       onChange={e=>setStressForm({...stressForm, screenHours:e.target.value})}
-                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500 placeholder:text-[11px] md:placeholder:text-sm appearance-none" style={{MozAppearance:'textfield'}} />
+                      aria-invalid={exceedsDayHours}
+                      className={`w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 placeholder:text-[11px] md:placeholder:text-sm appearance-none ${exceedsDayHours ? 'border-red-500 focus:ring-red-500 ring-1 ring-red-500' : 'focus:ring-purple-500'}`}
+                      style={{MozAppearance:'textfield'}} />
                   </div>
                   <div>
                     <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Life event</label>
