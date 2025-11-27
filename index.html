@@ -6080,16 +6080,69 @@ const midnightTimerRef = useRef(null);
         }
       };
 
+      // In-app modal to collect avatar preferences (replaces native prompt)
+      const showAvatarModal = () => new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.className = 'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
+        overlay.innerHTML = `
+          <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-white/20 dark:border-gray-700 w-full max-w-md">
+            <div class="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+              <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">AI Avatar Preferences</div>
+              <button class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 text-xl" data-close>&times;</button>
+            </div>
+            <div class="px-5 pt-4 pb-2 space-y-4">
+              <div>
+                <label class="text-sm font-semibold text-gray-700 dark:text-gray-300">Gender</label>
+                <select class="mt-1 w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" data-field="gender">
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                  <option value="non-binary">Non-binary</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-sm font-semibold text-gray-700 dark:text-gray-300">Style</label>
+                <select class="mt-1 w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" data-field="style">
+                  <option value="professional">Professional</option>
+                  <option value="casual">Casual</option>
+                  <option value="sporty" selected>Sporty</option>
+                  <option value="artistic">Artistic</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-sm font-semibold text-gray-700 dark:text-gray-300">Hair color</label>
+                <select class="mt-1 w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" data-field="hairColor">
+                  <option value="brown" selected>Brown</option>
+                  <option value="black">Black</option>
+                  <option value="blonde">Blonde</option>
+                  <option value="red">Red</option>
+                  <option value="gray">Gray</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+            </div>
+            <div class="px-5 pb-4 pt-2 flex items-center justify-end gap-2">
+              <button class="px-4 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200" data-cancel>Cancel</button>
+              <button class="px-4 py-2 rounded-lg bg-purple-500 hover:bg-purple-600 text-white font-semibold" data-ok>Generate</button>
+            </div>
+          </div>`;
+        document.body.appendChild(overlay);
+        const close = () => { try { overlay.remove(); } catch(_) {} };
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) { close(); resolve(null); } });
+        overlay.querySelector('[data-close]')?.addEventListener('click', () => { close(); resolve(null); });
+        overlay.querySelector('[data-cancel]')?.addEventListener('click', () => { close(); resolve(null); });
+        overlay.querySelector('[data-ok]')?.addEventListener('click', () => {
+          const gender = overlay.querySelector('[data-field="gender"]').value;
+          const style = overlay.querySelector('[data-field="style"]').value;
+          const hairColor = overlay.querySelector('[data-field="hairColor"]').value;
+          close();
+          resolve({ gender, style, hairColor });
+        });
+      });
+
       const generateAIAvatar = async () => {
-        // Show prompt to collect user preferences
-        const gender = prompt("What gender would you like for your avatar? (male/female/non-binary)", "male");
-        if (!gender) return; // User cancelled
-        
-        const style = prompt("What style do you prefer? (professional/casual/sporty/artistic)", "sporty");
-        if (!style) return; // User cancelled
-        
-        const hairColor = prompt("Preferred hair color? (brown/black/blonde/red/gray/other)", "brown");
-        if (!hairColor) return; // User cancelled
+        const prefs = await showAvatarModal();
+        if (!prefs) return; // User cancelled
+        const { gender, style, hairColor } = prefs;
         
         setIsGeneratingAvatar(true);
         try {
