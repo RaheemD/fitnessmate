@@ -750,6 +750,18 @@
   const playerVoiceGender = document.getElementById('player-voice-gender');
   const voiceGenderText = document.getElementById('voice-gender-text');
 
+  // iOS-only Lottie gate: block animation loading until Start is pressed
+  const isIOS = (() => {
+    try {
+      const ua = navigator.userAgent || '';
+      const iPhone = /iPhone/i.test(ua);
+      const iPadUA = /iPad/i.test(ua);
+      const iPadLikeMac = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
+      return iPhone || iPadUA || iPadLikeMac;
+    } catch (_) { return false; }
+  })();
+  let iosLottieGate = !isIOS;
+
   // Supabase Configuration
   const getSupabaseConfig = () => {
     // Replace these with your actual Supabase project URL and anon key
@@ -1160,6 +1172,8 @@
         return;
       }
     }
+    // Unlock Lottie on iOS only after explicit Start
+    iosLottieGate = true;
     openPlayer(currentWorkoutIndex);
   });
 
@@ -1350,6 +1364,14 @@
       const isLottie = /\.json$/i.test(ex.animation);
 
       if (isLottie) {
+        if (isIOS && !iosLottieGate) {
+          animationVideo.pause();
+          animationVideo.removeAttribute('src');
+          animationVideo.style.display = 'none';
+          animationLottie.removeAttribute('src');
+          animationLottie.style.display = 'none';
+          animationFallback.style.display = 'block';
+        } else {
         // Hide and reset video
         animationVideo.pause();
         animationVideo.removeAttribute('src');
@@ -1367,6 +1389,7 @@
           animationLottie.style.opacity = '1';
         };
         animationLottie.addEventListener('load', onLottieLoad);
+        }
       } else {
         // Use MP4 video with prefetch + fade-in when ready
         animationLottie.removeAttribute('src');
@@ -1738,6 +1761,14 @@
           const isLottie = /\.json$/i.test(nextEx.animation);
           
           if (isLottie) {
+            if (isIOS && !iosLottieGate) {
+              animationVideo.pause();
+              animationVideo.removeAttribute('src');
+              animationVideo.style.display = 'none';
+              animationLottie.removeAttribute('src');
+              animationLottie.style.display = 'none';
+              animationFallback.style.display = 'block';
+            } else {
             // Hide and reset video
             animationVideo.pause();
             animationVideo.removeAttribute('src');
@@ -1755,6 +1786,7 @@
               animationLottie.style.opacity = '1';
             };
             animationLottie.addEventListener('load', onLottieLoad);
+            }
           } else {
             // Use MP4 video for upcoming exercise (prefetched)
             animationLottie.removeAttribute('src');
