@@ -774,7 +774,7 @@
   const supabaseConfig = getSupabaseConfig();
 
   // Initialize Supabase
-  let supabase, auth, currentUser = null;
+  var supabase, auth, currentUser = null;
   try {
     const { createClient } = window.supabase;
     supabase = createClient(supabaseConfig.url, supabaseConfig.anonKey);
