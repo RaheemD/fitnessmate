@@ -523,9 +523,56 @@
 
   <!-- Preload Exercises app at startup; kept off-screen until shown -->
   <div id="workout-preload-container" style="position:fixed;width:1px;height:1px;top:-9999px;left:-9999px;opacity:0;pointer-events:none;z-index:-1;">
-    <iframe src="./workout.html" id="workout-preload" loading="eager" style="width:1px;height:1px;border:0;"></iframe>
+    <iframe src="./workout.html" id="workout-preload" loading="eager" allow="autoplay" style="width:1px;height:1px;border:0;"></iframe>
   </div>
 
+  <script>
+    (function(){
+      if (!('speechSynthesis' in window)) return;
+      try { speechSynthesis.getVoices(); } catch(_) {}
+      let __fitmateVoiceGender = 'female';
+      function parentSpeak(text, gender){
+        try {
+          const u = new SpeechSynthesisUtterance(String(text || ''));
+          u.rate = 1; u.pitch = 1; u.volume = 1;
+          try {
+            const vs = speechSynthesis.getVoices();
+            const g = (gender || __fitmateVoiceGender || '').toLowerCase();
+            let v = null;
+            if (vs && vs.length) {
+              if (g === 'female') {
+                v = vs.find(x => x.name && /female|samantha|zira|jenny|karen|lisa|joanna|en-gb female/i.test(x.name));
+              } else if (g === 'male') {
+                v = vs.find(x => x.name && /male|david|brian|matthew|en-gb male/i.test(x.name));
+              }
+              if (!v) v = vs.find(x => /en/i.test(x.lang)) || vs[0];
+            }
+            if (v) u.voice = v;
+          } catch(_) {}
+          speechSynthesis.speak(u);
+        } catch(_) {}
+      }
+      function parentWarmup(){
+        try {
+          const u = new SpeechSynthesisUtterance('.');
+          u.rate = 1; u.pitch = 1; u.volume = 0.01;
+          try {
+            const vs = speechSynthesis.getVoices();
+            let v = vs && vs.length ? vs.find(x => /en/i.test(x.lang)) || vs[0] : null;
+            if (v) u.voice = v;
+          } catch(_) {}
+          speechSynthesis.speak(u);
+        } catch(_) {}
+      }
+      window.addEventListener('message', function(e){
+        try {
+          if (e.data && e.data.type === 'fitmate-voice-gender' && e.data.gender) { __fitmateVoiceGender = String(e.data.gender).toLowerCase(); }
+          if (e.data && e.data.type === 'fitmate-speak' && e.data.text) parentSpeak(e.data.text, e.data.gender);
+          if (e.data && e.data.type === 'fitmate-tts-warmup') parentWarmup();
+        } catch(_) {}
+      });
+    })();
+  </script>
   <!-- React + ReactDOM + Babel (for JSX in-browser) -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
@@ -10524,6 +10571,8 @@ Respond ONLY with a valid JSON object in this format:
     // Workout Planner Screen Component
     const WorkoutPlanner = ({ workoutPlan, setWorkoutPlan, isLoading, setIsLoading, error, setError, setScreen }) => {
       const [activeTab, setActiveTab] = useState(() => localStorage.getItem('workoutPlanner_activeTab') || 'planner'); // 'planner', 'coach', or 'exercises'
+      const [exercisesMode, setExercisesMode] = useState('cards');
+      const [pendingWorkoutIndex, setPendingWorkoutIndex] = useState(null);
       // Persist active tab to localStorage so we remember last selected tab
       useEffect(() => {
         try {
@@ -10535,6 +10584,10 @@ Respond ONLY with a valid JSON object in this format:
         } catch (e) {
           // ignore storage errors
         }
+      }, [activeTab]);
+
+      useEffect(() => {
+        if (activeTab !== 'exercises') setExercisesMode('cards');
       }, [activeTab]);
       const [preferences, setPreferences] = useState({ goal: '', type: '', level: '', equipment: [] });
       const [selectedExercise, setSelectedExercise] = useState(null);
@@ -10576,8 +10629,7 @@ Respond ONLY with a valid JSON object in this format:
           } catch (_) {}
         };
 
-        if (activeTab === 'exercises') {
-          // Adopt preloaded iframe into the exercises host for instant show
+        if (activeTab === 'exercises' && exercisesMode === 'iframe') {
           try {
             const host = document.getElementById('exercises-host');
             let iframe = document.getElementById('workout-iframe');
@@ -10589,21 +10641,37 @@ Respond ONLY with a valid JSON object in this format:
                 iframe.removeAttribute('style');
               } else {
                 iframe = document.createElement('iframe');
-                iframe.src = './workout.html';
                 iframe.loading = 'eager';
                 iframe.id = 'workout-iframe';
               }
               iframe.className = 'w-full border-0';
-              if (host && iframe.parentElement !== host) host.appendChild(iframe);
-            } else {
-              if (host && iframe.parentElement !== host) host.appendChild(iframe);
+              try { iframe.setAttribute('allow','autoplay'); } catch(_) {}
+              if (!iframe.src) iframe.src = './workout.html';
+            }
+            if (host && iframe.parentElement !== host) host.appendChild(iframe);
+
+            if (pendingWorkoutIndex !== null && pendingWorkoutIndex !== undefined) {
+              const idx = Number(pendingWorkoutIndex);
+              if (Number.isFinite(idx) && idx >= 0) {
+                let handled = false;
+                try {
+                  const href = iframe.contentWindow && iframe.contentWindow.location ? String(iframe.contentWindow.location.href || '') : '';
+                  if (/workout\.html/i.test(href)) {
+                    iframe.contentWindow.location.hash = `#workout=${idx}`;
+                    handled = true;
+                  }
+                } catch (_) {}
+                if (!handled) {
+                  try { iframe.src = `./workout.html#workout=${idx}`; } catch (_) {}
+                }
+              }
+              try { setPendingWorkoutIndex(null); } catch (_) {}
             }
           } catch (_) {}
 
           updateHeight();
           window.addEventListener('resize', updateHeight);
           window.addEventListener('orientationchange', updateHeight);
-          // Lock outer scroll to avoid double scrollbars
           try {
             document.documentElement.style.overflow = 'hidden';
             document.body.style.overflow = 'hidden';
@@ -10618,8 +10686,12 @@ Respond ONLY with a valid JSON object in this format:
         return () => {
           window.removeEventListener('resize', updateHeight);
           window.removeEventListener('orientationchange', updateHeight);
+          try {
+            document.documentElement.style.overflow = '';
+            document.body.style.overflow = '';
+          } catch (_) {}
         };
-      }, [activeTab]);
+      }, [activeTab, exercisesMode, pendingWorkoutIndex]);
 
       // Exercise database with video files from animations folder
       const exerciseDatabase = [
@@ -11348,7 +11420,66 @@ Respond ONLY with a valid JSON object in this exact format:
           )}
 
           <div id="exercises-wrapper" className={`${activeTab === 'exercises' ? 'block' : 'hidden'}`}>
-            <div id="exercises-host" className="w-full"></div>
+            {exercisesMode === 'iframe' && (
+              <div id="exercises-host" className="w-full"></div>
+            )}
+
+            {exercisesMode === 'cards' && (
+              <div className="max-w-3xl mx-auto px-4 pb-24">
+                <div className="mt-4 space-y-6">
+                  {[
+                  { title:'Upper Body', desc:'Introduction to upper body strength with basic movements', duration:'18 min', difficulty:'beginner', tag:'Upper Body' },
+                  { title:'Lower Body', desc:'Build lower body strength with basic movements', duration:'22 min', difficulty:'beginner', tag:'Lower Body' },
+                  { title:'Full Body', desc:'Complete body workout with gentle movements', duration:'25 min', difficulty:'beginner', tag:'Full Body' },
+                  { title:'Upper Body', desc:'Build strength in chest, arms, and shoulders', duration:'25 min', difficulty:'intermediate', tag:'Upper Body' },
+                  { title:'Lower Body', desc:'Advanced lower body training with dynamic movements', duration:'28 min', difficulty:'intermediate', tag:'Lower Body' },
+                  { title:'Full Body', desc:'Intermediate full-body strength and endurance workout', duration:'30 min', difficulty:'intermediate', tag:'Full Body' },
+                  { title:'Upper Body', desc:'Challenging upper body workout with push-up variations', duration:'30 min', difficulty:'advanced', tag:'Upper Body' },
+                  { title:'Lower Body', desc:'High-intensity lower body power and strength session', duration:'32 min', difficulty:'advanced', tag:'Lower Body' },
+                  { title:'Full Body', desc:'Advanced full-body workout with explosive movements', duration:'35 min', difficulty:'advanced', tag:'Full Body' },
+                  { title:'Customise', desc:'Create your own workout by selecting exercises', duration:'Varies', difficulty:'custom', tag:'Your Plan' }
+                ].map((w, idx) => (
+                  <article
+                    key={idx}
+                    onClick={() => {
+                      try { setPendingWorkoutIndex(idx); } catch (_) {}
+                      try { setExercisesMode('iframe'); } catch (_) {}
+                    }}
+                    className="rounded-2xl overflow-hidden shadow-lg cursor-pointer"
+                  >
+                    <div className="h-44 md:h-52 rounded-2xl relative bg-gradient-to-br from-blue-500/10 via-cyan-500/10 to-indigo-500/10 dark:from-slate-800 dark:via-slate-900 dark:to-slate-950">
+                      <div className="absolute inset-0 flex items-start px-5 pt-5 z-10">
+                        <span className="text-2xl md:text-3xl font-extrabold text-gray-900 dark:text-white">{w.title}</span>
+                        <div className="ml-auto">
+                          <span className={`inline-block text-xs font-semibold uppercase px-3 py-1 rounded-full ${
+                            w.difficulty === 'beginner' ? 'bg-green-500 text-black' :
+                            w.difficulty === 'intermediate' ? 'bg-pink-500 text-white' :
+                            w.difficulty === 'custom' ? 'bg-blue-500 text-white' :
+                            'bg-red-500 text-white'
+                          }`}>
+                            {w.difficulty.charAt(0).toUpperCase() + w.difficulty.slice(1)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="absolute left-0 right-0 bottom-0 p-4 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md">
+                        <p className="text-sm text-gray-700 dark:text-gray-200">{w.desc}</p>
+                        <div className="mt-3 flex items-center gap-6">
+                          <div className="flex items-center gap-2 text-sm">
+                            <svg className="w-5 h-5 text-pink-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                            <span className="text-gray-800 dark:text-gray-200 font-medium">~{w.duration}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-sm ml-auto">
+                            <svg className="w-5 h-5 text-pink-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M6 12h12"/></svg>
+                            <span className="text-gray-800 dark:text-gray-200 font-medium">{w.tag}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       );
@@ -11859,6 +11990,46 @@ User's question: "${userMessage.text}"`;
           return [];
         }
       });
+
+      useEffect(() => {
+        const readWorkoutHistory = () => {
+          try {
+            const raw = localStorage.getItem('workoutHistory');
+            const parsed = raw ? JSON.parse(raw) : [];
+            setWorkoutHistory(Array.isArray(parsed) ? parsed : []);
+          } catch (_) {
+            setWorkoutHistory([]);
+          }
+        };
+
+        const onStorage = (e) => {
+          try {
+            if (!e || e.key === 'workoutHistory') readWorkoutHistory();
+          } catch (_) {}
+        };
+
+        const onMessage = (e) => {
+          try {
+            if (!e || e.origin !== window.location.origin) return;
+            if (e.data && e.data.type === 'fitmate-workout-history-updated') readWorkoutHistory();
+          } catch (_) {}
+        };
+
+        const onVis = () => {
+          try {
+            if (!document.hidden) readWorkoutHistory();
+          } catch (_) {}
+        };
+
+        window.addEventListener('storage', onStorage);
+        window.addEventListener('message', onMessage);
+        document.addEventListener('visibilitychange', onVis);
+        return () => {
+          window.removeEventListener('storage', onStorage);
+          window.removeEventListener('message', onMessage);
+          document.removeEventListener('visibilitychange', onVis);
+        };
+      }, []);
 
       const [stressForm, setStressForm] = useState(() => {
         try {
