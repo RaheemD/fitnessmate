@@ -14404,7 +14404,7 @@ ${habits.map(habit => {
 
 
     const BottomNavBar = ({ screen, setScreen }) => (
-    <nav id="bottom-nav" className="fixed bottom-0 left-0 right-0 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm shadow-[0_-2px_10px_rgba(0,0,0,0.05)] dark:shadow-[0_-2px_10px_rgba(0,0,0,0.2)] h-20 flex justify-around items-center px-4">
+    <nav id="bottom-nav" className="fixed bottom-0 left-0 right-0 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm shadow-[0_-2px_10px_rgba(0,0,0,0.05)] dark:shadow-[0_-2px_10px_rgba(0,0,0,0.2)] h-20 flex justify-around items-center px-4 z-50">
         <button onClick={() => setScreen('dashboard')} aria-current={screen === 'dashboard' ? 'page' : undefined} className={`flex flex-col items-center justify-center font-semibold transition-colors rounded-xl px-2 py-1 ${screen === 'dashboard' ? 'text-pink-600 bg-pink-50 dark:bg-gray-800' : 'text-gray-400'}`}>
           <span className="text-2xl">🏠</span>
           <span className={`${screen === 'dashboard' ? 'block' : 'hidden'} w-6 h-1 bg-pink-500 rounded-full mt-1`}></span>
