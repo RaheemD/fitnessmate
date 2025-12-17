@@ -1172,8 +1172,8 @@
         return;
       }
     }
-    // Unlock Lottie on iOS only after explicit Start
     iosLottieGate = true;
+    try { if (window.parent && window.parent !== window) { window.parent.postMessage({ type: 'fitmate-tts-warmup' }, '*'); } } catch(_) {}
     openPlayer(currentWorkoutIndex);
   });
 
@@ -1882,6 +1882,11 @@
       // Keep only last 30 workouts
       if (workoutHistory.length > 30) workoutHistory.shift();
       localStorage.setItem('workoutHistory', JSON.stringify(workoutHistory));
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: 'fitmate-workout-history-updated' }, window.location.origin);
+        }
+      } catch (_) {}
       
       // CRITICAL FIX: Force immediate localStorage save to prevent data loss
       console.log('Workout data saved immediately:', workoutData);
@@ -2027,6 +2032,11 @@
         workoutHistory.push(workoutData);
         if (workoutHistory.length > 30) workoutHistory.shift();
         localStorage.setItem('workoutHistory', JSON.stringify(workoutHistory));
+        try {
+          if (window.parent && window.parent !== window) {
+            window.parent.postMessage({ type: 'fitmate-workout-history-updated' }, window.location.origin);
+          }
+        } catch (_) {}
         
         console.log('Early exit workout data saved:', workoutData); // CRITICAL: Debug logging
         
@@ -2093,6 +2103,11 @@
   playerVoiceGender.addEventListener('click', ()=> {
     voiceGender = voiceGender === 'female' ? 'male' : 'female';
     updateVoiceGenderUI();
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'fitmate-voice-gender', gender: voiceGender }, '*');
+      }
+    } catch(_) {}
   });
   
   function updateVoiceButtonUI() {
@@ -2137,29 +2152,59 @@
     if ('speechSynthesis' in window) {
       console.log('📢 Using browser speechSynthesis');
       const u = new SpeechSynthesisUtterance(text);
-      const voices = speechSynthesis.getVoices();
-
-      if (voices && voices.length) {
-        let selectedVoice = null;
-
-        if (voiceGender === 'female') {
-          selectedVoice = voices.find(voice =>
-            voice.name.toLowerCase().includes('female') ||
-            voice.name.toLowerCase().includes('samantha')
-          );
-        } else {
-          selectedVoice = voices.find(voice =>
-            voice.name.toLowerCase().includes('male') ||
-            voice.name.toLowerCase().includes('david')
-          );
+      const pickVoice = () => {
+        try {
+          const voices = speechSynthesis.getVoices();
+          if (voices && voices.length) {
+            let v = null;
+            if (voiceGender === 'female') {
+              v = voices.find(voice => voice.name && /female|samantha|google uk english female/i.test(voice.name));
+            } else {
+              v = voices.find(voice => voice.name && /male|david|google uk english male/i.test(voice.name));
+            }
+            if (!v) v = voices.find(voice => /en/i.test(voice.lang)) || voices[0];
+            if (v) u.voice = v;
+            return true;
+          }
+        } catch(_) {}
+        return false;
+      };
+      try {
+        const ua = navigator.userAgent || '';
+        const isChrome = /Chrome/i.test(ua) && !/Edg/i.test(ua) && !/OPR/i.test(ua);
+        if (isChrome && window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: 'fitmate-speak', text, gender: voiceGender }, '*');
+          return;
         }
-
-        u.voice = selectedVoice || voices[0];
+      } catch(_) {}
+      const speakNow = () => {
+        try {
+          u.rate = 1;
+          try { if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel(); } catch(e) {}
+          setTimeout(() => { try { speechSynthesis.speak(u); } catch(_) {} }, 50);
+        } catch(_) {}
+      };
+      if (pickVoice()) {
+        speakNow();
+      } else {
+        try {
+          const onVc = () => { try { pickVoice(); speakNow(); } catch(_) {} speechSynthesis.removeEventListener('voiceschanged', onVc); };
+          speechSynthesis.addEventListener('voiceschanged', onVc);
+        } catch(_) {
+          setTimeout(speakNow, 100);
+        }
       }
-
-      u.rate = 1;
-      try { speechSynthesis.cancel(); } catch(e) {}
-      speechSynthesis.speak(u);
+      try {
+        setTimeout(() => {
+          try {
+            if (!speechSynthesis.speaking) {
+              if (window.parent && window.parent !== window) {
+                window.parent.postMessage({ type: 'fitmate-speak', text }, window.location.origin);
+              }
+            }
+          } catch(_) {}
+        }, 600);
+      } catch(_) {}
     } else {
       console.error('❌ No TTS method available');
     }
@@ -2177,11 +2222,37 @@
   // small helpers
   function formatTimeShort(s){ return `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}`; }
 
+  function getWorkoutIndexFromHash() {
+    try {
+      const raw = (window.location.hash || '').replace(/^#/, '');
+      const m = raw.match(/(?:^|&)workout=(\d+)(?:&|$)/);
+      if (!m) return null;
+      const idx = parseInt(m[1], 10);
+      return Number.isFinite(idx) ? idx : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function handleWorkoutHash() {
+    const idx = getWorkoutIndexFromHash();
+    if (idx === null) return false;
+    if (idx < 0 || idx >= WORKOUTS.length) return false;
+    try { clearWorkoutState(); } catch (_) {}
+    try { openDetail(idx); } catch (_) {}
+    return true;
+  }
+
   // Initial render
   renderWorkouts();
 
-  // Restore workout state on page load
-  restoreWorkoutState();
+  if (!handleWorkoutHash()) {
+    restoreWorkoutState();
+  }
+
+  window.addEventListener('hashchange', () => {
+    handleWorkoutHash();
+  });
 
   // preload voices (some browsers require gesture)
   if ('speechSynthesis' in window) { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices(); }
