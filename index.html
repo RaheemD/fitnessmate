@@ -2682,8 +2682,8 @@ Respond ONLY with a valid JSON object in this exact format:
     // Removed deprecated Gemini simple config and GEMINI_API_URL (migrated to OpenRouter)
     
     // Direct OpenRouter API (ChatGPT 4 Mini) with obfuscated key
-    const OPENROUTER_QWEN_MODEL = 'google/gemini-2.5-flash'; // text-only
-    const OPENROUTER_QWEN_VL_MODEL = "google/gemini-2.5-flash"
+    const OPENROUTER_QWEN_MODEL = 'google/gemini-3-flash-preview'; // text-only
+    const OPENROUTER_QWEN_VL_MODEL = "google/gemini-3-flash-preview"
     const getDirectGeminiConfig = () => {
       return {
         // Route through Netlify Functions (redirected from /api/*)
@@ -14504,3 +14504,4 @@ ${habits.map(habit => {
 </script>
 </body>
 </html>
+
