@@ -34,7 +34,7 @@ export const handler = async (event) => {
     } else {
       // Construct a simple chat payload from a prompt
       payload = {
-        model: body.model || "google/gemini-2.5-flash",
+        model: body.model || "google/gemini-3-flash-preview",
         messages: [{ role: "user", content: String(body.prompt || "Hello") }],
         max_tokens: body.max_tokens || 300,
         temperature: typeof body.temperature === "number" ? body.temperature : 0.2,
