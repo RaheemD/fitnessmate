@@ -1149,11 +1149,13 @@
     // Opportunistic prefetch: first two exercise videos
     const firstEx = wx.exercises[0];
     const secondEx = wx.exercises[1];
-    [firstEx, secondEx].forEach(e => {
-      if (e && e.animation && !/\.json$/i.test(e.animation)) {
-        prefetchVideo(e.animation);
-      }
-    });
+    setTimeout(() => {
+      [firstEx, secondEx].forEach(e => {
+        if (e && e.animation && !/\.json$/i.test(e.animation)) {
+          prefetchVideo(e.animation);
+        }
+      });
+    }, 0);
   }
 
   detailBack.addEventListener('click', ()=> { showView('view-list'); });
@@ -1172,8 +1174,8 @@
         return;
       }
     }
-    // Unlock Lottie on iOS only after explicit Start
     iosLottieGate = true;
+    try { if (window.parent && window.parent !== window) { window.parent.postMessage({ type: 'fitmate-tts-warmup' }, '*'); } } catch(_) {}
     openPlayer(currentWorkoutIndex);
   });
 
@@ -1286,10 +1288,6 @@
         durationSeconds: ex.durationSeconds || 0,
         muscles: ex.muscles || 'Unknown'
       }));
-      
-      console.log(`Starting new workout: ${workout.title}, completedExercises reset to empty array`);
-    } else {
-      console.log(`Resuming existing workout: ${workout.title}, completedExercises has ${completedExercises.length} items`);
     }
     
     voiceEnabled = true; // Always ensure voice is enabled when opening player
@@ -1315,7 +1313,7 @@
     // Prefetch next exercise animation to eliminate wait time
     const nextEx = workout.exercises[currentExerciseIndex + 1];
     if (nextEx && nextEx.animation && !/\.json$/i.test(nextEx.animation)) {
-      prefetchVideo(nextEx.animation);
+      setTimeout(() => { try { prefetchVideo(nextEx.animation); } catch (_) {} }, 0);
     }
     
     // Save workout state
@@ -1583,7 +1581,11 @@
       playerTimer.textContent = formatTime(remainingSeconds);
       if (remainingSeconds === 0){
         clearInterval(timerInterval);
-        speak('Good job. Moving to next exercise.');
+        try {
+          const workout = WORKOUTS[currentWorkoutIndex];
+          const hasNext = currentExerciseIndex < workout.exercises.length - 1;
+          speak(hasNext ? 'Good job. Moving to next exercise.' : 'Workout complete! Great job!');
+        } catch(_) {}
         setTimeout(()=> playerNext(), 700);
       }
     }, 1000);
@@ -1663,7 +1665,8 @@
       if (currentSet < (currentEx.sets || 1)) {
         speak('Set completed. Starting rest period.');
       } else {
-        speak('Set completed. Moving to next exercise.');
+        const hasNext = currentExerciseIndex < workout.exercises.length - 1;
+        speak(hasNext ? 'Set completed. Moving to next exercise.' : 'Workout complete! Great job!');
       }
       setTimeout(()=> playerNext(), 700);
     } else {
@@ -1684,6 +1687,7 @@
   }
 
   function playerNext(){
+    stopVoice();
     const workout = WORKOUTS[currentWorkoutIndex];
     
     // Finish workout if all exercises are done
@@ -1697,7 +1701,6 @@
     // Prevent duplicate calls for the same exercise/set combination
     const currentState = `${currentExerciseIndex}-${currentSet}`;
     if (window.lastPlayerNextState === currentState) {
-      console.log('Duplicate playerNext call prevented for:', currentState);
       return;
     }
     window.lastPlayerNextState = currentState;
@@ -1722,8 +1725,6 @@
       // Mark current exercise as completed before moving to next (ensure no duplicates)
       if (!completedExercises.includes(currentExerciseIndex)) {
         completedExercises.push(currentExerciseIndex);
-        console.log(`Exercise ${currentExerciseIndex} completed. Total completed: ${completedExercises.length}/${sessionExercises.length}`);
-        console.log(`Current completedExercises array:`, completedExercises); // CRITICAL: Debug logging
         saveWorkoutState();
       }
       
@@ -1750,6 +1751,7 @@
         
         restTime = 30; // 30 seconds rest between exercises
         playerTimer.textContent = formatTime(restTime);
+        speak(`Rest between exercises for ${restTime} seconds. Next: ${nextEx.title}.`);
         
         // CRITICAL FIX: Show the upcoming exercise animation during rest period
         // This helps users mentally prepare for the next exercise
@@ -1841,7 +1843,7 @@
      }
    }
 
-  async function playerFinish(){
+  function playerFinish(){
     clearInterval(timerInterval);
     clearInterval(workoutTimer);
     
@@ -1852,8 +1854,6 @@
     
     // Remove any duplicate entries (safety check)
     completedExercises = [...new Set(completedExercises)];
-    console.log(`Workout finished. Completed exercises: ${completedExercises.length}, Total exercises: ${sessionExercises.length}`);
-    console.log('Completed exercise indices:', completedExercises);
     
     // Calculate workout metrics for health score integration
     const workoutData = {
@@ -1882,39 +1882,36 @@
       // Keep only last 30 workouts
       if (workoutHistory.length > 30) workoutHistory.shift();
       localStorage.setItem('workoutHistory', JSON.stringify(workoutHistory));
-      
-      // CRITICAL FIX: Force immediate localStorage save to prevent data loss
-      console.log('Workout data saved immediately:', workoutData);
-      
-      // Sync workout data to Supabase if user is logged in
-      if (currentUser && supabase) {
-        try {
-          // Save to user's workout history
-          const { error: workoutError } = await supabase
-            .from('workout_history')
-            .insert([{ user_id: currentUser.id, ...workoutData }], { returning: 'minimal' });
-          
-          if (workoutError) throw workoutError;
-          
-          // Update user's updated_at timestamp
-          const { error: updateError } = await supabase
-            .from('users')
-            .update({ updated_at: new Date().toISOString() }, { returning: 'minimal' })
-            .eq('id', currentUser.id);
-          
-          if (updateError) throw updateError;
-          
-          // Update user's daily intake using local value (avoid extra read)
-          const localDaily = JSON.parse(localStorage.getItem('dailyIntake') || '{"calories":0,"protein":0,"carbs":0,"fat":0,"activity":0,"water":0}');
-          const { error: updateDailyError } = await supabase
-            .from('users')
-            .update({ daily_intake: localDaily }, { returning: 'minimal' })
-            .eq('id', currentUser.id);
-          
-          if (updateDailyError) throw updateDailyError;
-        } catch (error) {
-          console.error('Error syncing workout data to Supabase:', error);
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: 'fitmate-workout-history-updated' }, window.location.origin);
         }
+      } catch (_) {}
+
+      if (currentUser && supabase) {
+        setTimeout(() => {
+          (async () => {
+            try {
+              const { error: workoutError } = await supabase
+                .from('workout_history')
+                .insert([{ user_id: currentUser.id, ...workoutData }], { returning: 'minimal' });
+              if (workoutError) throw workoutError;
+
+              const { error: updateError } = await supabase
+                .from('users')
+                .update({ updated_at: new Date().toISOString() }, { returning: 'minimal' })
+                .eq('id', currentUser.id);
+              if (updateError) throw updateError;
+
+              const localDaily = JSON.parse(localStorage.getItem('dailyIntake') || '{"calories":0,"protein":0,"carbs":0,"fat":0,"activity":0,"water":0}');
+              const { error: updateDailyError } = await supabase
+                .from('users')
+                .update({ daily_intake: localDaily }, { returning: 'minimal' })
+                .eq('id', currentUser.id);
+              if (updateDailyError) throw updateDailyError;
+            } catch (_) {}
+          })();
+        }, 0);
       }
     }
     
@@ -1928,22 +1925,20 @@
       
       // Clear workout state since workout is completed
       clearWorkoutState();
-      
-      console.log('Workout session variables reset after data persistence');
     }, 100); // Small delay to ensure all localStorage operations complete
     
-    // Update UI
-    playerTitle.textContent = 'Workout complete';
-    playerSetInfo.textContent = '';
-    playerTimer.textContent = '00:00';
-    playerReps.textContent = 'Well done!';
-    playerProgressFill.style.width = '100%';
-    
-    const completionMessage = workoutData.completionRate === 100 
-      ? `Workout completed! Great job! You completed all ${workoutData.totalExercises} exercises in ${workoutData.duration} minutes.`
-      : `Workout session ended. You completed ${workoutData.exercisesCompleted} out of ${workoutData.totalExercises} exercises in ${workoutData.duration} minutes.`;
-    
-    speak(completionMessage);
+  // Update UI
+  playerTitle.textContent = 'Workout complete';
+  playerSetInfo.textContent = '';
+  playerTimer.textContent = '00:00';
+  playerReps.textContent = 'Well done!';
+  playerProgressFill.style.width = '100%';
+  
+  const completionMessage = workoutData.completionRate === 100 
+    ? `Workout completed! Great job! You completed all ${workoutData.totalExercises} exercises in ${workoutData.duration} minutes.`
+    : `Workout session ended. You completed ${workoutData.exercisesCompleted} out of ${workoutData.totalExercises} exercises in ${workoutData.duration} minutes.`;
+  stopVoice();
+  speak(completionMessage);
     
     // Save completion
     localStorage.setItem('completedWorkoutIndex', currentWorkoutIndex.toString());
@@ -1957,6 +1952,7 @@
   playerPause.addEventListener('click', playerPauseToggle);
   playerSkip.addEventListener('click', ()=> {
     clearInterval(timerInterval);
+    stopVoice();
     if (isResting) {
       // Distinguish between rest types to avoid incorrect set increment
       const workout = WORKOUTS[currentWorkoutIndex];
@@ -1983,18 +1979,19 @@
             startPlayerTimer();
           }
         } else {
-          speak('Skipping to next exercise');
+          speak('Skipping to next exercise.');
           playerNext();
         }
       }
     } else {
-      speak('Skipping to next exercise');
+      speak('Skipping to next exercise.');
       playerNext();
     }
   });
-  playerClose.addEventListener('click', async ()=> {
+  playerClose.addEventListener('click', ()=> {
     clearInterval(timerInterval);
     clearInterval(workoutTimer);
+    stopVoice();
     
     // Save partial workout data if user exits early
     if (workoutStartTime && workoutTotalTime > 0) {
@@ -2027,37 +2024,36 @@
         workoutHistory.push(workoutData);
         if (workoutHistory.length > 30) workoutHistory.shift();
         localStorage.setItem('workoutHistory', JSON.stringify(workoutHistory));
-        
-        console.log('Early exit workout data saved:', workoutData); // CRITICAL: Debug logging
-        
-        // Sync to Supabase if user is logged in
-        if (currentUser && supabase) {
-          try {
-            // Insert with incomplete flag directly; avoid select and follow-up update
-            const { error: workoutError } = await supabase
-              .from('workout_history')
-              .insert([{ user_id: currentUser.id, ...workoutData }], { returning: 'minimal' });
-            if (workoutError) throw workoutError;
-            
-            // Update user's updated_at timestamp
-            const { error: updateError } = await supabase
-              .from('users')
-              .update({ updated_at: new Date().toISOString() }, { returning: 'minimal' })
-              .eq('id', currentUser.id);
-            
-            if (updateError) throw updateError;
-            
-            // Update user's daily intake using local value (avoid extra read)
-            const localDaily = JSON.parse(localStorage.getItem('dailyIntake') || '{"calories":0,"protein":0,"carbs":0,"fat":0,"activity":0,"water":0}');
-            const { error: updateDailyError } = await supabase
-              .from('users')
-              .update({ daily_intake: localDaily }, { returning: 'minimal' })
-              .eq('id', currentUser.id);
-            
-            if (updateDailyError) throw updateDailyError;
-          } catch (error) {
-            console.error('Error syncing partial workout data to Supabase:', error);
+        try {
+          if (window.parent && window.parent !== window) {
+            window.parent.postMessage({ type: 'fitmate-workout-history-updated' }, window.location.origin);
           }
+        } catch (_) {}
+        
+        if (currentUser && supabase) {
+          setTimeout(() => {
+            (async () => {
+              try {
+                const { error: workoutError } = await supabase
+                  .from('workout_history')
+                  .insert([{ user_id: currentUser.id, ...workoutData }], { returning: 'minimal' });
+                if (workoutError) throw workoutError;
+
+                const { error: updateError } = await supabase
+                  .from('users')
+                  .update({ updated_at: new Date().toISOString() }, { returning: 'minimal' })
+                  .eq('id', currentUser.id);
+                if (updateError) throw updateError;
+
+                const localDaily = JSON.parse(localStorage.getItem('dailyIntake') || '{"calories":0,"protein":0,"carbs":0,"fat":0,"activity":0,"water":0}');
+                const { error: updateDailyError } = await supabase
+                  .from('users')
+                  .update({ daily_intake: localDaily }, { returning: 'minimal' })
+                  .eq('id', currentUser.id);
+                if (updateDailyError) throw updateDailyError;
+              } catch (_) {}
+            })();
+          }, 0);
         }
       }
     }
@@ -2072,8 +2068,6 @@
       
       // Ensure no resume on refresh or navigation after manual exit
       clearWorkoutState();
-      
-      console.log('Early exit: Workout session variables reset after data persistence');
     }, 100); // Small delay to ensure all localStorage operations complete
     
     try{ speechSynthesis.cancel(); }catch(e){}
@@ -2093,6 +2087,11 @@
   playerVoiceGender.addEventListener('click', ()=> {
     voiceGender = voiceGender === 'female' ? 'male' : 'female';
     updateVoiceGenderUI();
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'fitmate-voice-gender', gender: voiceGender }, '*');
+      }
+    } catch(_) {}
   });
   
   function updateVoiceButtonUI() {
@@ -2116,15 +2115,18 @@
   updateVoiceButtonUI();
   updateVoiceGenderUI();
 
+  function stopVoice(){
+    try { if (typeof window.AndroidTTS !== 'undefined' && window.AndroidTTS.stop) { window.AndroidTTS.stop(); } } catch(_) {}
+    try { if ('speechSynthesis' in window) { speechSynthesis.cancel(); } } catch(_) {}
+  }
+
   function speak(text){
     if (!voiceEnabled) return;
     if (!text) return;
 
-    console.log('🎤 Attempting to speak:', text);
-
+    stopVoice();
     // Check if AndroidTTS bridge is available (for WebView)
     if (typeof window.AndroidTTS !== 'undefined' && window.AndroidTTS.speak) {
-      console.log('📢 Using AndroidTTS bridge');
       try {
         window.AndroidTTS.speak(text, 1.0, 1.0);
         return;
@@ -2135,31 +2137,60 @@
 
     // Fallback to browser speechSynthesis
     if ('speechSynthesis' in window) {
-      console.log('📢 Using browser speechSynthesis');
       const u = new SpeechSynthesisUtterance(text);
-      const voices = speechSynthesis.getVoices();
-
-      if (voices && voices.length) {
-        let selectedVoice = null;
-
-        if (voiceGender === 'female') {
-          selectedVoice = voices.find(voice =>
-            voice.name.toLowerCase().includes('female') ||
-            voice.name.toLowerCase().includes('samantha')
-          );
-        } else {
-          selectedVoice = voices.find(voice =>
-            voice.name.toLowerCase().includes('male') ||
-            voice.name.toLowerCase().includes('david')
-          );
+      const pickVoice = () => {
+        try {
+          const voices = speechSynthesis.getVoices();
+          if (voices && voices.length) {
+            let v = null;
+            if (voiceGender === 'female') {
+              v = voices.find(voice => voice.name && /female|samantha|google uk english female/i.test(voice.name));
+            } else {
+              v = voices.find(voice => voice.name && /male|david|google uk english male/i.test(voice.name));
+            }
+            if (!v) v = voices.find(voice => /en/i.test(voice.lang)) || voices[0];
+            if (v) u.voice = v;
+            return true;
+          }
+        } catch(_) {}
+        return false;
+      };
+      try {
+        const ua = navigator.userAgent || '';
+        const isChrome = /Chrome/i.test(ua) && !/Edg/i.test(ua) && !/OPR/i.test(ua);
+        if (isChrome && window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: 'fitmate-speak', text, gender: voiceGender }, '*');
+          return;
         }
-
-        u.voice = selectedVoice || voices[0];
+      } catch(_) {}
+      const speakNow = () => {
+        try {
+          u.rate = 1;
+          try { if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel(); } catch(e) {}
+          setTimeout(() => { try { speechSynthesis.speak(u); } catch(_) {} }, 50);
+        } catch(_) {}
+      };
+      if (pickVoice()) {
+        speakNow();
+      } else {
+        try {
+          const onVc = () => { try { pickVoice(); speakNow(); } catch(_) {} speechSynthesis.removeEventListener('voiceschanged', onVc); };
+          speechSynthesis.addEventListener('voiceschanged', onVc);
+        } catch(_) {
+          setTimeout(speakNow, 100);
+        }
       }
-
-      u.rate = 1;
-      try { speechSynthesis.cancel(); } catch(e) {}
-      speechSynthesis.speak(u);
+      try {
+        setTimeout(() => {
+          try {
+            if (!speechSynthesis.speaking) {
+              if (window.parent && window.parent !== window) {
+                window.parent.postMessage({ type: 'fitmate-speak', text }, window.location.origin);
+              }
+            }
+          } catch(_) {}
+        }, 600);
+      } catch(_) {}
     } else {
       console.error('❌ No TTS method available');
     }
@@ -2177,11 +2208,37 @@
   // small helpers
   function formatTimeShort(s){ return `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}`; }
 
+  function getWorkoutIndexFromHash() {
+    try {
+      const raw = (window.location.hash || '').replace(/^#/, '');
+      const m = raw.match(/(?:^|&)workout=(\d+)(?:&|$)/);
+      if (!m) return null;
+      const idx = parseInt(m[1], 10);
+      return Number.isFinite(idx) ? idx : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function handleWorkoutHash() {
+    const idx = getWorkoutIndexFromHash();
+    if (idx === null) return false;
+    if (idx < 0 || idx >= WORKOUTS.length) return false;
+    try { clearWorkoutState(); } catch (_) {}
+    try { openDetail(idx); } catch (_) {}
+    return true;
+  }
+
   // Initial render
   renderWorkouts();
 
-  // Restore workout state on page load
-  restoreWorkoutState();
+  if (!handleWorkoutHash()) {
+    restoreWorkoutState();
+  }
+
+  window.addEventListener('hashchange', () => {
+    handleWorkoutHash();
+  });
 
   // preload voices (some browsers require gesture)
   if ('speechSynthesis' in window) { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices(); }
