@@ -1161,6 +1161,7 @@ Respond ONLY with a valid JSON object in this exact format:
             console.log('User signed in:', currentUser.id);
             // Enforce remote-only fetch on explicit sign-in events
             if (event === 'SIGNED_IN') {
+              try { auth.signOut({ scope: 'others' }); } catch (_) {}
               forceNextRemoteOnlyRef.current = true;
               // Purge local profile so we only accept remote
               try { clearLocalProfileForRemoteOnly(); } catch (_) {}
@@ -1989,6 +1990,7 @@ Respond ONLY with a valid JSON object in this exact format:
           if (error) throw error;
           
           console.log('✅ User signed in successfully');
+          try { await auth.signOut({ scope: 'others' }); } catch (_) {}
           // Enforce remote-only fetch for this sign-in so local data cannot overwrite remote
           try { localStorage.removeItem('lastSyncTimestamp'); } catch (_) {}
           try { forceNextRemoteOnlyRef.current = true; } catch (_) {}
