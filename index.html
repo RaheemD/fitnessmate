@@ -4220,6 +4220,10 @@ const midnightTimerRef = useRef(null);
 
       // Function to add a new meal to the log - Mobile-optimized crash-resistant version
       const handleLogMeal = async (mealData) => {
+        if (!user) {
+          try { window.dispatchEvent(new Event('request-account-modal')); } catch (_) {}
+          return;
+        }
         console.log('📝 Logging meal data (mobile-safe):', mealData);
         
         try {
