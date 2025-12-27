@@ -2792,6 +2792,7 @@ Respond ONLY with a valid JSON object in this exact format:
     
     // Feature flag: hide manual cloud sync UI (auto-sync is active)
     const SHOW_MANUAL_CLOUD_SYNC = false;
+    const SHOW_BOOKING_HISTORY = false;
     (function(){const installLimiter=()=>{if(window.__aiLimiterInstalled)return;const aiUrl=getDirectGeminiConfig().url;const orig=window.fetch.bind(window);window.__aiThinkingPending=window.__aiThinkingPending||0;window.fetch=async (input,init={})=>{try{const reqUrl=typeof input==='string'?input:((input&&input.url)||'');const method=(init&&init.method)?String(init.method).toUpperCase():'GET';const isAI=(reqUrl===aiUrl&&method==='POST');if(!isAI){return orig(input,init);}let hdrs=(init&&init.headers)||null;let ignore=false;try{if(hdrs&&typeof hdrs.get==='function'){ignore=!!hdrs.get('X-Fitmate-Ignore-Quota');}else if(hdrs&&typeof hdrs==='object'){ignore=!!(hdrs['X-Fitmate-Ignore-Quota']||hdrs['x-fitmate-ignore-quota']);}}catch(_){}let uid=null;try{if(auth&&auth.getSession){const { data:{ session } }=await auth.getSession();uid=session&&session.user?session.user.id:null;}}catch(_){}const todayISO=(typeof toLocalISODate==='function'?toLocalISODate(new Date()):new Date().toISOString().slice(0,10));let usage={};try{usage=JSON.parse(localStorage.getItem('aiUsage')||'{}')||{};}catch(_){}if(!usage[todayISO])usage[todayISO]={};const key=uid||'anon';let subscribed=false;try{subscribed=JSON.parse(localStorage.getItem('subscriptionActive')||'false');}catch(_){}const limit=subscribed?15:(uid?5:3);const count=Number(usage[todayISO][key]||0);if(count>=limit){try{if(uid){window.dispatchEvent(new Event('force-open-subscription-modal'));}else{window.dispatchEvent(new CustomEvent('ai-quota-exceeded',{detail:{key,limit}}));}}catch(_){}return new Response(JSON.stringify({error:'quota_exceeded'}),{status:429,headers:{'Content-Type':'application/json'}});}usage[todayISO][key]=count+1;try{localStorage.setItem('aiUsage',JSON.stringify(usage));
             try {
               // Sync AI usage to database immediately after incrementing
@@ -6818,8 +6819,8 @@ const midnightTimerRef = useRef(null);
                 )}
               </div>
               
-              {/* Booking History Button - Only show when user is signed in */}
-              {user && (
+              {/* Booking History Button - feature-flagged */}
+              {user && SHOW_BOOKING_HISTORY && (
                 <button 
                   onClick={toggleBookingHistory}
                   className="w-full text-left p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 transition-colors flex justify-between items-center"
@@ -7129,8 +7130,8 @@ const midnightTimerRef = useRef(null);
             />
           )}
 
-          {/* Booking History Modal */}
-          {showBookingHistory && (
+          {/* Booking History Modal - feature-flagged */}
+          {showBookingHistory && SHOW_BOOKING_HISTORY && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
               <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-y-auto">
                 {/* Modal Header */}
