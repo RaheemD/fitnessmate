@@ -830,7 +830,7 @@ Respond ONLY with a valid JSON object in this exact format:
 
     // Initialize Supabase
     let supabase, auth, currentUser = null;
-    const USERS_REALTIME_ENABLED = true;
+    const USERS_REALTIME_ENABLED = false; // EGRESS FIX: Disabled realtime to prevent feedback loops causing 600%+ egress overage
     try {
       const { createClient } = window.supabase;
       supabase = createClient(supabaseConfig.url, supabaseConfig.anonKey);
@@ -839,13 +839,14 @@ Respond ONLY with a valid JSON object in this exact format:
       // Expose for console access (e.g., repair scripts)
       window.__fitmateSupabase = supabase;
       
-      // Join a single realtime channel for AI-usage broadcasts
-      try {
-        if (!window.__aiUsageChannel) {
-          window.__aiUsageChannel = supabase.channel('ai-usage');
-          window.__aiUsageChannel.subscribe();
-        }
-      } catch(_) {}
+      // EGRESS FIX: AI-usage realtime channel disabled to prevent egress drain
+      // AI usage syncs via periodic polling during computeAiRemaining instead
+      // try {
+      //   if (!window.__aiUsageChannel) {
+      //     window.__aiUsageChannel = supabase.channel('ai-usage');
+      //     window.__aiUsageChannel.subscribe();
+      //   }
+      // } catch(_) {}
       
       // Auth state change listener will be set up inside React component
     } catch (error) {
@@ -965,29 +966,9 @@ Respond ONLY with a valid JSON object in this exact format:
         // Validate and clean data before sending to Supabase
         const cleanedData = this.cleanUserData(updateData);
         
-        // SAFEGUARD: Deep-merge daily_history with existing remote value to avoid overwriting past days
-        if (cleanedData && typeof cleanedData === 'object' && 'daily_history' in cleanedData) {
-          try {
-            const { data: existing, error: fetchErr } = await supabase
-              .from('users')
-              .select('daily_history')
-              .eq('id', userId)
-              .single();
-
-            if (!fetchErr) {
-              const current = (existing && existing.daily_history) || {};
-              const patch = cleanedData.daily_history || {};
-              // Merge by day key: remote retains past days, patch updates/adds current day
-              const merged = { ...current, ...patch };
-              cleanedData.daily_history = merged;
-              try { console.log('🔧 Merged daily_history before update', { userId, remoteDays: Object.keys(current).length, patchDays: Object.keys(patch).length, mergedDays: Object.keys(merged).length }); } catch (_) {}
-            } else if (fetchErr && fetchErr.code !== 'PGRST116') {
-              console.warn('daily_history prefetch failed, proceeding without merge:', fetchErr);
-            }
-          } catch (e) {
-            console.warn('daily_history merge attempt failed, proceeding with provided payload:', e);
-          }
-        }
+        // EGRESS FIX: Removed daily_history pre-read/merge that fetched from DB before EVERY write.
+        // The merge already happens during syncUserData, so this extra fetch was pure egress waste.
+        // daily_history is now written as-is; syncUserData handles conflict resolution.
         
         // Don't update if no valid data to update
         if (Object.keys(cleanedData).length === 0) {
@@ -1303,6 +1284,17 @@ Respond ONLY with a valid JSON object in this exact format:
           console.log('No authenticated user found for sync; skipping.');
           return;
         }
+        
+        // EGRESS FIX: Throttle syncUserData to at most once per 5 minutes (except initial sign-in)
+        const SYNC_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+        const now = Date.now();
+        const lastSync = window.__lastSyncUserDataAt || 0;
+        const isRemoteOnlySignIn = forceNextRemoteOnlyRef?.current === true;
+        if (!isRemoteOnlySignIn && (now - lastSync) < SYNC_COOLDOWN_MS) {
+          console.log('⏸️ syncUserData throttled (last sync was', Math.round((now - lastSync)/1000), 'seconds ago)');
+          return;
+        }
+        window.__lastSyncUserDataAt = now;
         
         // If set, enforce a one-time remote-only fetch (no local->remote writes)
         const remoteOnly = forceNextRemoteOnlyRef?.current === true;
@@ -1637,6 +1629,8 @@ Respond ONLY with a valid JSON object in this exact format:
               }
               if (userData.subscription) {
                 try { localStorage.setItem('subscriptionActive', JSON.stringify(!!userData.subscription.active)); } catch (_) {}
+                // EGRESS FIX: Cache subscription platform so setSubActive doesn't need db.getUser
+                try { if (userData.subscription.platform) localStorage.setItem('__fmSubPlatform', userData.subscription.platform); } catch (_) {}
                 try { window.dispatchEvent(new CustomEvent('subscription-status-changed', { detail: { active: !!userData.subscription.active } })); } catch (_) {}
               }
               
@@ -1857,17 +1851,10 @@ Respond ONLY with a valid JSON object in this exact format:
               try { localStorage.setItem('pendingUserDataSynced', '1'); } catch (_) {}
               window.dispatchEvent(new CustomEvent('userDataSynced', { detail: { userData } }));
               window.dispatchEvent(new CustomEvent('remoteDataApplied', { detail: { userData } }));
-              // Re-dispatch after short delays to catch listeners that mount slightly later
-              setTimeout(() => {
-                try { window.dispatchEvent(new CustomEvent('userDataSynced', { detail: { userData } })); } catch (_) {}
-              }, 300);
-              setTimeout(() => {
-                try { window.dispatchEvent(new CustomEvent('userDataSynced', { detail: { userData } })); } catch (_) {}
-                try { localStorage.removeItem('pendingUserDataSynced'); } catch (_) {}
-              }, 800);
-              setTimeout(() => {
-                try { window.dispatchEvent(new CustomEvent('userDataSynced', { detail: { userData } })); } catch (_) {}
-              }, 1500);
+              // EGRESS FIX: Removed 3 redundant setTimeout re-dispatches of userDataSynced
+              // that were causing cascading sync/recompute cycles and wasting bandwidth.
+              // A single dispatch is sufficient; late-mounting components use pendingHydratePayload.
+              try { localStorage.removeItem('pendingUserDataSynced'); } catch (_) {}
             } else {
               if (remoteOnly) {
                 console.log('🔒 Remote-only mode active; skipping local-to-remote sync.');
@@ -2251,28 +2238,20 @@ Respond ONLY with a valid JSON object in this exact format:
           const currentTimestamp = new Date().toISOString();
 
           // Build payload and guard against overwriting valid remote intake with local defaults on fresh devices
+          // EGRESS FIX: Removed db.getUser pre-read that was called before EVERY write, wasting bandwidth.
+          // Instead, use a local-only check — if we have no meaningful local data, skip the intake write.
           let payload = { ...data };
           if (payload && typeof payload === 'object' && 'daily_intake' in payload) {
             const localIntake = payload.daily_intake || {};
             const isLocalDefault = Object.values(localIntake).every(v => Number(v) === 0);
-            try {
-              const remote = await db.getUser(user.id);
-              const remoteIntake = remote?.daily_intake || {};
-              const remoteHasNonZero = Object.values(remoteIntake).some(v => Number(v) > 0);
-              const todayISO = toLocalISODate(new Date());
-              const remoteDayStamp = typeof remoteIntake.__day === 'string' ? remoteIntake.__day : '';
-              const remoteIsToday = remoteDayStamp === todayISO;
-              if (isLocalDefault && remoteHasNonZero && remoteIsToday) {
-                // Skip overwriting today's remote non-zero intake with local defaults
-                delete payload.daily_intake;
-              } else {
-                // CRITICAL: Never import activity from remote; only explicit local logging allowed
-                payload.daily_intake = { ...localIntake, activity: Number(localIntake.activity || 0) };
-                // Stamp the day so reads can enforce same-day sync only
-                try { payload.daily_intake.__day = toLocalISODate(new Date()); } catch (_) {}
-              }
-            } catch (cmpErr) {
-              console.warn('Safe-guard compare failed, proceeding:', cmpErr);
+            if (isLocalDefault) {
+              // Don't overwrite remote with zeros — just remove this field from the update
+              delete payload.daily_intake;
+            } else {
+              // CRITICAL: Never import activity from remote; only explicit local logging allowed
+              payload.daily_intake = { ...localIntake, activity: Number(localIntake.activity || 0) };
+              // Stamp the day so reads can enforce same-day sync only
+              try { payload.daily_intake.__day = toLocalISODate(new Date()); } catch (_) {}
             }
           }
 
@@ -2327,7 +2306,7 @@ Respond ONLY with a valid JSON object in this exact format:
           clearTimeout(autoSyncTimeout);
         }
         
-        // Set new timeout for 2 seconds
+        // Set new timeout for 30 seconds (EGRESS FIX: increased from 2s to batch user actions)
         autoSyncTimeout = setTimeout(async () => {
           try {
             console.log('🔄 Auto-sync triggered');
@@ -2335,7 +2314,7 @@ Respond ONLY with a valid JSON object in this exact format:
           } catch (error) {
             console.error('Auto-sync failed:', error);
           }
-        }, 2000);
+        }, 30000);
       };
 
       // Enhanced localStorage setter with auto-sync trigger and quota management
@@ -2847,11 +2826,10 @@ Respond ONLY with a valid JSON object in this exact format:
               const { data: { session } } = await auth.getSession();
               const uid = session && session.user ? session.user.id : null;
               if (uid) {
-                // Read current subscription platform; do not overwrite Stripe-managed subscriptions
+                // EGRESS FIX: Cache subscription platform locally to avoid db.getUser on every visibility change
                 let currentPlatform = null;
                 try {
-                  const existing = await db.getUser(uid);
-                  currentPlatform = existing && existing.subscription ? existing.subscription.platform : null;
+                  currentPlatform = localStorage.getItem('__fmSubPlatform') || null;
                 } catch(_) {}
                 if (currentPlatform && currentPlatform !== 'google_play') {
                   return; // Don't touch Stripe or other platforms
@@ -3972,10 +3950,8 @@ const midnightTimerRef = useRef(null);
             window.dispatchEvent(new CustomEvent('userDataSynced', { detail: { userData: userData } }));
             // Also signal that remote data has been applied (for initial-sync gating)
             window.dispatchEvent(new CustomEvent('remoteDataApplied', { detail: { userData: userData } }));
-            // Re-dispatch after short delays to catch listeners that mount slightly later
-            setTimeout(() => { try { window.dispatchEvent(new CustomEvent('userDataSynced', { detail: { userData: userData } })); } catch (_) {} }, 300);
-            setTimeout(() => { try { window.dispatchEvent(new CustomEvent('userDataSynced', { detail: { userData: userData } })); } catch (_) {} try { localStorage.removeItem('pendingUserDataSynced'); } catch (_) {} }, 800);
-            setTimeout(() => { try { window.dispatchEvent(new CustomEvent('userDataSynced', { detail: { userData: userData } })); } catch (_) {} }, 1500);
+            // EGRESS FIX: Removed 3 redundant setTimeout re-dispatches
+            try { localStorage.removeItem('pendingUserDataSynced'); } catch (_) {}
             setTimeout(() => { isRemoteSyncRef.current = false; }, 300);
           }
         }, { filter: `id=eq.${user.id}` });
