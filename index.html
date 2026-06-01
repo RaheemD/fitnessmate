@@ -821,8 +821,8 @@ Respond ONLY with a valid JSON object in this exact format:
     const getSupabaseConfig = () => {
       // Replace these with your actual Supabase project URL and anon key
       return {
-        url: 'https://bhtabgrcxaahkuwrdwec.supabase.co',
-        anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJodGFiZ3JjeGFhaGt1d3Jkd2VjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgzNzc1MjMsImV4cCI6MjA3Mzk1MzUyM30._Cydy4B6QMF353OG8jnhK7juWgz2j4RirATIfCgAflQ'
+        url: 'https://rxvmpczkrhjlcbstxzee.supabase.co',
+        anonKey: 'sb_publishable_hBOBeTO49P4FHIlT115RMg_uG2falKh'
       };
     };
 
@@ -948,6 +948,33 @@ Respond ONLY with a valid JSON object in this exact format:
           .eq('id', userId)
           .single();
         if (error && error.code !== 'PGRST116') throw error; // PGRST116 = not found
+        return data;
+      },
+
+      // EGRESS FIX: Lightweight fetch for routine cross-device sync.
+      // Pulls ONLY the small fields that drive today's score + entitlement.
+      // Deliberately EXCLUDES heavy columns (profile_picture, meal_plan, workout_plan,
+      // coach_messages, scan_result, form_analysis, daily_history) so foreground/auto
+      // reconciliation costs a few hundred bytes instead of hundreds of KB.
+      async getUserLight(userId) {
+        const { data, error } = await supabase
+          .from('users')
+          .select('id, updated_at, goals, daily_intake, recent_meals, subscription, ai_usage')
+          .eq('id', userId)
+          .single();
+        if (error && error.code !== 'PGRST116') throw error;
+        return data;
+      },
+
+      // EGRESS FIX: History-only fetch for the Progress calendar.
+      // Avoids re-downloading the entire heavy row every time Progress opens.
+      async getUserHistory(userId) {
+        const { data, error } = await supabase
+          .from('users')
+          .select('id, updated_at, daily_history')
+          .eq('id', userId)
+          .single();
+        if (error && error.code !== 'PGRST116') throw error;
         return data;
       },
 
@@ -1268,7 +1295,8 @@ Respond ONLY with a valid JSON object in this exact format:
       const clearLocalProfileForRemoteOnly = () => {
         const keys = [
           'goals',
-          'dailyHistory'
+          'dailyHistory',
+          'historyBackfillDate'
         ];
         // Preserve 'dailyIntake' and 'recentMeals' along with 'dailyIntakeDate' and 'lastSavedDate'
         keys.forEach(k => { try { localStorage.removeItem(k); } catch (_) {} });
@@ -1901,6 +1929,73 @@ Respond ONLY with a valid JSON object in this exact format:
         }
       };
 
+      // EGRESS FIX + CROSS-DEVICE SYNC: Lightweight reconciliation used for
+      // foreground/return-to-app and post-change auto-sync. It fetches ONLY the
+      // small score-driving fields via db.getUserLight and feeds them through the
+      // existing, battle-tested merge (window.fitmateHydrateFromRemote) which already
+      // contains all the midnight-reset / monotonic guards. This keeps scores matching
+      // across devices within seconds while costing a fraction of a full sync.
+      const lightSyncUserData = async (u) => {
+        if (!supabase) return;
+        const effectiveUser = u || currentUser || user;
+        if (!effectiveUser || !effectiveUser.id) return;
+
+        // Never run during the remote-only sign-in handshake (full sync handles that)
+        if (forceNextRemoteOnlyRef?.current === true) return;
+        // Wait until the initial full remote sync has been applied on this device
+        if (!authInitialRemoteAppliedRef?.current) return;
+
+        // Throttle: at most once per 45 seconds across the app
+        const LIGHT_SYNC_COOLDOWN_MS = 45 * 1000;
+        const now = Date.now();
+        const last = window.__lastLightSyncAt || 0;
+        if ((now - last) < LIGHT_SYNC_COOLDOWN_MS) return;
+        window.__lastLightSyncAt = now;
+
+        try {
+          const light = await db.getUserLight(effectiveUser.id);
+          if (!light) return;
+
+          // Reuse the proven merge path. fitmateHydrateFromRemote safely applies
+          // goals, daily_intake (monotonic activity/water + day-stamp guards) and
+          // recent_meals (today-only, reset-aware), and dispatches userDataSynced.
+          if (window.fitmateHydrateFromRemote) {
+            window.fitmateHydrateFromRemote(light);
+          }
+
+          // Subscription entitlement (kept in light payload so Pro status follows the user)
+          if (light.subscription) {
+            try { localStorage.setItem('subscriptionActive', JSON.stringify(!!light.subscription.active)); } catch (_) {}
+            try { if (light.subscription.platform) localStorage.setItem('__fmSubPlatform', light.subscription.platform); } catch (_) {}
+            try { window.dispatchEvent(new CustomEvent('subscription-status-changed', { detail: { active: !!light.subscription.active } })); } catch (_) {}
+          }
+
+          // AI usage: merge with local using MAX so quota is consistent across devices
+          if (light.ai_usage) {
+            try {
+              const remoteUsage = light.ai_usage || {};
+              const localUsage = JSON.parse(localStorage.getItem('aiUsage') || '{}') || {};
+              const merged = { ...localUsage };
+              Object.keys(remoteUsage).forEach(date => {
+                if (!merged[date]) merged[date] = {};
+                Object.keys(remoteUsage[date]).forEach(uid => {
+                  const r = Number(remoteUsage[date][uid] || 0);
+                  const l = Number(merged[date][uid] || 0);
+                  merged[date][uid] = Math.max(r, l);
+                });
+              });
+              localStorage.setItem('aiUsage', JSON.stringify(merged));
+              window.dispatchEvent(new CustomEvent('userDataSynced'));
+            } catch (_) {}
+          }
+
+          console.log('🪶 Light sync applied (small fields only)');
+        } catch (err) {
+          // Network/quota errors are non-fatal for a light sync
+          console.log('Light sync skipped:', err && err.message ? err.message : err);
+        }
+      };
+
       const signUp = async (email, password, displayName) => {
         if (!auth) throw new Error('Supabase Authentication not available');
         
@@ -2309,8 +2404,10 @@ Respond ONLY with a valid JSON object in this exact format:
         // Set new timeout for 30 seconds (EGRESS FIX: increased from 2s to batch user actions)
         autoSyncTimeout = setTimeout(async () => {
           try {
-            console.log('🔄 Auto-sync triggered');
-            await syncUserData(user);
+            console.log('🔄 Auto-sync triggered (light)');
+            // EGRESS FIX: after a local change, reconcile only the small score-driving
+            // fields instead of re-downloading the entire heavy record.
+            await lightSyncUserData(user);
           } catch (error) {
             console.error('Auto-sync failed:', error);
           }
@@ -2710,6 +2807,31 @@ Respond ONLY with a valid JSON object in this exact format:
         }
       };
 
+      // CROSS-DEVICE SYNC (production-grade, low-egress):
+      // When the app returns to the foreground (tab focus / app resume), pull only the
+      // small score-driving fields so this device converges with changes made on other
+      // devices — exactly how mainstream fitness apps keep multiple sessions in sync.
+      // Multiple devices may stay signed in simultaneously (no forced single-login).
+      useEffect(() => {
+        if (!user || !supabase) return;
+        const onForeground = () => {
+          if (document.hidden) return;
+          // Defer until the initial full sign-in sync has been applied
+          if (!authInitialRemoteAppliedRef?.current) return;
+          if (forceNextRemoteOnlyRef?.current === true) return;
+          lightSyncUserData(user);
+        };
+        document.addEventListener('visibilitychange', onForeground);
+        window.addEventListener('focus', onForeground);
+        // Run once shortly after mount so a freshly opened device catches up
+        const t = setTimeout(onForeground, 1500);
+        return () => {
+          document.removeEventListener('visibilitychange', onForeground);
+          window.removeEventListener('focus', onForeground);
+          clearTimeout(t);
+        };
+      }, [user]);
+
       const value = {
         user,
         loading,
@@ -2721,6 +2843,7 @@ Respond ONLY with a valid JSON object in this exact format:
         validatePassword,
         updateUserData,
         syncUserData,
+        lightSyncUserData,
         syncAllDataToSupabase,
         syncDailyIntake,
         syncMealsData,
@@ -2757,7 +2880,36 @@ Respond ONLY with a valid JSON object in this exact format:
     // Direct OpenRouter API (ChatGPT 4 Mini) with obfuscated key
     const OPENROUTER_QWEN_MODEL = 'google/gemini-3-flash-preview'; // text-only
     const OPENROUTER_QWEN_VL_MODEL = "google/gemini-3-flash-preview"
+
+    // LOCAL DEV SUPPORT (does NOT affect production):
+    // When running on localhost/127.0.0.1 there is no Netlify function available,
+    // so we route AI calls straight to OpenRouter using a key the developer types
+    // into a popup at runtime. The key is stored ONLY in localStorage — never in code —
+    // so accidentally pushing this file to GitHub cannot expose it.
+    const IS_LOCAL_DEV = (typeof window !== 'undefined' && window.location &&
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'));
+    const OPENROUTER_DIRECT_URL = 'https://openrouter.ai/api/v1/chat/completions';
+    const LOCAL_OR_KEY = 'fitmate_local_openrouter_key';
+    const getLocalOpenRouterKey = () => {
+      try { return localStorage.getItem(LOCAL_OR_KEY) || ''; } catch (_) { return ''; }
+    };
+
     const getDirectGeminiConfig = () => {
+      // LOCAL DEV ONLY: call OpenRouter directly using the runtime-entered key.
+      if (IS_LOCAL_DEV) {
+        const localKey = getLocalOpenRouterKey();
+        return {
+          url: OPENROUTER_DIRECT_URL,
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Title': 'Fitmate',
+            'HTTP-Referer': (window.location ? window.location.origin : 'http://localhost'),
+            // Only attach Authorization when a key exists; popup prompts if missing.
+            ...(localKey ? { 'Authorization': `Bearer ${localKey}` } : {})
+          }
+        };
+      }
+      // PRODUCTION (UNCHANGED): route through Netlify Functions; key stays server-side.
       return {
         // Route through Netlify Functions (redirected from /api/*)
         url: NETLIFY_API_URL,
@@ -7411,6 +7563,22 @@ const midnightTimerRef = useRef(null);
       const [error, setError] = React.useState('');
       const [loading, setLoading] = React.useState(false);
       const [done, setDone] = React.useState(false);
+      const [showPassword, setShowPassword] = React.useState(false);
+      const [showConfirm, setShowConfirm] = React.useState(false);
+
+      // Reusable eye / eye-off icon for password visibility toggles
+      const EyeIcon = ({ visible }) => (
+        visible ? (
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+          </svg>
+        ) : (
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+          </svg>
+        )
+      );
 
       // Dynamic password rules status
       const rules = React.useMemo(() => {
@@ -7544,6 +7712,23 @@ const midnightTimerRef = useRef(null);
       const [deleteError, setDeleteError] = useState('');
       const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
       const [typedDelete, setTypedDelete] = useState('');
+      // Show/hide password toggles (eye icon)
+      const [showPassword, setShowPassword] = useState(false);
+      const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+      // Reusable eye / eye-off icon for password visibility toggles
+      const EyeIcon = ({ visible }) => (
+        visible ? (
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+          </svg>
+        ) : (
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+          </svg>
+        )
+      );
 
       const handleInputChange = (field, value) => {
         setFormData(prev => ({ ...prev, [field]: value }));
@@ -7811,14 +7996,25 @@ const midnightTimerRef = useRef(null);
                 <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                   Password
                 </label>
-                <input
-                  type="password"
-                  value={formData.password}
-                  onChange={(e) => handleInputChange('password', e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 transition-all"
-                  placeholder="Enter your password"
-                  required
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={formData.password}
+                    onChange={(e) => handleInputChange('password', e.target.value)}
+                    className="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 transition-all"
+                    placeholder="Enter your password"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(v => !v)}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    title={showPassword ? 'Hide password' : 'Show password'}
+                    className="absolute inset-y-0 right-0 flex items-center pr-4 text-gray-500 hover:text-pink-500 dark:text-gray-400 dark:hover:text-pink-400 focus:outline-none"
+                  >
+                    <EyeIcon visible={showPassword} />
+                  </button>
+                </div>
                 {isSignUp && formData.password && (
                   <div className="mt-2 text-xs space-y-1">
                     {(() => {
@@ -7858,18 +8054,29 @@ const midnightTimerRef = useRef(null);
                   <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                     Confirm Password
                   </label>
-                  <input
-                    type="password"
-                    value={formData.confirmPassword}
-                    onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
-                    className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 transition-all ${
-                      formData.confirmPassword && formData.password !== formData.confirmPassword 
-                        ? 'border-red-500 dark:border-red-500' 
-                        : 'border-gray-300 dark:border-gray-600'
-                    }`}
-                    placeholder="Confirm your password"
-                    required
-                  />
+                  <div className="relative">
+                    <input
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      value={formData.confirmPassword}
+                      onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
+                      className={`w-full px-4 py-3 pr-12 border rounded-xl focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 transition-all ${
+                        formData.confirmPassword && formData.password !== formData.confirmPassword 
+                          ? 'border-red-500 dark:border-red-500' 
+                          : 'border-gray-300 dark:border-gray-600'
+                      }`}
+                      placeholder="Confirm your password"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword(v => !v)}
+                      aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                      title={showConfirmPassword ? 'Hide password' : 'Show password'}
+                      className="absolute inset-y-0 right-0 flex items-center pr-4 text-gray-500 hover:text-pink-500 dark:text-gray-400 dark:hover:text-pink-400 focus:outline-none"
+                    >
+                      <EyeIcon visible={showConfirmPassword} />
+                    </button>
+                  </div>
                   {formData.confirmPassword && formData.password !== formData.confirmPassword && (
                     <div className="mt-2 text-xs text-red-500 flex items-center">
                       <span className="mr-1">✗</span>
@@ -12491,46 +12698,58 @@ User's question: "${userMessage.text}"`;
       useEffect(() => {
         const fetchMonthlyBackfill = async () => {
           if (!user || !supabase) return;
-          
+
+          // EGRESS FIX: only backfill history once per calendar day per device.
+          // Progress was previously re-downloading the ENTIRE heavy user row on every
+          // open/navigation. We now (a) fetch history-only and (b) skip if already done today.
           try {
-            console.log('🔄 Progress view opened: fetching monthly history backfill...');
-            
-            // Get current month date range
+            const todayKey = toLocalISODate(new Date());
+            const lastBackfill = localStorage.getItem('historyBackfillDate');
+            if (lastBackfill === todayKey) {
+              return; // already reconciled history today on this device
+            }
+          } catch (_) {}
+
+          try {
+            console.log('🔄 Progress view opened: fetching history-only backfill...');
+
             const now = new Date();
-            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-            const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
             const todayISO = toLocalISODate(now);
-            
-            // Fetch user data from Supabase
-            const userData = await db.getUser(user.id);
-            
+
+            // EGRESS FIX: history-only fetch (no heavy columns like profile_picture, plans, chats)
+            const userData = await db.getUserHistory(user.id);
+
             if (userData && userData.daily_history) {
-              const localHistory = (() => { 
-                try { 
-                  return JSON.parse(localStorage.getItem('dailyHistory') || '{}') || {}; 
-                } catch { 
-                  return {}; 
-                } 
+              const localHistory = (() => {
+                try {
+                  return JSON.parse(localStorage.getItem('dailyHistory') || '{}') || {};
+                } catch {
+                  return {};
+                }
               })();
-              
+
               const remoteHistory = userData.daily_history || {};
-              
+
               // Remote-only past days: prefer remote for all past days, keep current day local
               const merged = { ...remoteHistory }; // Start with remote data
-              
+
               // Only preserve local data for today
               if (localHistory[todayISO]) {
                 merged[todayISO] = localHistory[todayISO];
               }
-              
+
               localStorage.setItem('dailyHistory', JSON.stringify(merged));
-              console.log('✅ Monthly backfill completed: remote history merged (preserving today\'s local data)');
-              
+              console.log('✅ History backfill completed: remote history merged (preserving today\'s local data)');
+
               // Trigger UI refresh
               window.dispatchEvent(new CustomEvent('userDataSynced'));
             }
+
+            // Mark done for today regardless of whether history existed,
+            // so we don't re-hit the DB on every Progress open.
+            try { localStorage.setItem('historyBackfillDate', toLocalISODate(new Date())); } catch (_) {}
           } catch (error) {
-            console.error('Error during monthly backfill:', error);
+            console.error('Error during history backfill:', error);
           }
         };
         
@@ -14753,6 +14972,144 @@ ${habits.map(habit => {
         return null;
       }
     };
+  })();
+</script>
+</body>
+
+<!-- LOCAL DEV ONLY: OpenRouter API key popup. Inert in production (only runs on localhost/127.0.0.1).
+     The key is stored solely in this browser's localStorage and never written into the codebase,
+     so pushing this file to GitHub cannot expose it. -->
+<script>
+  (function () {
+    try {
+      var host = (window.location && window.location.hostname) || '';
+      var isLocal = (host === 'localhost' || host === '127.0.0.1');
+      if (!isLocal) return; // PRODUCTION: do nothing at all.
+
+      var STORAGE_KEY = 'fitmate_local_openrouter_key';
+
+      function getKey() {
+        try { return localStorage.getItem(STORAGE_KEY) || ''; } catch (_) { return ''; }
+      }
+      function setKey(v) {
+        try { localStorage.setItem(STORAGE_KEY, v); } catch (_) {}
+      }
+      function clearKey() {
+        try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+      }
+
+      // Build the modal once.
+      function buildModal() {
+        if (document.getElementById('localApiKeyModal')) return;
+        var overlay = document.createElement('div');
+        overlay.id = 'localApiKeyModal';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:100001;background:rgba(0,0,0,0.6);display:none;align-items:center;justify-content:center;padding:16px;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;';
+
+        var box = document.createElement('div');
+        box.style.cssText = 'background:#fff;color:#111;max-width:440px;width:100%;border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,0.35);overflow:hidden;';
+
+        box.innerHTML =
+          '<div style="background:linear-gradient(135deg,#ec4899,#8b5cf6);padding:16px 20px;">' +
+            '<div style="color:#fff;font-size:18px;font-weight:700;">🔑 Local OpenRouter Key</div>' +
+            '<div style="color:rgba(255,255,255,0.9);font-size:12px;margin-top:2px;">Local development only — stored in this browser, never in your code.</div>' +
+          '</div>' +
+          '<div style="padding:20px;">' +
+            '<label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:#374151;">OpenRouter API key</label>' +
+            '<input id="localApiKeyInput" type="password" placeholder="sk-or-v1-..." ' +
+              'style="width:100%;box-sizing:border-box;padding:11px 12px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;outline:none;" />' +
+            '<label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:#6b7280;cursor:pointer;">' +
+              '<input id="localApiKeyShow" type="checkbox" /> Show key</label>' +
+            '<div id="localApiKeyMsg" style="display:none;margin-top:10px;font-size:12px;padding:8px 10px;border-radius:8px;"></div>' +
+            '<div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;flex-wrap:wrap;">' +
+              '<button id="localApiKeyClear" type="button" style="padding:9px 14px;border:none;border-radius:9px;background:#f3f4f6;color:#374151;font-weight:600;cursor:pointer;">Clear</button>' +
+              '<button id="localApiKeyCancel" type="button" style="padding:9px 14px;border:none;border-radius:9px;background:#e5e7eb;color:#374151;font-weight:600;cursor:pointer;">Close</button>' +
+              '<button id="localApiKeySave" type="button" style="padding:9px 16px;border:none;border-radius:9px;background:#ec4899;color:#fff;font-weight:700;cursor:pointer;">Save</button>' +
+            '</div>' +
+            '<div style="margin-top:14px;font-size:11px;color:#9ca3af;line-height:1.4;">' +
+              'Tip: a floating 🔑 button (bottom-left) reopens this anytime on localhost.' +
+            '</div>' +
+          '</div>';
+
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+
+        var input = document.getElementById('localApiKeyInput');
+        var showChk = document.getElementById('localApiKeyShow');
+        var msg = document.getElementById('localApiKeyMsg');
+
+        function showMsg(text, ok) {
+          msg.textContent = text;
+          msg.style.display = 'block';
+          msg.style.background = ok ? '#ecfdf5' : '#fef2f2';
+          msg.style.color = ok ? '#065f46' : '#991b1b';
+        }
+
+        showChk.addEventListener('change', function () {
+          input.type = showChk.checked ? 'text' : 'password';
+        });
+
+        document.getElementById('localApiKeySave').addEventListener('click', function () {
+          var v = (input.value || '').trim();
+          if (!v) { showMsg('Please paste your OpenRouter key first.', false); return; }
+          setKey(v);
+          showMsg('Saved. AI features will now work locally.', true);
+          setTimeout(hideModal, 700);
+        });
+
+        document.getElementById('localApiKeyClear').addEventListener('click', function () {
+          clearKey();
+          input.value = '';
+          showMsg('Key cleared from this browser.', true);
+        });
+
+        document.getElementById('localApiKeyCancel').addEventListener('click', hideModal);
+        overlay.addEventListener('click', function (e) { if (e.target === overlay) hideModal(); });
+      }
+
+      function showModal() {
+        buildModal();
+        var overlay = document.getElementById('localApiKeyModal');
+        var input = document.getElementById('localApiKeyInput');
+        if (input) input.value = getKey();
+        overlay.style.display = 'flex';
+        if (input) setTimeout(function () { input.focus(); }, 50);
+      }
+
+      function hideModal() {
+        var overlay = document.getElementById('localApiKeyModal');
+        if (overlay) overlay.style.display = 'none';
+      }
+
+      // Floating reopen button (localhost only).
+      function buildFab() {
+        if (document.getElementById('localApiKeyFab')) return;
+        var fab = document.createElement('button');
+        fab.id = 'localApiKeyFab';
+        fab.type = 'button';
+        fab.title = 'Set local OpenRouter API key';
+        fab.textContent = '🔑';
+        fab.style.cssText = 'position:fixed;left:14px;bottom:90px;z-index:100000;width:44px;height:44px;border-radius:50%;border:none;background:#111827;color:#fff;font-size:20px;cursor:pointer;box-shadow:0 6px 16px rgba(0,0,0,0.3);opacity:0.85;';
+        fab.addEventListener('click', showModal);
+        document.body.appendChild(fab);
+      }
+
+      // Expose a manual opener for convenience.
+      window.openLocalApiKeyModal = showModal;
+
+      function init() {
+        buildFab();
+        // Prompt automatically on first local run if no key is set yet.
+        if (!getKey()) {
+          setTimeout(showModal, 600);
+        }
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+      } else {
+        init();
+      }
+    } catch (_) { /* never break the app */ }
   })();
 </script>
 </body>
