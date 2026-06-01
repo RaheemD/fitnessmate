@@ -1902,11 +1902,11 @@
     // CRITICAL FIX: Save workout data IMMEDIATELY to prevent overwriting
     // Log workout as activity minutes and save to history
     if (workoutData.duration > 0) {
-      // Log activity minutes to daily intake (same as index.html)
-      const dailyIntake = JSON.parse(localStorage.getItem('dailyIntake') || '{"calories": 0, "protein": 0, "carbs": 0, "fat": 0, "activity": 0, "water": 0}');
-      dailyIntake.activity = (dailyIntake.activity || 0) + workoutData.duration; // activity in minutes
-      localStorage.setItem('dailyIntake', JSON.stringify(dailyIntake));
-      
+      // NOTE: Workouts are scored separately and must NOT add Activity minutes.
+      // (Matches index.html, which intentionally disabled this.) Previously this line
+      // injected workout duration into dailyIntake.activity, causing phantom +5 activity
+      // points on workout completion. Activity is reserved for the dashboard movement timer.
+
       // Store workout history for detailed tracking
       const workoutHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
       workoutHistory.push(workoutData);
@@ -2045,11 +2045,10 @@
       
       // Only save if workout had meaningful duration (at least 1 minute)
       if (workoutData.duration > 0) {
-        // Log activity minutes to daily intake
-        const dailyIntake = JSON.parse(localStorage.getItem('dailyIntake') || '{"calories": 0, "protein": 0, "carbs": 0, "fat": 0, "activity": 0, "water": 0}');
-        dailyIntake.activity = (dailyIntake.activity || 0) + workoutData.duration;
-        localStorage.setItem('dailyIntake', JSON.stringify(dailyIntake));
-        
+        // NOTE: Workouts are scored separately and must NOT add Activity minutes.
+        // (Matches index.html.) Removing the previous dailyIntake.activity injection
+        // prevents phantom +5 activity points when ending/exiting a workout.
+
         // Store workout history
         const workoutHistory = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
         workoutHistory.push(workoutData);
