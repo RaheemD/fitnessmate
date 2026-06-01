@@ -788,6 +788,37 @@
     console.log('Supabase not configured yet:', error.message);
   }
 
+  // CRITICAL FIX (cross-device workout sync): the workout_history table uses
+  // snake_case columns (completion_rate, exercises_completed, total_exercises,
+  // workout_title, workout_level). Local workoutData uses camelCase. Inserting
+  // camelCase keys makes Supabase reject the row (or store NULLs), which showed up
+  // as "NaN%" and zero workout points after sync. This maps a local record to the
+  // exact DB columns so inserts succeed and completion_rate is never NULL.
+  function toWorkoutRow(w, userId) {
+    if (!w || typeof w !== 'object') return null;
+    var completion = (w.completionRate !== undefined && w.completionRate !== null)
+      ? w.completionRate
+      : (w.completion_rate !== undefined && w.completion_rate !== null ? w.completion_rate : 0);
+    var exDone = (w.exercisesCompleted !== undefined && w.exercisesCompleted !== null)
+      ? w.exercisesCompleted
+      : (w.exercises_completed !== undefined ? w.exercises_completed : 0);
+    var exTotal = (w.totalExercises !== undefined && w.totalExercises !== null)
+      ? w.totalExercises
+      : (w.total_exercises !== undefined ? w.total_exercises : 0);
+    return {
+      user_id: userId,
+      timestamp: w.timestamp || new Date().toISOString(),
+      duration: w.duration || 0,
+      type: w.type || 'structured_workout',
+      workout_title: w.workoutTitle || w.workout_title || 'Custom Workout',
+      workout_level: w.workoutLevel || w.workout_level || null,
+      completion_rate: Math.round(Number(completion) || 0),
+      exercises_completed: Number(exDone) || 0,
+      total_exercises: Number(exTotal) || 0,
+      incomplete: !!w.incomplete
+    };
+  }
+
   // App state
   let currentWorkoutIndex = 0;
   let currentExerciseIndex = 0;
@@ -1894,7 +1925,7 @@
             try {
               const { error: workoutError } = await supabase
                 .from('workout_history')
-                .insert([{ user_id: currentUser.id, ...workoutData }], { returning: 'minimal' });
+                .insert([toWorkoutRow(workoutData, currentUser.id)], { returning: 'minimal' });
               if (workoutError) throw workoutError;
 
               const { error: updateError } = await supabase
@@ -2036,7 +2067,7 @@
               try {
                 const { error: workoutError } = await supabase
                   .from('workout_history')
-                  .insert([{ user_id: currentUser.id, ...workoutData }], { returning: 'minimal' });
+                  .insert([toWorkoutRow(workoutData, currentUser.id)], { returning: 'minimal' });
                 if (workoutError) throw workoutError;
 
                 const { error: updateError } = await supabase
