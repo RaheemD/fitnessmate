@@ -407,28 +407,6 @@
     })();
   </script>
   <script>
-    // Dedicated, RELIABLE detection of "launched inside the Android TWA app".
-    // The dependable signal is document.referrer starting with 'android-app://'.
-    // This is SEPARATE from __isNativeAndroidApp (billing) so we don't disturb that logic.
-    // We persist it because referrer is only present on the very first launch navigation,
-    // and we must still know we're a TWA after returning from Google's OAuth redirect.
-    (function(){
-      try {
-        var ref = document.referrer || '';
-        var launchedFromTwa = ref.indexOf('android-app://') === 0;
-        if (launchedFromTwa) {
-          try { sessionStorage.setItem('fm_is_twa', '1'); } catch(_) {}
-          try { localStorage.setItem('fm_is_twa', '1'); } catch(_) {}
-        }
-        var persisted = false;
-        try { persisted = sessionStorage.getItem('fm_is_twa') === '1' || localStorage.getItem('fm_is_twa') === '1'; } catch(_) {}
-        window.__isTwaContext = !!(launchedFromTwa || persisted);
-      } catch(_) {
-        window.__isTwaContext = false;
-      }
-    })();
-  </script>
-  <script>
     // Android Play Billing bridge (no product IDs or web-side billing logic)
     (function(){
       try {
@@ -2185,40 +2163,6 @@ Respond ONLY with a valid JSON object in this exact format:
         }
       };
 
-      // Google OAuth sign-in (Supabase). This redirects the page to Google and back.
-      // On return, the existing onAuthStateChange SIGNED_IN handler performs the
-      // remote-only sync exactly like email sign-in — so no extra wiring is needed.
-      const signInWithGoogle = async () => {
-        if (!auth) throw new Error('Supabase Authentication not available');
-        setAuthError(null);
-        try {
-          // Return to the app root after Google completes the flow.
-          const base = (typeof window !== 'undefined' && window.location)
-            ? window.location.origin
-            : 'https://fitnessmate.netlify.app';
-          // ONLY when launched from the installed Android app (TWA), tag the return URL
-          // so that, after Google finishes in Chrome, we can hand the session back to the
-          // app. Desktop/web/iOS keep the exact same redirect as before (no marker), so
-          // their flow is completely unchanged.
-          const isTWA = (typeof window !== 'undefined' && window.__isTwaContext === true);
-          const redirectTo = isTWA ? (base + '/?fromapp=1') : base;
-          const { data, error } = await auth.signInWithOAuth({
-            provider: 'google',
-            options: {
-              redirectTo,
-              queryParams: { prompt: 'select_account' }
-            }
-          });
-          if (error) throw error;
-          // Browser will navigate away to Google here.
-          return data;
-        } catch (error) {
-          const friendlyMessage = error?.message || 'Could not start Google sign-in. Please try again.';
-          setAuthError(friendlyMessage);
-          throw new Error(friendlyMessage);
-        }
-      };
-
       const signOut = async () => {
         if (!auth) return true; // If no auth, consider it a success
         
@@ -2957,7 +2901,6 @@ Respond ONLY with a valid JSON object in this exact format:
         authError,
         signUp,
         signIn,
-        signInWithGoogle,
         signOut,
         resetPassword,
         validatePassword,
@@ -3585,31 +3528,6 @@ Respond ONLY with a valid JSON object in this exact format:
 
         (async () => {
           try {
-            // TWA SESSION HAND-OFF: if the app was opened via our deep link carrying
-            // session tokens (#fmsess=<access>.<refresh>), set the session directly.
-            // This is how the installed app (separate storage from Chrome) becomes signed
-            // in after Google OAuth completed in Chrome. No-op when the fragment is absent.
-            let handledFmSess = false;
-            try {
-              const rawHash = window.location.hash ? window.location.hash.replace(/^#/, '') : '';
-              const hp = new URLSearchParams(rawHash);
-              const fmsess = hp.get('fmsess');
-              if (fmsess && fmsess.indexOf('.') !== -1) {
-                const parts = fmsess.split('.');
-                const at = decodeURIComponent(parts[0] || '');
-                const rt = decodeURIComponent(parts[1] || '');
-                if (at && rt) {
-                  const { error } = await auth.setSession({ access_token: at, refresh_token: rt });
-                  if (error) console.error('TWA setSession (fmsess) error:', error.message);
-                  else handledFmSess = true;
-                }
-                // Strip the sensitive fragment from the URL immediately.
-                try { window.history.replaceState({}, document.title, url.origin + url.pathname + (searchParams.toString() ? `?${searchParams.toString()}` : '')); } catch (_) {}
-                try { window.location.hash = ''; } catch (_) {}
-              }
-            } catch (e) { console.warn('fmsess handling failed:', e); }
-            if (handledFmSess) { return; }
-
             // For all Supabase auth links, establish a session
             if (code) {
               const { error } = await auth.exchangeCodeForSession({ code });
@@ -3629,33 +3547,6 @@ Respond ONLY with a valid JSON object in this exact format:
               setShowResetModal(true);
               searchParams.delete('type');
             }
-
-            // TWA RETURN: if this OAuth flow was started from the installed Android app
-            // (we tagged the redirect with ?fromapp=1), Google completed it in full Chrome
-            // and the session now lives in CHROME's storage (a separate partition from the
-            // app). To sign the app in, we deep-link back into the TWA carrying the session
-            // tokens, and the app sets the session directly on launch.
-            // This block is a no-op for desktop/web/iOS (no fromapp marker present).
-            try {
-              const fromApp = searchParams.get('fromapp');
-              if (fromApp === '1' && code) {
-                searchParams.delete('fromapp');
-                // Wait for exchangeCodeForSession to persist, then read tokens and hand off.
-                setTimeout(async () => {
-                  try {
-                    const { data: { session } } = await auth.getSession();
-                    const at = session && session.access_token ? session.access_token : '';
-                    const rt = session && session.refresh_token ? session.refresh_token : '';
-                    if (window.showOpenAppOverlay) window.showOpenAppOverlay(at, rt);
-                  } catch (_) {
-                    if (window.showOpenAppOverlay) window.showOpenAppOverlay('', '');
-                  }
-                }, 400);
-              } else if (fromApp) {
-                searchParams.delete('fromapp');
-              }
-            } catch (_) {}
-
             // Clean URL (remove hash and processed params)
             const clean = url.origin + url.pathname + (searchParams.toString() ? `?${searchParams.toString()}` : '');
             window.history.replaceState({}, document.title, clean);
@@ -7971,7 +7862,7 @@ const midnightTimerRef = useRef(null);
 
     // Account Modal Component
     const AccountModal = ({ user, onClose, onSignOut }) => {
-      const { signIn, signUp, signInWithGoogle, authError, setAuthError, validatePassword, resetPassword } = useAuth();
+      const { signIn, signUp, authError, setAuthError, validatePassword, resetPassword } = useAuth();
       const [isSignUp, setIsSignUp] = useState(false);
       const [formData, setFormData] = useState({
         email: '',
@@ -8367,39 +8258,7 @@ const midnightTimerRef = useRef(null);
               >
                 {isLoading ? '⏳ Processing...' : (isSignUp ? 'Create Account' : 'Sign In')}
               </button>
-
-              {/* OR divider */}
-              <div className="flex items-center gap-3 my-1">
-                <div className="flex-grow h-px bg-gray-300 dark:bg-gray-600"></div>
-                <span className="text-xs font-semibold text-gray-400 dark:text-gray-500">OR</span>
-                <div className="flex-grow h-px bg-gray-300 dark:bg-gray-600"></div>
-              </div>
-
-              {/* Continue with Google */}
-              <button
-                type="button"
-                disabled={isLoading}
-                onClick={async () => {
-                  try {
-                    setIsLoading(true);
-                    await signInWithGoogle();
-                    // Page redirects to Google; nothing else runs here on success.
-                  } catch (error) {
-                    console.error('Google sign-in error:', error);
-                    setIsLoading(false);
-                  }
-                }}
-                className="w-full flex items-center justify-center gap-3 bg-white text-gray-700 border border-gray-300 py-3 px-4 rounded-xl font-semibold hover:bg-gray-50 transition-all duration-200 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <svg className="w-5 h-5" viewBox="0 0 48 48" aria-hidden="true">
-                  <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/>
-                  <path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"/>
-                  <path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.211 35.091 26.715 36 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/>
-                  <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571.001-.001.002-.001.003-.002l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/>
-                </svg>
-                Continue with Google
-              </button>
-
+              
               {!isSignUp && (
                 <div className="text-center">
                   <button 
@@ -15511,76 +15370,6 @@ ${habits.map(habit => {
       } else {
         init();
       }
-    } catch (_) { /* never break the app */ }
-  })();
-</script>
-
-<!-- TWA RETURN HELPER: after Google sign-in completes in full Chrome, offer a one-tap
-     deep link back into the installed Android app. Defined globally so the React auth
-     handler can call window.showOpenAppOverlay(). Safe/no-op everywhere else. -->
-<script>
-  (function () {
-    try {
-      var PACKAGE = 'app.netlify.fitnessmate.twa';
-      var HOST = 'fitnessmate.netlify.app';
-
-      // Build an Android intent URL that reopens the installed TWA at the app root.
-      // We carry the session tokens in the URL hash (#fmsess=...) so the app — which runs
-      // in a SEPARATE storage partition from Chrome — can set the session directly and end
-      // up signed in. The hash is read and immediately stripped by the app on launch.
-      function buildIntentUrl(accessToken, refreshToken) {
-        var frag = '';
-        try {
-          if (accessToken && refreshToken) {
-            var payload = encodeURIComponent(accessToken) + '.' + encodeURIComponent(refreshToken);
-            frag = 'fmsess=' + payload;
-          }
-        } catch (_) {}
-        // Intent URL: scheme https, target package, optional hash fragment with tokens.
-        return 'intent://' + HOST + '/' + (frag ? ('#' + frag) : '#') + 'Intent;scheme=https;' +
-          'package=' + PACKAGE + ';' +
-          'S.browser_fallback_url=' + encodeURIComponent('https://' + HOST + '/' + (frag ? ('#' + frag) : '')) + ';end';
-      }
-
-      window.showOpenAppOverlay = function (accessToken, refreshToken) {
-        try {
-          if (document.getElementById('openAppOverlay')) return;
-          var intentUrl = buildIntentUrl(accessToken, refreshToken);
-          var overlay = document.createElement('div');
-          overlay.id = 'openAppOverlay';
-          overlay.style.cssText = 'position:fixed;inset:0;z-index:100002;background:rgba(15,23,42,0.92);display:flex;align-items:center;justify-content:center;padding:20px;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;';
-
-          var box = document.createElement('div');
-          box.style.cssText = 'background:#111827;color:#fff;max-width:380px;width:100%;border-radius:18px;box-shadow:0 20px 50px rgba(0,0,0,0.5);overflow:hidden;text-align:center;border:1px solid rgba(255,255,255,0.08);';
-          box.innerHTML =
-            '<div style="background:linear-gradient(135deg,#ec4899,#8b5cf6);padding:22px 20px;">' +
-              '<div style="font-size:34px;line-height:1;">✅</div>' +
-              '<div style="font-size:19px;font-weight:800;margin-top:8px;">Signed in successfully</div>' +
-            '</div>' +
-            '<div style="padding:22px 20px;">' +
-              '<div style="font-size:14px;color:#cbd5e1;line-height:1.5;margin-bottom:18px;">' +
-                "You're signed in. Tap below to return to the FitnessMate app." +
-              '</div>' +
-              '<a id="openAppBtn" href="' + intentUrl + '" ' +
-                'style="display:block;text-decoration:none;background:linear-gradient(135deg,#7c3aed,#2563eb);color:#fff;font-weight:800;padding:13px 16px;border-radius:12px;box-shadow:0 8px 20px rgba(37,99,235,0.35);">' +
-                'Open FitnessMate app</a>' +
-              '<button id="stayBrowserBtn" type="button" ' +
-                'style="margin-top:12px;background:transparent;border:none;color:#94a3b8;font-size:13px;font-weight:600;cursor:pointer;text-decoration:underline;">' +
-                'Continue in browser</button>' +
-            '</div>';
-          overlay.appendChild(box);
-          document.body.appendChild(overlay);
-
-          var stay = document.getElementById('stayBrowserBtn');
-          if (stay) stay.addEventListener('click', function () { try { overlay.remove(); } catch (_) {} });
-
-          // Try to auto-launch the app immediately; if the OS blocks it, the visible
-          // button lets the user tap manually (a real user gesture always works).
-          try {
-            setTimeout(function () { try { window.location.href = intentUrl; } catch (_) {} }, 400);
-          } catch (_) {}
-        } catch (_) {}
-      };
     } catch (_) { /* never break the app */ }
   })();
 </script>
