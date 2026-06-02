@@ -5251,6 +5251,12 @@ const midnightTimerRef = useRef(null);
         const saved = localStorage.getItem('profilePicture');
         return saved || "/icon-192.png";
       });
+      // Guard timestamp: when the user just uploaded/generated a picture, ignore any
+      // incoming remote sync of profile_picture for a short window. This prevents an
+      // in-flight sync (carrying the OLD remote value) from reverting the fresh upload
+      // before it has been saved to the database.
+      const recentProfilePicEditRef = useRef(0);
+      const PROFILE_PIC_EDIT_GUARD_MS = 15000;
       const [isGeneratingAvatar, setIsGeneratingAvatar] = useState(false);
       const [notificationsEnabled, setNotificationsEnabled] = useState(() => {
         // For signed-in users, start with default and let remote data load via useEffect
@@ -5436,6 +5442,11 @@ const midnightTimerRef = useRef(null);
       // Listen for remote data sync and update profile picture
       useEffect(() => {
         const handleUserDataSync = (event) => {
+          // If the user just changed their picture, don't let an in-flight sync
+          // (which may still carry the OLD remote value) overwrite the fresh upload.
+          if ((Date.now() - (recentProfilePicEditRef.current || 0)) < PROFILE_PIC_EDIT_GUARD_MS) {
+            return;
+          }
           // For signed-in users, only use remote data from the event payload
           if (user && event?.detail?.userData?.profile_picture) {
             const remoteProfilePicture = event.detail.userData.profile_picture;
@@ -5633,7 +5644,11 @@ const midnightTimerRef = useRef(null);
               // Convert to compressed data URL (0.7 quality)
               const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
               setProfilePicture(compressedDataUrl);
-              
+
+              // Mark a recent edit + persist locally so a pending sync can't revert it
+              recentProfilePicEditRef.current = Date.now();
+              try { localStorage.setItem('profilePicture', compressedDataUrl); } catch (_) {}
+
               // Sync to remote if user is signed in
               if (user) {
                 updateUserData({ profile_picture: compressedDataUrl });
@@ -6432,114 +6447,142 @@ const midnightTimerRef = useRef(null);
       };
 
       // In-app modal to collect avatar preferences (replaces native prompt)
+      // In-app avatar picker: a gallery of fun, modern avatar styles.
+      // Resolves with the chosen avatar URL (string), or null if cancelled.
+      // Uses DiceBear's image API directly (no AI quota used); the user picks exactly
+      // what they want — accurate to their taste and far more engaging than a single
+      // random AI-seeded result.
       const showAvatarModal = () => new Promise(resolve => {
+        const DICEBEAR_VER = '9.x';
+        const STYLES = [
+          { id: 'adventurer', label: 'Adventurer' },
+          { id: 'fun-emoji', label: 'Fun Emoji' },
+          { id: 'bottts', label: 'Robots' },
+          { id: 'lorelei', label: 'Lorelei' },
+          { id: 'notionists', label: 'Notion' },
+          { id: 'micah', label: 'Micah' },
+          { id: 'personas', label: 'Personas' },
+          { id: 'pixel-art', label: 'Pixel' }
+        ];
+        const BG = 'b6e3f4,c0aede,d1d4f9,ffd5dc,ffdfbf';
+        const randSeed = () => Math.random().toString(36).slice(2, 10);
+        const buildUrl = (style, seed) =>
+          `https://api.dicebear.com/${DICEBEAR_VER}/${style}/svg?seed=${encodeURIComponent(seed)}&radius=50&backgroundColor=${BG}`;
+
+        let currentStyle = STYLES[0].id;
+        let seeds = Array.from({ length: 12 }, randSeed);
+        let selectedUrl = null;
+
         const overlay = document.createElement('div');
         overlay.className = 'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4';
         overlay.innerHTML = `
-          <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-white/20 dark:border-gray-700 w-full max-w-md">
+          <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-white/20 dark:border-gray-700 w-full max-w-md max-h-[90vh] overflow-hidden flex flex-col">
             <div class="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
-              <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">AI Avatar Preferences</div>
-              <button class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 text-xl" data-close>&times;</button>
+              <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">Choose your avatar</div>
+              <button class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 text-2xl leading-none" data-close>&times;</button>
             </div>
-            <div class="px-5 pt-4 pb-2 space-y-4">
-              <div>
-                <label class="text-sm font-semibold text-gray-700 dark:text-gray-300">Gender</label>
-                <select class="mt-1 w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" data-field="gender">
-                  <option value="male">Male</option>
-                  <option value="female">Female</option>
-                  <option value="non-binary">Non-binary</option>
-                </select>
-              </div>
-              <div>
-                <label class="text-sm font-semibold text-gray-700 dark:text-gray-300">Style</label>
-                <select class="mt-1 w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" data-field="style">
-                  <option value="professional">Professional</option>
-                  <option value="casual">Casual</option>
-                  <option value="sporty" selected>Sporty</option>
-                  <option value="artistic">Artistic</option>
-                </select>
-              </div>
-              <div>
-                <label class="text-sm font-semibold text-gray-700 dark:text-gray-300">Hair color</label>
-                <select class="mt-1 w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500" data-field="hairColor">
-                  <option value="brown" selected>Brown</option>
-                  <option value="black">Black</option>
-                  <option value="blonde">Blonde</option>
-                  <option value="red">Red</option>
-                  <option value="gray">Gray</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
+            <div class="px-4 pt-3">
+              <div data-styles class="flex gap-2 overflow-x-auto pb-2"></div>
             </div>
-            <div class="px-5 pb-4 pt-2 flex items-center justify-end gap-2">
-              <button class="px-4 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200" data-cancel>Cancel</button>
-              <button class="px-4 py-2 rounded-lg bg-purple-500 hover:bg-purple-600 text-white font-semibold" data-ok>Generate</button>
+            <div class="px-4 pb-2 overflow-y-auto">
+              <div data-grid class="grid grid-cols-4 gap-3"></div>
+            </div>
+            <div class="px-5 py-3 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between gap-2">
+              <button data-shuffle class="px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600">🔀 Shuffle</button>
+              <div class="flex items-center gap-2">
+                <button data-cancel class="px-4 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 text-sm">Cancel</button>
+                <button data-ok class="px-4 py-2 rounded-lg bg-purple-500 hover:bg-purple-600 text-white font-semibold text-sm opacity-50 cursor-not-allowed" disabled>Use avatar</button>
+              </div>
             </div>
           </div>`;
         document.body.appendChild(overlay);
-        const close = () => { try { overlay.remove(); } catch(_) {} };
+
+        const stylesBar = overlay.querySelector('[data-styles]');
+        const grid = overlay.querySelector('[data-grid]');
+        const okBtn = overlay.querySelector('[data-ok]');
+
+        const close = () => { try { overlay.remove(); } catch (_) {} };
+
+        const updateOk = () => {
+          if (selectedUrl) {
+            okBtn.removeAttribute('disabled');
+            okBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+          } else {
+            okBtn.setAttribute('disabled', 'true');
+            okBtn.classList.add('opacity-50', 'cursor-not-allowed');
+          }
+        };
+
+        const renderStyles = () => {
+          stylesBar.innerHTML = '';
+          STYLES.forEach(s => {
+            const b = document.createElement('button');
+            const active = s.id === currentStyle;
+            b.className = 'flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap ' +
+              (active ? 'bg-purple-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200');
+            b.textContent = s.label;
+            b.addEventListener('click', () => { currentStyle = s.id; selectedUrl = null; updateOk(); renderStyles(); renderGrid(); });
+            stylesBar.appendChild(b);
+          });
+        };
+
+        const renderGrid = () => {
+          grid.innerHTML = '';
+          seeds.forEach(seed => {
+            const url = buildUrl(currentStyle, seed);
+            const cell = document.createElement('button');
+            cell.type = 'button';
+            cell.className = 'aspect-square rounded-xl overflow-hidden border-2 border-transparent bg-gray-100 dark:bg-gray-700 hover:border-purple-300 focus:outline-none';
+            const img = document.createElement('img');
+            img.src = url;
+            img.alt = 'avatar option';
+            img.loading = 'lazy';
+            img.className = 'w-full h-full object-cover';
+            cell.appendChild(img);
+            cell.addEventListener('click', () => {
+              selectedUrl = url;
+              Array.from(grid.children).forEach(c => c.classList.remove('border-purple-500', 'ring-2', 'ring-purple-400'));
+              cell.classList.add('border-purple-500', 'ring-2', 'ring-purple-400');
+              updateOk();
+            });
+            grid.appendChild(cell);
+          });
+        };
+
         overlay.addEventListener('click', (e) => { if (e.target === overlay) { close(); resolve(null); } });
         overlay.querySelector('[data-close]')?.addEventListener('click', () => { close(); resolve(null); });
         overlay.querySelector('[data-cancel]')?.addEventListener('click', () => { close(); resolve(null); });
-        overlay.querySelector('[data-ok]')?.addEventListener('click', () => {
-          const gender = overlay.querySelector('[data-field="gender"]').value;
-          const style = overlay.querySelector('[data-field="style"]').value;
-          const hairColor = overlay.querySelector('[data-field="hairColor"]').value;
-          close();
-          resolve({ gender, style, hairColor });
-        });
+        overlay.querySelector('[data-shuffle]')?.addEventListener('click', () => { seeds = Array.from({ length: 12 }, randSeed); selectedUrl = null; updateOk(); renderGrid(); });
+        okBtn.addEventListener('click', () => { if (!selectedUrl) return; close(); resolve(selectedUrl); });
+
+        renderStyles();
+        renderGrid();
       });
 
       const generateAIAvatar = async () => {
-        const prefs = await showAvatarModal();
-        if (!prefs) return; // User cancelled
-        const { gender, style, hairColor } = prefs;
-        
+        const chosenUrl = await showAvatarModal();
+        if (!chosenUrl) return; // User cancelled
+
         setIsGeneratingAvatar(true);
         try {
-          const prompt = `Create a professional, friendly avatar for a fitness app user with these specifications:
-          - Gender: ${gender}
-          - Style: ${style} 
-          - Hair color: ${hairColor}
-          - Clean, modern design
-          - Suitable for a health and fitness application
-          - Colorful but professional
-          - Square format, suitable for profile picture
-          - Cartoon or illustrated style, not photorealistic
-          - Should look healthy, fit, and approachable
-          - Age range: 25-35 years old
-          
-          Generate a detailed description for an avatar that represents health, fitness, and wellness with the specified characteristics.`;
+          // The user visually picked this avatar in the gallery, so it's exactly what
+          // they want. No AI prompt is used here (saves quota); DiceBear serves a
+          // lightweight SVG URL (no base64 bloat, no egress concern).
+          const avatarUrl = chosenUrl;
 
-            const response = await fetch(getDirectGeminiConfig().url, {
-            method: 'POST',
-            headers: getDirectGeminiConfig().headers,
-            body: JSON.stringify({
-              model: OPENROUTER_QWEN_MODEL,
-              messages: [{ role: 'user', content: prompt }]
-            })
-          });
-
-          if (!response.ok) {
-            throw new Error(`API Error: ${response.status}`);
-          }
-
-          const result = await response.json();
-          const description = (result.choices?.[0]?.message?.content || '');
-          
-          // Use the AI description with user preferences as seed for avatar generation
-          const seed = `${gender}-${style}-${hairColor}-${description.substring(0, 30)}`;
-          const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed)}&backgroundColor=b6e3f4,c0aede,d1d4f9,ffd5dc,ffdfbf&hair=${hairColor === 'blonde' ? 'blonde' : hairColor === 'red' ? 'red' : 'brown'}`;
-          
           setProfilePicture(avatarUrl);
-          
+
+          // Mark a recent edit + persist locally so a pending sync can't revert it
+          recentProfilePicEditRef.current = Date.now();
+          try { localStorage.setItem('profilePicture', avatarUrl); } catch (_) {}
+
           // Sync to remote if user is signed in
           if (user) {
             updateUserData({ profile_picture: avatarUrl });
           }
         } catch (error) {
-          console.error('Avatar generation error:', error);
-          if (window.showToast) { showToast('Failed to generate avatar. Please try again.', 'error'); } else { console.log('Failed to generate avatar. Please try again.'); }
+          console.error('Avatar selection error:', error);
+          if (window.showToast) { showToast('Could not set avatar. Please try again.', 'error'); } else { console.log('Could not set avatar. Please try again.'); }
         } finally {
           setIsGeneratingAvatar(false);
         }
@@ -6879,7 +6922,7 @@ const midnightTimerRef = useRef(null);
                 disabled={isGeneratingAvatar}
                 className="bg-purple-500 hover:bg-purple-600 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-1"
               >
-                {isGeneratingAvatar ? '⏳ Generating...' : '🤖 AI Avatar'}
+                {isGeneratingAvatar ? '⏳ Applying...' : '🎨 Choose Avatar'}
               </button>
             </div>
 
@@ -7835,6 +7878,8 @@ const midnightTimerRef = useRef(null);
       // Show/hide password toggles (eye icon)
       const [showPassword, setShowPassword] = useState(false);
       const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+      // Forgot-password request modal (themed "Reset Password" popup)
+      const [showForgotModal, setShowForgotModal] = useState(false);
 
       const handleInputChange = (field, value) => {
         setFormData(prev => ({ ...prev, [field]: value }));
@@ -8218,19 +8263,7 @@ const midnightTimerRef = useRef(null);
                 <div className="text-center">
                   <button 
                     type="button"
-                    onClick={async () => {
-                      if (!formData.email) {
-                        setAuthError('Please enter your email address first.');
-                        return;
-                      }
-                      try {
-                        await resetPassword(formData.email);
-                        setAuthError('');
-                    if (window.showToast) { showToast('Reset email sent! It may take a minute or two to appear in your inbox. Check spam too', 'success'); } else { console.log('Reset email sent! It may take a minute or two to appear in your inbox. Check spam too'); }
-                      } catch (error) {
-                        // Error is already handled in resetPassword function
-                      }
-                    }}
+                    onClick={() => { setAuthError(''); setShowForgotModal(true); }}
                     className="text-sm text-gray-600 dark:text-gray-400 hover:text-pink-500 transition-colors"
                   >
                     Forgot your password?
@@ -8257,6 +8290,126 @@ const midnightTimerRef = useRef(null);
                 </p>
               </div>
             </form>
+          </div>
+
+          {showForgotModal && (
+            <ForgotPasswordModal
+              initialEmail={formData.email}
+              resetPassword={resetPassword}
+              onClose={() => setShowForgotModal(false)}
+            />
+          )}
+        </div>
+      );
+    };
+
+    // Themed "Reset Password" request popup (Forgot password flow).
+    // Purely presentational wrapper around the existing resetPassword() logic — same
+    // functionality, nicer look. Matches the app's dark theme + gradient buttons.
+    const ForgotPasswordModal = ({ initialEmail, resetPassword, onClose }) => {
+      const [email, setEmail] = React.useState(initialEmail || '');
+      const [loading, setLoading] = React.useState(false);
+      const [sent, setSent] = React.useState(false);
+      const [error, setError] = React.useState('');
+
+      const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+
+      const handleSend = async () => {
+        const value = (email || '').trim();
+        if (!validEmail(value)) {
+          setError('Please enter a valid email address.');
+          return;
+        }
+        setError('');
+        setLoading(true);
+        try {
+          await resetPassword(value);
+          setSent(true);
+          try { if (window.showToast) showToast('Reset email sent! It may take a minute or two — check spam too.', 'success'); } catch (_) {}
+        } catch (err) {
+          setError(err?.message || 'Could not send reset email. Please try again.');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+          <div
+            className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-100 dark:border-gray-700 w-full max-w-md p-6 sm:p-8 text-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close */}
+            <button
+              onClick={onClose}
+              aria-label="Close"
+              className="absolute top-4 right-4 w-9 h-9 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 text-xl leading-none"
+            >
+              ×
+            </button>
+
+            {/* Key icon badge */}
+            <div className="mx-auto mb-5 w-16 h-16 rounded-full bg-purple-500/20 flex items-center justify-center">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+              </svg>
+            </div>
+
+            {sent ? (
+              <>
+                <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-3">Check your inbox</h3>
+                <p className="text-gray-500 dark:text-gray-400 mb-6 px-2">
+                  We've sent a password reset link to <span className="font-semibold text-gray-700 dark:text-gray-200">{(email || '').trim()}</span>. It may take a minute or two — check your spam folder too.
+                </p>
+                <button
+                  onClick={onClose}
+                  className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white font-bold py-3 rounded-xl shadow-lg transition-all"
+                >
+                  Back to Sign In
+                </button>
+              </>
+            ) : (
+              <>
+                <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-3">Reset Password</h3>
+                <p className="text-gray-500 dark:text-gray-400 mb-6 px-2">
+                  Enter your email address and we'll send you a link to reset your password.
+                </p>
+
+                <div className="text-left mb-4">
+                  <label className="block text-xs font-bold tracking-wide text-gray-500 dark:text-gray-400 mb-2 uppercase">
+                    Email Address
+                  </label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => { setEmail(e.target.value); if (error) setError(''); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !loading) handleSend(); }}
+                    placeholder="your@email.com"
+                    autoFocus
+                    className="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                  />
+                </div>
+
+                {error && (
+                  <div className="text-left mb-4 text-sm text-red-500">{error}</div>
+                )}
+
+                <button
+                  onClick={handleSend}
+                  disabled={loading}
+                  className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl shadow-lg transition-all"
+                >
+                  {loading ? 'Sending…' : 'Send Reset Link'}
+                </button>
+
+                <button
+                  onClick={onClose}
+                  className="mt-4 w-full text-gray-600 dark:text-gray-300 font-semibold hover:text-gray-800 dark:hover:text-white transition-colors"
+                >
+                  Back to Sign In
+                </button>
+              </>
+            )}
           </div>
         </div>
       );
