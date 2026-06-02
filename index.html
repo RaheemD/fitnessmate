@@ -46,6 +46,38 @@
        custom eye toggle is the only control and isn't blocked by the native one. */
     input[type="password"]::-ms-reveal,
     input[type="password"]::-ms-clear { display: none; }
+    /* Stress Analyzer sliders: modern rounded track + thumb */
+    .fm-stress-slider {
+      -webkit-appearance: none;
+      appearance: none;
+      height: 8px;
+      border-radius: 9999px;
+      outline: none;
+      cursor: pointer;
+      --fm-track: #e5e7eb;
+    }
+    .dark .fm-stress-slider { --fm-track: #4b5563; }
+    .fm-stress-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: #ffffff;
+      border: 2px solid #a855f7;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+      cursor: pointer;
+      margin-top: -1px;
+    }
+    .fm-stress-slider::-moz-range-thumb {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: #ffffff;
+      border: 2px solid #a855f7;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+      cursor: pointer;
+    }
   </style>
   
   <script>
@@ -468,6 +500,64 @@
                 try { document.body.removeChild(el); } catch(_) {}
               }, 220);
             }, duration);
+          } catch(_) {}
+        };
+
+        // Unified notification helper (Level 1: foreground, permission-aware).
+        // - Respects the user's Notifications toggle (localStorage 'notificationsEnabled').
+        // - Tries an OS notification when permission is granted (service worker first for
+        //   better Android/TWA behavior, then the basic Notification API).
+        // - ALWAYS shows an in-app toast as well, so reminders are noticeable even when
+        //   the OS blocks notifications (common inside the Android TWA wrapper).
+        // Returns nothing; never throws.
+        window.fmNotify = function(title, body, opts){
+          try {
+            opts = opts || {};
+            // Respect user setting (default ON if unset)
+            var enabled = true;
+            try {
+              var raw = localStorage.getItem('notificationsEnabled');
+              enabled = (raw === null) ? true : (JSON.parse(raw) === true);
+            } catch(_) { enabled = true; }
+            if (!enabled && !opts.force) return;
+
+            var toastText = body ? (title + ' — ' + body) : title;
+
+            // 1) Try a real OS notification if allowed
+            var canOS = ('Notification' in window) && Notification.permission === 'granted';
+            if (canOS) {
+              var options = {
+                body: body || '',
+                icon: '/icon-192.png',
+                badge: '/icon-192.png',
+                tag: opts.tag || undefined,
+                renotify: opts.tag ? true : undefined,
+                silent: false
+              };
+              var shown = false;
+              // Prefer the service worker registration (works better when backgrounded / on Android)
+              try {
+                if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+                  navigator.serviceWorker.ready.then(function(reg){
+                    try { if (reg && reg.showNotification) reg.showNotification(title, options); } catch(_) {}
+                  }).catch(function(){});
+                  shown = true;
+                }
+              } catch(_) {}
+              // Fallback to the basic Notification constructor
+              if (!shown) {
+                try { new Notification(title, options); } catch(_) {}
+              }
+            }
+
+            // 2) Always show an in-app toast too (guaranteed-visible feedback)
+            try {
+              if (typeof window.showToast === 'function') {
+                window.showToast(toastText, opts.type || 'info', { duration: opts.duration || 3500 });
+              } else if (typeof window.fmToast === 'function') {
+                window.fmToast(toastText, { type: opts.type || 'info', duration: opts.duration || 3500 });
+              }
+            } catch(_) {}
           } catch(_) {}
         };
 
@@ -3378,9 +3468,14 @@ Respond ONLY with a valid JSON object in this exact format:
       }, [isDarkMode]);
 
       useEffect(() => {
-        if ('Notification' in window && Notification.permission === 'default') {
-          Notification.requestPermission();
-        }
+        try {
+          // Only auto-request permission if the user hasn't turned notifications off.
+          const raw = localStorage.getItem('notificationsEnabled');
+          const enabled = (raw === null) ? true : (JSON.parse(raw) === true);
+          if (enabled && 'Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission().catch(function(){});
+          }
+        } catch (_) {}
       }, []);
 
       // Simplified: no periodic rollover. Midnight reset is handled by the scheduled timer,
@@ -3769,6 +3864,116 @@ Respond ONLY with a valid JSON object in this exact format:
         const savedHistory = localStorage.getItem('dailyHistory');
         return savedHistory ? JSON.parse(savedHistory) : {};
       });
+
+      // --- Smart Reminders Engine (Level 1: foreground, permission-aware) ---
+      // Fires gentle, data-driven nudges via window.fmNotify (which respects the
+      // Notifications toggle, uses OS notifications when allowed, and always shows an
+      // in-app toast so it's noticeable even inside the Android TWA). Each reminder type
+      // is throttled with a per-day cap + cooldown so it stays helpful, never spammy.
+      useEffect(() => {
+        const REMINDER_KEY = 'fitmateReminderState';
+        const readState = () => { try { return JSON.parse(localStorage.getItem(REMINDER_KEY) || '{}') || {}; } catch (_) { return {}; } };
+        const writeState = (s) => { try { localStorage.setItem(REMINDER_KEY, JSON.stringify(s)); } catch (_) {} };
+
+        const notificationsOn = () => {
+          try { const r = localStorage.getItem('notificationsEnabled'); return r === null ? true : JSON.parse(r) === true; } catch (_) { return true; }
+        };
+
+        // A reminder may fire if: enabled, not over its daily cap, and past its cooldown.
+        const canFire = (st, id, cap, cooldownMs) => {
+          const today = toLocalISODate(new Date());
+          const rec = st[id] || { day: today, count: 0, last: 0 };
+          if (rec.day !== today) { rec.day = today; rec.count = 0; rec.last = 0; }
+          const now = Date.now();
+          if (rec.count >= cap) { st[id] = rec; return false; }
+          if (now - (rec.last || 0) < cooldownMs) { st[id] = rec; return false; }
+          return true;
+        };
+        const markFired = (st, id) => {
+          const today = toLocalISODate(new Date());
+          const rec = st[id] || { day: today, count: 0, last: 0 };
+          if (rec.day !== today) { rec.day = today; rec.count = 0; }
+          rec.count = (rec.count || 0) + 1;
+          rec.last = Date.now();
+          st[id] = rec;
+        };
+
+        const runChecks = () => {
+          try {
+            if (!notificationsOn()) return;
+            if (!window.fmNotify) return;
+
+            const hour = new Date().getHours();
+            // Quiet hours: no nudges late night / very early morning
+            if (hour < 7 || hour >= 22) return;
+
+            const st = readState();
+            let firedThisPass = false;
+            const fireOne = (id, cap, cooldownMs, title, body, type) => {
+              if (firedThisPass) return;            // at most one nudge per check
+              if (!canFire(st, id, cap, cooldownMs)) return;
+              window.fmNotify(title, body, { tag: id, type: type || 'info' });
+              markFired(st, id);
+              firedThisPass = true;
+            };
+
+            const di = dailyIntake || {};
+            const g = goals || {};
+            const water = Number(di.water) || 0;
+            const waterGoal = Number(g.water) || 8;
+            const cals = Number(di.calories) || 0;
+            const calGoal = Number(g.calories) || 2000;
+            const meals = Array.isArray(recentMeals) ? recentMeals.length : 0;
+
+            // 1) Meal logging nudge — if nothing logged yet by late morning (max 2/day, 4h cooldown)
+            if (meals === 0 && hour >= 11) {
+              fireOne('logMeal', 2, 4 * 60 * 60 * 1000,
+                'Log your first meal 🍽️',
+                'Tap the Cal button to scan a meal and track today.', 'info');
+            }
+
+            // 2) Hydration nudge — if below goal (max 4/day, 2.5h cooldown)
+            if (water < waterGoal) {
+              const left = Math.max(0, waterGoal - water);
+              fireOne('hydrate', 4, 2.5 * 60 * 60 * 1000,
+                'Stay hydrated 💧',
+                `You're at ${water}/${waterGoal} glasses — ${left} to go.`, 'info');
+            }
+
+            // 3) Evening calorie check — if well under goal in the evening (max 1/day)
+            if (hour >= 18 && calGoal > 0 && cals > 0 && cals < calGoal * 0.6) {
+              fireOne('calLow', 1, 60 * 60 * 1000,
+                'Fuel up for your goal 🔥',
+                `You're at ${Math.round(cals)}/${calGoal} kcal today.`, 'info');
+            }
+
+            // 4) Gentle daily move nudge — if no workout enabled flag for today (max 1/day, afternoon)
+            try {
+              const todayISO = toLocalISODate(new Date());
+              const movedToday = localStorage.getItem(`workoutScoreEnabled:${todayISO}`) === '1';
+              const activity = Number(di.activity) || 0;
+              if (!movedToday && activity < 10 && hour >= 13) {
+                fireOne('moveToday', 1, 60 * 60 * 1000,
+                  'Time to move 🏋️',
+                  'A short workout or a 10-minute activity boosts your score.', 'info');
+              }
+            } catch (_) {}
+
+            writeState(st);
+          } catch (_) {}
+        };
+
+        // Run shortly after load, then every 30 minutes, and whenever app returns to foreground.
+        const initial = setTimeout(runChecks, 8000);
+        const interval = setInterval(runChecks, 30 * 60 * 1000);
+        const onVis = () => { if (!document.hidden) runChecks(); };
+        document.addEventListener('visibilitychange', onVis);
+        return () => {
+          clearTimeout(initial);
+          clearInterval(interval);
+          document.removeEventListener('visibilitychange', onVis);
+        };
+      }, [dailyIntake, goals, recentMeals]);
 
       // Global hydrator: allows AuthProvider to hydrate UI directly from remote payload
       useEffect(() => {
@@ -4744,6 +4949,42 @@ const midnightTimerRef = useRef(null);
       catch (_) { return Array.isArray(list) ? list : []; }
     }
 
+    // STRESS ANALYZER (v2): The new UI uses simple 1–10 sliders. The AI Health Coach
+    // screen, however, still reads the legacy hour/minute stressForm fields via its own
+    // computeCoachStressScore. To keep the Coach screen working UNCHANGED, we map the
+    // 1–10 slider values into approximate legacy fields whenever we persist stressForm.
+    // This is a pure, side-effect-free mapping. Slider keys (1..10):
+    //   sleepQuality, workPressure, selfRating, mentalLoad, screenTime  (stressors)
+    //   exercise, relaxation, social                                    (buffers)
+    //   lifeEvent ('none'|'minor'|'major')
+    function deriveLegacyStressFields(slider) {
+      const n = (v, d=5) => { const x = Number(v); return Number.isFinite(x) ? x : d; };
+      const sleepQuality = n(slider.sleepQuality);   // 10 = great sleep
+      const workPressure = n(slider.workPressure);   // 10 = very high pressure
+      const selfRating   = n(slider.selfRating);     // 10 = very stressed
+      const mentalLoad   = n(slider.mentalLoad);     // 10 = racing mind / many worries
+      const screenTime   = n(slider.screenTime);     // 10 = very high screen use
+      const exercise     = n(slider.exercise, 0);    // 10 = lots of movement
+      const relaxation   = n(slider.relaxation, 0);  // 10 = lots of relaxation/meditation
+      const social       = n(slider.social, 0);      // 10 = strong social connection
+      // Map sliders → legacy units the Coach formula expects:
+      // sleepHours: 10=8h (ideal), lower quality => further from 8h
+      const sleepHours = Math.round((4 + (sleepQuality / 10) * 4) * 2) / 2; // 4h..8h
+      // workHours: 0 pressure=6h, 10 pressure=13h
+      const workHours = Math.round((6 + (workPressure / 10) * 7) * 2) / 2;
+      const stressRating = Math.max(1, Math.min(10, Math.round(selfRating)));
+      const stressEpisodes = Math.round((mentalLoad / 10) * 6); // 0..6
+      const screenHours = Math.round((screenTime / 10) * 8 * 2) / 2; // 0..8h
+      const exerciseMins = Math.round((exercise / 10) * 45); // 0..45m
+      const meditationMins = Math.round((relaxation / 10) * 15); // 0..15m
+      const socialMins = Math.round((social / 10) * 60); // 0..60m
+      return {
+        sleepHours, workHours, stressRating, stressEpisodes,
+        screenHours, exerciseMins, meditationMins, socialMins,
+        lifeEvent: slider.lifeEvent || 'none'
+      };
+    }
+
     // Compute health score for a specific date using unified weights:
     // Nutrition 40% = Calories 25% + Protein 5% + Carbs 5% + Fat 5% (±10% tolerance earns full points; calories beyond ±10% apply 25% penalty)
     // Activity up to 15 pts: 10m=5, 20m=10, 30m+=15 (capped). Workouts do NOT add activity minutes.
@@ -5266,6 +5507,20 @@ const midnightTimerRef = useRef(null);
         const saved = localStorage.getItem('notificationsEnabled');
         return saved ? JSON.parse(saved) : true;
       });
+      // Tracks the real OS notification permission so we can show an honest status line.
+      const [notifPermission, setNotifPermission] = useState(() => {
+        try { return ('Notification' in window) ? Notification.permission : 'unsupported'; } catch (_) { return 'unsupported'; }
+      });
+      // Refresh the permission value on mount and when returning to the app.
+      useEffect(() => {
+        const read = () => {
+          try { setNotifPermission(('Notification' in window) ? Notification.permission : 'unsupported'); } catch (_) {}
+        };
+        read();
+        const onVis = () => { if (!document.hidden) read(); };
+        document.addEventListener('visibilitychange', onVis);
+        return () => document.removeEventListener('visibilitychange', onVis);
+      }, []);
       const [backgroundMusicEnabled, setBackgroundMusicEnabled] = useState(() => {
         // For signed-in users, start with default and let remote data load via useEffect
         if (user) {
@@ -5552,18 +5807,51 @@ const midnightTimerRef = useRef(null);
       const toggleNotifications = () => {
         setNotificationsEnabled(prev => {
           const newValue = !prev;
-          // Update Firebase if user is authenticated
+          // Persist + sync the preference
           if (user) {
             updateUserData({ notificationsEnabled: newValue });
           }
-          // Show user feedback
+
           if (newValue) {
-            if (window.showToast) { showToast("✅ Notifications enabled! You'll receive fitness reminders and updates.", 'success'); } else { console.log("✅ Notifications enabled! You'll receive fitness reminders and updates."); }
+            // Turning ON: request real OS permission and reflect the honest result.
+            try {
+              if ('Notification' in window) {
+                if (Notification.permission === 'granted') {
+                  setNotifPermission('granted');
+                  if (window.fmNotify) window.fmNotify('Notifications on 🔔', "You'll get reminders while FitnessMate is open.", { force: true, type: 'success' });
+                  else if (window.showToast) showToast("✅ Notifications enabled!", 'success');
+                } else if (Notification.permission === 'denied') {
+                  setNotifPermission('denied');
+                  // Blocked at the OS/browser level — be honest, don't pretend.
+                  if (window.showToast) showToast("Notifications are blocked in your device settings. You'll still see in-app alerts. Enable them in system settings to get pop-ups.", 'info', { duration: 5000 });
+                } else {
+                  // 'default' → ask now
+                  Notification.requestPermission().then(function(perm){
+                    try { setNotifPermission(perm); } catch (_) {}
+                    if (perm === 'granted') {
+                      if (window.fmNotify) window.fmNotify('Notifications on 🔔', "You'll get reminders while FitnessMate is open.", { force: true, type: 'success' });
+                      else if (window.showToast) showToast("✅ Notifications enabled!", 'success');
+                    } else {
+                      if (window.showToast) showToast("Permission not granted — you'll still see in-app alerts inside the app.", 'info', { duration: 4500 });
+                    }
+                  }).catch(function(){
+                    if (window.showToast) showToast("✅ In-app reminders enabled.", 'success');
+                  });
+                }
+              } else {
+                setNotifPermission('unsupported');
+                // No Notification API (e.g., some webviews) — in-app toasts still work.
+                if (window.showToast) showToast("✅ In-app reminders enabled.", 'success');
+              }
+            } catch (_) {
+              if (window.showToast) showToast("✅ In-app reminders enabled.", 'success');
+            }
           } else {
-            if (window.showToast) { showToast("🔕 Notifications disabled. You won't receive any alerts.", 'info'); } else { console.log("🔕 Notifications disabled. You won't receive any alerts."); }
+            if (window.showToast) { showToast("🔕 Notifications off. You won't receive reminders or alerts.", 'info'); }
           }
           return newValue;
-        });      };
+        });
+      };
 
       const toggleBackgroundMusic = () => {
         setBackgroundMusicEnabled(prev => {
@@ -7253,19 +7541,33 @@ const midnightTimerRef = useRef(null);
               )}
 
               {/* Updated Notifications with toggle */}
-              <div className="flex justify-between items-center p-3">
-                <span className="text-gray-700 dark:text-gray-300">Notifications</span>
-                <button 
-                  onClick={toggleNotifications}
-                  className={`relative w-14 h-7 rounded-full p-1 transition-colors duration-200 focus:outline-none ${
-                    notificationsEnabled ? 'bg-green-500' : 'bg-gray-300'
-                  }`}
-                  title={notificationsEnabled ? 'Notifications ON' : 'Notifications OFF'}
-                >
-                  <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-200 ${
-                    notificationsEnabled ? 'translate-x-7' : 'translate-x-0'
-                  }`}></div>
-                </button>
+              <div className="p-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-700 dark:text-gray-300">Notifications</span>
+                  <button 
+                    onClick={toggleNotifications}
+                    className={`relative w-14 h-7 rounded-full p-1 transition-colors duration-200 focus:outline-none ${
+                      notificationsEnabled ? 'bg-green-500' : 'bg-gray-300'
+                    }`}
+                    title={notificationsEnabled ? 'Notifications ON' : 'Notifications OFF'}
+                  >
+                    <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-200 ${
+                      notificationsEnabled ? 'translate-x-7' : 'translate-x-0'
+                    }`}></div>
+                  </button>
+                </div>
+                {/* Honest status line about the real notification state */}
+                <p className="text-xs text-gray-500 dark:text-gray-300 mt-1">
+                  {!notificationsEnabled
+                    ? 'Off — no reminders or alerts.'
+                    : notifPermission === 'granted'
+                      ? '🔔 Allowed — pop-up reminders enabled while the app is open.'
+                      : notifPermission === 'denied'
+                        ? '⚠️ Blocked in device settings — you\'ll still see in-app alerts. Enable in system settings for pop-ups.'
+                        : notifPermission === 'unsupported'
+                          ? 'ℹ️ Pop-ups not supported here — you\'ll still see in-app alerts.'
+                          : 'ℹ️ Tap the toggle to allow pop-up reminders (you\'ll still see in-app alerts).'}
+                </p>
               </div>
               
               {/* Background Music toggle */}
@@ -12060,6 +12362,48 @@ Respond ONLY with a valid JSON object in this exact format:
         setAttachmentPreview(null);
       };
 
+      // Lightweight, safe renderer that turns the AI's markdown-ish text into readable JSX:
+      // supports **bold**, bullet lines (-, *, •), numbered lines, and paragraph spacing.
+      // Purely presentational — no HTML injection (we only build React elements from text).
+      const renderInline = (text, keyPrefix) => {
+        const parts = String(text).split(/(\*\*[^*]+\*\*)/g).filter(s => s !== '');
+        return parts.map((seg, i) => {
+          const m = seg.match(/^\*\*([^*]+)\*\*$/);
+          if (m) return <strong key={`${keyPrefix}-b-${i}`} className="font-semibold">{m[1]}</strong>;
+          return <span key={`${keyPrefix}-t-${i}`}>{seg}</span>;
+        });
+      };
+      const renderRichText = (raw) => {
+        const text = String(raw || '').replace(/\r\n/g, '\n').trim();
+        if (!text) return null;
+        const lines = text.split('\n');
+        const blocks = [];
+        let listItems = [];
+        const flushList = (key) => {
+          if (listItems.length) {
+            blocks.push(
+              <ul key={`ul-${key}`} className="list-disc pl-5 space-y-1 my-1">
+                {listItems.map((it, idx) => <li key={`li-${key}-${idx}`}>{renderInline(it, `li-${key}-${idx}`)}</li>)}
+              </ul>
+            );
+            listItems = [];
+          }
+        };
+        lines.forEach((line, idx) => {
+          const trimmed = line.trim();
+          if (!trimmed) { flushList(idx); return; }
+          // Bullet line: -, *, • (but not **bold** which starts with **)
+          const bullet = trimmed.match(/^(?:[-•]|\*(?!\*))\s+(.*)$/);
+          const numbered = trimmed.match(/^\d+[\.\)]\s+(.*)$/);
+          if (bullet) { listItems.push(bullet[1]); return; }
+          if (numbered) { listItems.push(numbered[1]); return; }
+          flushList(idx);
+          blocks.push(<p key={`p-${idx}`} className="my-1">{renderInline(trimmed, `p-${idx}`)}</p>);
+        });
+        flushList('end');
+        return <div className="space-y-1 leading-relaxed">{blocks}</div>;
+      };
+
       useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
       }, [messages]);
@@ -12280,18 +12624,26 @@ Respond ONLY with a valid JSON object in this exact format:
 
           let stressCtx = null;
           try {
-            if (stressFormLS && Object.keys(stressFormLS).length > 0) {
+            // Read the ACTUAL saved AI Stress Analyzer result (Progress → Stress Analyzer),
+            // not a recomputed legacy formula. This keeps the Coach in sync with what the
+            // user actually sees on the new AI-driven Stress Analyzer screen.
+            const savedStress = (() => { try { return JSON.parse(localStorage.getItem('stressResult') || 'null'); } catch (_) { return null; } })();
+            if (savedStress && typeof savedStress.stressScore === 'number') {
+              stressCtx = savedStress;
+            } else if (stressFormLS && Object.keys(stressFormLS).length > 0) {
+              // Fallback only if no AI result has been computed yet on this device.
               stressCtx = computeCoachStressScore(stressFormLS);
             }
           } catch (_) {}
 
-          const topDriversStr = (() => {
-            if (!stressCtx || !stressCtx.breakdown || !stressCtx.breakdown.drivers) return '';
-            return Object.entries(stressCtx.breakdown.drivers).sort((a,b)=> (b[1]||0)-(a[1]||0)).slice(0,2).map(e=>e[0]).join(' and ');
-          })();
-          const topBufferStr = (() => {
-            if (!stressCtx || !stressCtx.breakdown || !stressCtx.breakdown.buffers) return '';
-            return Object.entries(stressCtx.breakdown.buffers).sort((a,b)=> (b[1]||0)-(a[1]||0)).slice(0,1).map(e=>e[0]).join(', ');
+          // Build a short list of AI habit suggestions (if present in the saved AI result)
+          const stressSuggestionsStr = (() => {
+            try {
+              if (stressCtx && Array.isArray(stressCtx.suggestions) && stressCtx.suggestions.length) {
+                return stressCtx.suggestions.map(s => s && s.name).filter(Boolean).slice(0, 3).join(', ');
+              }
+            } catch (_) {}
+            return '';
           })();
           
           let prompt = `You are an AI Health Coach specializing in FITNESS, WORKOUTS, and NUTRITION. You have comprehensive knowledge of the FitnessMate app's features and can provide expert guidance on ALL app screens and functionality.
@@ -12341,12 +12693,13 @@ ${highAreas.length > 0 ? `\n🔴 HIGH AREAS: ${highAreas.join(', ')}` : ''}
    - PROGRESS TRACKING → Reference Dashboard for comprehensive health overview
    - APP NAVIGATION → Explain which screen to use for specific needs
 
-2. RESPONSE FORMAT (MAX 120 WORDS):
-   - Direct answer with specific app feature recommendations
-   - 2-3 actionable bullet points with screen references
-   - Reference their actual data when applicable
-   - Guide users to relevant app sections (e.g., "Check your Dashboard", "Use the Food Scanner")
-   - Use emojis for readability and engagement
+2. RESPONSE FORMAT (keep it skimmable, MAX ~120 words):
+   - Start with ONE short sentence that directly answers the question.
+   - Then give 2-4 bullet points. Put EACH bullet on its OWN new line and start it with "- " (a dash and a space).
+   - You may bold key terms with **double asterisks** (e.g. **Workout Planner**). Keep bolding minimal.
+   - Do NOT write one long paragraph. Do NOT use headings or tables. No more than ~120 words total.
+   - Reference their actual data when applicable and guide them to the right screen.
+   - A couple of emojis are fine for warmth; don't overuse them.
 
 3. COMPREHENSIVE APP GUIDANCE:
    - Explain how different screens work together for complete health management
@@ -12354,14 +12707,12 @@ ${highAreas.length > 0 ? `\n🔴 HIGH AREAS: ${highAreas.join(', ')}` : ''}
    - Encourage cross-feature usage (e.g., scan food → track on dashboard → plan workouts)
    - Mention specific exercises from database when recommending fitness routines
 
-🧘 STRESS ANALYZER (Separate Feature):
-- Purpose: quick check of a stress index (0–100) labeled Low/Moderate/High. It is NOT part of the Health Score points system.
-- Inputs considered: sleep hours deviation, work hours, self‑rating (1–10), stress episodes, screen hours.
-- Buffers: exercise minutes, meditation minutes, social time.
-- Weights: sleep 25, work 20, self‑rating 12, episodes 8, screen 10; buffers exercise 15, meditation 5, social 5.
-- Life event multiplier: minor ×1.5, major ×2.0.
-- Reading the screen: gauge shows score; category + confidence; 'Drivers' bars show contributors; 'Buffers' bars show relief.
-${stressCtx ? `- Current stress (from Progress → Stress Analyzer): ${stressCtx.category} (${stressCtx.stressScore}), confidence ${stressCtx.confidence}%. Top drivers: ${topDriversStr || 'n/a'}. Relief: ${topBufferStr || 'n/a'}.` : `- No stress inputs logged yet. Open Progress → Stress Analyzer to enter today's values.`}
+🧘 STRESS ANALYZER (Separate AI Feature — NOT part of the Health Score):
+- It is a fully AI-powered tool in the Progress → Stress Analyzer tab.
+- The user answers 8 simple 1–10 sliders (sleep quality, work pressure, how stressed they feel, mental load, screen time, exercise, relaxation, social connection) plus an optional life event.
+- The AI then decides everything: a stress score (0–100), a category (Low / Moderate / High / Very High), a confidence % (how consistent the inputs are), a short insight, and dynamic habit suggestions. There are NO fixed weights, "Drivers" bars, or "Buffers" bars anymore — that older design was removed.
+${stressCtx ? `- Current AI stress reading (from Progress → Stress Analyzer): ${stressCtx.category} — score ${stressCtx.stressScore}/100, AI confidence ${stressCtx.confidence}%.${stressCtx.insight ? ` AI insight: "${stressCtx.insight}"` : ''}${stressSuggestionsStr ? ` Suggested habits: ${stressSuggestionsStr}.` : ''}` : `- No stress reading yet. Suggest the user open Progress → Stress Analyzer and tap "Analyze My Stress".`}
+- When the user asks about their stress, use these real values. If they have no reading yet, guide them to the Stress Analyzer. Do not invent weights, percentages, or bar breakdowns.
 
 User's question: "${userMessage.text}"`;
 
@@ -12468,13 +12819,13 @@ User's question: "${userMessage.text}"`;
 
               {messages.map((msg, i) => (
                 <div key={i} className={`flex mb-3 ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`p-3 rounded-2xl max-w-xs shadow-lg ${
+                  <div className={`p-3 rounded-2xl shadow-lg ${
                     msg.sender === 'user' 
-                      ? 'bg-pink-500 text-white' 
-                      : 'bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200'
+                      ? 'bg-pink-500 text-white max-w-xs' 
+                      : 'bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 max-w-[85%]'
                   }`}>
                     {msg.attachment && <img src={msg.attachment} alt="attachment" className="rounded-lg mb-2 max-w-full h-auto" />}
-                    {msg.text}
+                    {msg.sender === 'ai' ? renderRichText(msg.text) : msg.text}
                   </div>
                 </div>
               ))}
@@ -12586,23 +12937,21 @@ User's question: "${userMessage.text}"`;
       }, []);
 
       const [stressForm, setStressForm] = useState(() => {
+        const defaults = {
+          // New 1–10 sliders (stressors default 5; buffers default 3)
+          sleepQuality: 6, workPressure: 5, selfRating: 5, mentalLoad: 5, screenTime: 5,
+          exercise: 3, relaxation: 3, social: 3,
+          lifeEvent: 'none',
+          // Legacy fields kept for compatibility with the AI Coach screen
+          sleepHours: '', workHours: '', stressRating: '', stressEpisodes: '',
+          exerciseMins: '', meditationMins: '', socialMins: '', screenHours: '', notes: ''
+        };
         try {
           const raw = localStorage.getItem('stressForm');
           const parsed = raw ? JSON.parse(raw) : {};
-          return {
-            sleepHours: parsed.sleepHours ?? '',
-            workHours: parsed.workHours ?? '',
-            stressRating: parsed.stressRating ?? '',
-            stressEpisodes: parsed.stressEpisodes ?? '',
-            exerciseMins: parsed.exerciseMins ?? '',
-            meditationMins: parsed.meditationMins ?? '',
-            socialMins: parsed.socialMins ?? '',
-            screenHours: parsed.screenHours ?? '',
-            lifeEvent: parsed.lifeEvent ?? 'none',
-            notes: parsed.notes ?? ''
-          };
+          return { ...defaults, ...parsed };
         } catch (_) {
-          return { sleepHours:'', workHours:'', stressRating:'', stressEpisodes:'', exerciseMins:'', meditationMins:'', socialMins:'', screenHours:'', lifeEvent:'none', notes:'' };
+          return defaults;
         }
       });
         const [stressResult, setStressResult] = useState(null);
@@ -12614,7 +12963,7 @@ User's question: "${userMessage.text}"`;
             if (raw) {
               const r = JSON.parse(raw);
               setStressResult(r);
-              setStressInsight(generateStressInsight(r, stressForm));
+              setStressInsight(r && r.insight ? r.insight : generateStressInsight(r, stressForm));
             }
           } catch (_) {}
         }, []);
@@ -12687,8 +13036,17 @@ User's question: "${userMessage.text}"`;
       }, [showBreathing]);
 
       useEffect(() => {
-        try { localStorage.setItem('stressForm', JSON.stringify(stressForm)); } catch (_) {}
+        try {
+          // Persist slider form AND mirror derived legacy fields so the AI Coach screen
+          // (which reads hour/minute fields via computeCoachStressScore) keeps working.
+          const legacy = deriveLegacyStressFields(stressForm);
+          const toStore = { ...stressForm, ...legacy };
+          localStorage.setItem('stressForm', JSON.stringify(toStore));
+        } catch (_) {}
       }, [stressForm]);
+
+      // AI scoring loading state (real AI via OpenRouter/Gemini)
+      const [stressAiLoading, setStressAiLoading] = useState(false);
 
       // Derived totals: enforce that time-based inputs do not exceed 24 hours/day
       const stressTotalHours = (() => {
@@ -12817,6 +13175,120 @@ User's question: "${userMessage.text}"`;
         };
 
         return { stressScore, category, confidence, breakdown: { drivers, buffers }, lifeEventMultiplier: multiplier };
+      };
+
+      // REAL AI stress analysis (OpenRouter / Gemini). The 1–10 sliders are sent to the
+      // model, which decides EVERYTHING: stressScore, category, confidence, a warm insight,
+      // and dynamic habit suggestions tailored to the inputs. No hardcoded formula drives
+      // the result. If the AI call fails (network, quota, bad JSON), we fall back to a
+      // lightweight local estimate so the feature never breaks.
+      const computeStressScoreAI = async (slider) => {
+        const s = (k, d = 5) => { const x = Number(slider[k]); return Number.isFinite(x) ? x : d; };
+        const inputs = {
+          sleep_quality: s('sleepQuality', 6),
+          work_pressure: s('workPressure'),
+          self_rated_stress: s('selfRating'),
+          mental_load: s('mentalLoad'),
+          screen_time: s('screenTime'),
+          exercise: s('exercise', 3),
+          relaxation: s('relaxation', 3),
+          social_connection: s('social', 3),
+          life_event: slider.lifeEvent || 'none'
+        };
+
+        // Lightweight local fallback (only used if AI is unavailable). Keeps the feature working.
+        const fallback = () => {
+          const legacy = deriveLegacyStressFields(slider);
+          const r = computeStressScore(legacy);
+          return {
+            stressScore: r.stressScore,
+            category: r.category,
+            confidence: r.confidence,
+            insight: generateStressInsight(r, legacy),
+            suggestions: [
+              { name: '10-minute wind-down', note: 'A short calming routine before bed.' },
+              { name: '4-7-8 breathing', note: 'Three cycles when you feel tension rise.' }
+            ],
+            source: 'local'
+          };
+        };
+
+        try {
+          const prompt = `You are an expert AI stress analyst for a wellness app. The user rated their day on simple 1-10 sliders. Decide everything yourself and return ONLY strict JSON (no prose, no markdown).
+
+INPUTS (1-10 unless noted):
+- sleep_quality: ${inputs.sleep_quality} (10 = excellent sleep, 1 = very poor)
+- work_pressure: ${inputs.work_pressure} (10 = extreme)
+- self_rated_stress: ${inputs.self_rated_stress} (10 = extremely stressed) — the user's direct felt stress; weight heavily
+- mental_load: ${inputs.mental_load} (10 = racing mind / many worries)
+- screen_time: ${inputs.screen_time} (10 = excessive screen/scrolling)
+- exercise: ${inputs.exercise} (10 = lots of movement; relieves stress)
+- relaxation: ${inputs.relaxation} (10 = lots of relaxation/meditation; relieves stress)
+- social_connection: ${inputs.social_connection} (10 = strong supportive connection; relieves stress)
+- life_event: "${inputs.life_event}" (none | minor | major — amplifies stress)
+
+REQUIREMENTS:
+- stressScore: integer 0-100 (higher = more stressed).
+- category: one of "Low" (0-25), "Moderate" (26-50), "High" (51-75), "Very High" (76-100). MUST match stressScore.
+- confidence: integer 0-100 = how consistent/clear the inputs are with each other (agreement = high; contradictions = lower). Do NOT make it the inverse of stress.
+- insight: 2-3 short, warm, practical sentences. Name the main driver(s) and give ONE concrete action. No medical claims.
+- suggestions: an array of 2-3 SHORT habit ideas tailored to THIS person's inputs, each {"name": "<=4 words", "note": "one short sentence why"}. Make them specific to the highest stressors / weakest buffers.
+
+Return EXACTLY this JSON shape:
+{"stressScore":0,"category":"Low","confidence":0,"insight":"","suggestions":[{"name":"","note":""}]}`;
+
+          const resp = await fetch(getDirectGeminiConfig().url, {
+            method: 'POST',
+            headers: getDirectGeminiConfig().headers,
+            signal: AbortSignal.timeout(25000),
+            body: JSON.stringify({
+              model: OPENROUTER_QWEN_MODEL,
+              messages: [{ role: 'user', content: prompt }]
+            })
+          });
+          if (!resp.ok) return fallback();
+
+          const result = await resp.json();
+          let text = (result.choices?.[0]?.message?.content || '').trim();
+          if (!text) return fallback();
+          text = text.replace(/```json|```/g, '').trim();
+          const first = text.indexOf('{');
+          const last = text.lastIndexOf('}');
+          if (first !== -1 && last !== -1) text = text.substring(first, last + 1);
+          const data = JSON.parse(text);
+
+          const clampInt = (x, lo, hi, d = 0) => {
+            const n = Math.round(Number(x));
+            if (!Number.isFinite(n)) return d;
+            return Math.max(lo, Math.min(hi, n));
+          };
+          const score = clampInt(data.stressScore, 0, 100, NaN);
+          if (!Number.isFinite(score)) return fallback();
+
+          let category = 'Low';
+          if (score >= 76) category = 'Very High';
+          else if (score >= 51) category = 'High';
+          else if (score >= 26) category = 'Moderate';
+
+          const confidence = clampInt(data.confidence, 10, 99, 70);
+          const insight = (typeof data.insight === 'string' && data.insight.trim()) ? data.insight.trim() : '';
+
+          // Sanitize AI suggestions into a clean array (max 3)
+          let suggestions = [];
+          if (Array.isArray(data.suggestions)) {
+            suggestions = data.suggestions
+              .map(x => ({
+                name: (x && x.name ? String(x.name) : '').trim(),
+                note: (x && x.note ? String(x.note) : '').trim()
+              }))
+              .filter(x => x.name)
+              .slice(0, 3);
+          }
+
+          return { stressScore: score, category, confidence, insight, suggestions, source: 'ai' };
+        } catch (_) {
+          return fallback();
+        }
       };
 
       const generateStressInsight = (res, inp) => {
@@ -13721,7 +14193,7 @@ User's question: "${userMessage.text}"`;
                 
                 <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm p-4 rounded-2xl mb-4">
                   {habitAIAdvice ? (
-                    <div className="text-gray-800 dark:text-gray-200">
+                    <div className="text-gray-800 dark:text-gray-200 whitespace-pre-line leading-relaxed">
                       {habitAIAdvice}
                     </div>
                   ) : (
@@ -13764,48 +14236,40 @@ User's question: "${userMessage.text}"`;
                         const effectiveActivity = Math.max(dailyIntake.activity || 0, activityHabitMins || 0);
 
                         // Create prompt for the AI
-                        let prompt = `You are an AI Habit Coach with comprehensive knowledge of the FitMate app. Analyze user data and provide smart recommendations using all app features.
+                        const todayKey = new Date().toISOString().split('T')[0];
+                        const completedCount = habits.filter(h => h.completed && h.completed[todayKey]).length;
+                        const totalHabits = habits.length;
+                        const bestStreak = habits.reduce((m, h) => Math.max(m, Number(h.streak) || 0), 0);
 
-**HABIT STATUS TODAY:**
-${habits.map(habit => {
-  const today = new Date().toISOString().split('T')[0];
-  const isCompleted = habit.completed && habit.completed[today];
-  return `• ${habit.name}: ${isCompleted ? '✅ COMPLETED' : '❌ NOT DONE'} (${habit.streak}d streak)`;
-}).join('\n')}
+                        let prompt = `You are an expert habit coach inside the FitnessMate app. Speak directly to the user like a supportive personal coach — warm, specific, and practical. Base everything ONLY on their real data below. Never invent habits or numbers they don't have.
 
-**DAILY PROGRESS:**
-• Calories: ${dailyIntake.calories}/${goals.calories} (${((dailyIntake.calories / goals.calories) * 100).toFixed(0)}%)
-• Protein: ${dailyIntake.protein}g/${goals.protein}g (${((dailyIntake.protein / goals.protein) * 100).toFixed(0)}%)
-• Activity: ${Math.min(effectiveActivity, goals.activity)}/${goals.activity}min (${Math.min(100, ((effectiveActivity / goals.activity) * 100)).toFixed(0)}%)
-• Water: ${Math.min(effectiveWater, goals.water)}/${goals.water} glasses (${Math.min(100, ((effectiveWater / goals.water) * 100)).toFixed(0)}%)
+THEIR HABITS TODAY (${completedCount}/${totalHabits} done, best streak ${bestStreak} days):
+${totalHabits === 0
+  ? '• (No habits added yet)'
+  : habits.map(h => {
+      const done = h.completed && h.completed[todayKey];
+      return `• "${h.name}" — ${done ? 'completed today ✅' : 'not done yet ❌'} — ${Number(h.streak) || 0} day streak`;
+    }).join('\n')}
 
-**APP FEATURES TO REFERENCE:**
-📊 Dashboard: Track progress and view health score
-🔍 Food Scanner: Log meals accurately with portion sizes
-🏋️ Workout Planner: Access 15+ exercises with video guides
-🍽️ Meal Planner: Generate recipes and scan pantry items
-👤 Profile: Adjust goals and manage preferences
-🤖 AI Coaches: Get form tips and personalized guidance
+TODAY'S SUPPORTING STATS (for context, not the main focus):
+• Calories: ${dailyIntake.calories}/${goals.calories}
+• Protein: ${dailyIntake.protein}g/${goals.protein}g
+• Activity: ${Math.min(effectiveActivity, goals.activity)}/${goals.activity} min
+• Water: ${Math.min(effectiveWater, goals.water)}/${goals.water} glasses
 
-**INSTRUCTIONS:**
-1. If habits are completed today, congratulate and suggest app features to maintain momentum
-2. If habits are incomplete, recommend specific app screens/features to help complete them
-3. For nutrition goals, suggest Food Scanner for accurate tracking
-4. For activity goals, recommend Workout Planner with specific exercises
-5. Reference actual app features users can access immediately
+COACHING RULES:
+1. Talk about the user's ACTUAL habits BY NAME (e.g. sleep, meditation, nutrition). Tailor advice to what each habit is really about.
+2. If a habit is done, praise it specifically and protect the streak. If not done, give ONE small, doable nudge to finish it today.
+3. Use real habit-science: consistency, habit stacking (attach a new habit to an existing one), simple triggers/cues, and streak momentum.
+4. Give genuinely useful, evidence-based tips — NOT generic app-feature plugs. Do NOT tell them to "use the AI Coach" (they're already using it).
+5. Keep it personal and encouraging. No medical claims.
 
-**FORMAT (exactly 4 lines, max 120 chars total):**
-🎯 [Focus area with app feature reference]
-⚡ [Specific action using app screen/feature]
-🔥 [App-based habit tip]
-💪 [Motivation with feature suggestion]
-
-**RULES:**
-- Maximum 120 characters total across all 4 lines
-- Reference specific app screens when relevant (Dashboard, Scanner, Workout, etc.)
-- Acknowledge completed habits positively
-- Guide users to appropriate app features for improvement
-- Use actual percentages and app-specific recommendations`;
+RESPOND IN THIS EXACT STRUCTURE (each on its own line, ~12-20 words per line, no markdown headers):
+🎯 Today: <one honest read of where they stand on their habits>
+✅ Keep going: <praise a specific completed habit / streak, and how to protect it>
+� Try this: <one concrete, habit-specific tip or habit-stack idea using their real habits>
+🌱 Next step: <suggest one small improvement or a sensible next habit to build>
+💪 <one short motivating line>`;
                         
                         // Call the AI API
                         const response = await fetch(getDirectGeminiConfig().url, {
@@ -13912,289 +14376,192 @@ ${habits.map(habit => {
                   Stress Analyzer
                 </h3>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Sleep hours <span className="text-red-500">*</span></label>
-                    <input type="number" inputMode="numeric" min="4" step="0.5" value={stressForm.sleepHours}
-                      placeholder="8h ideal; deviation increases stress (25%)"
-                      onChange={e=>setStressForm({...stressForm, sleepHours:e.target.value})}
-                      aria-invalid={!stressForm.sleepHours || Number(stressForm.sleepHours) < 4 || exceedsDayHours}
-                      className={`w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 placeholder:text-[11px] md:placeholder:text-sm appearance-none ${(!stressForm.sleepHours || Number(stressForm.sleepHours) < 4 || exceedsDayHours) ? 'border-red-500 focus:ring-red-500 ring-1 ring-red-500' : 'focus:ring-purple-500'}`}
-                      style={{MozAppearance:'textfield'}} />
-                    {(!stressForm.sleepHours || Number(stressForm.sleepHours) < 4) && (
-                      <div className="mt-1 text-[11px] md:text-xs text-red-600">Minimum 4 hours of sleep is required to compute your stress score.</div>
-                    )}
-                  </div>
-                  <div>
-                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Work hours nett.(without breaks) <span className="text-red-500">*</span></label>
-                    <input type="number" inputMode="numeric" min="0" step="0.5" value={stressForm.workHours}
-                      placeholder="8h ideal; deviation increases stress (20%)"
-                      onChange={e=>setStressForm({...stressForm, workHours:e.target.value})}
-                      onFocus={()=>setWorkHoursFocused(true)}
-                      onBlur={()=>setWorkHoursFocused(false)}
-                      aria-invalid={!stressForm.workHours || exceedsDayHours}
-                      className={`w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 placeholder:text-[11px] md:placeholder:text-sm appearance-none ${(!stressForm.workHours || exceedsDayHours) ? 'border-red-500 focus:ring-red-500 ring-1 ring-red-500' : 'focus:ring-purple-500'}`}
-                      style={{MozAppearance:'textfield'}} />
-                    {(!stressForm.workHours) && (
-                      <div className="mt-1 text-[11px] md:text-xs text-red-600">Minimum 0 hours is required — enter 0 if you don’t work.</div>
-                    )}
-                  </div>
-                  <div>
-                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Self‑rated stress (1–10)</label>
-                    <input type="number" inputMode="numeric" min="1" max="10" value={stressForm.stressRating}
-                      placeholder="Higher rating increases stress (12%)"
-                      onChange={e=>setStressForm({...stressForm, stressRating: e.target.value})}
-                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500 placeholder:text-[11px] md:placeholder:text-sm appearance-none" style={{MozAppearance:'textfield'}} />
-                  </div>
-                  <div>
-                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Stress episodes (count)</label>
-                    <input type="number" inputMode="numeric" min="0" step="1" value={stressForm.stressEpisodes}
-                      placeholder="More episodes raise stress; 6 caps impact (8%)"
-                      onChange={e=>setStressForm({...stressForm, stressEpisodes:e.target.value})}
-                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500 placeholder:text-[11px] md:placeholder:text-sm appearance-none" style={{MozAppearance:'textfield'}} />
-                  </div>
-                  <div>
-                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Exercise (mins)</label>
-                    <input type="number" inputMode="numeric" min="0" step="5" value={stressForm.exerciseMins}
-                      placeholder="More mins reduce stress; ~45m full relief (15%)"
-                      onChange={e=>setStressForm({...stressForm, exerciseMins:e.target.value})}
-                      aria-invalid={exceedsDayHours}
-                      className={`w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 placeholder:text-[11px] md:placeholder:text-sm appearance-none ${exceedsDayHours ? 'border-red-500 focus:ring-red-500 ring-1 ring-red-500' : 'focus:ring-purple-500'}`}
-                      style={{MozAppearance:'textfield'}} />
-                  </div>
-                  <div>
-                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Meditation (mins)</label>
-                    <input type="number" inputMode="numeric" min="0" step="5" value={stressForm.meditationMins}
-                      placeholder="More mins reduce stress; ~15m full relief (5%)"
-                      onChange={e=>setStressForm({...stressForm, meditationMins:e.target.value})}
-                      aria-invalid={exceedsDayHours}
-                      className={`w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 placeholder:text-[11px] md:placeholder:text-sm appearance-none ${exceedsDayHours ? 'border-red-500 focus:ring-red-500 ring-1 ring-red-500' : 'focus:ring-purple-500'}`}
-                      style={{MozAppearance:'textfield'}} />
-                  </div>
-                  <div>
-                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Social interaction (mins)</label>
-                    <input type="number" inputMode="numeric" min="0" step="5" value={stressForm.socialMins}
-                      placeholder="Quality time buffers stress; ~60m relief (5%)"
-                      onChange={e=>setStressForm({...stressForm, socialMins:e.target.value})}
-                      aria-invalid={exceedsDayHours}
-                      className={`w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 placeholder:text-[10px] md:placeholder:text-sm appearance-none ${exceedsDayHours ? 'border-red-500 focus:ring-red-500 ring-1 ring-red-500' : 'focus:ring-purple-500'}`}
-                      style={{MozAppearance:'textfield'}} />
-                  </div>
-                  <div>
-                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Screen time Exclude work (hours)</label>
-                    <input type="number" inputMode="numeric" min="0" step="0.5" value={stressForm.screenHours}
-                      placeholder="More hours add stress ~8h cap impact (10%)"
-                      onChange={e=>setStressForm({...stressForm, screenHours:e.target.value})}
-                      aria-invalid={exceedsDayHours}
-                      className={`w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 placeholder:text-[11px] md:placeholder:text-sm appearance-none ${exceedsDayHours ? 'border-red-500 focus:ring-red-500 ring-1 ring-red-500' : 'focus:ring-purple-500'}`}
-                      style={{MozAppearance:'textfield'}} />
-                  </div>
-                  <div>
-                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Life event</label>
-                    <div className="mt-1">
-                      <div className="flex items-center justify-between text-[11px] md:text-xs text-gray-600 dark:text-gray-400">
-                        <span className="truncate block max-w-[calc(100%-2.5rem)]">Amplifies: None 1.0×, Minor 1.5×, Major 2.0×</span>
-                        <button type="button"
-                          onClick={() => setLifeEventInfoOpen(v => !v)}
-                          aria-label="Show life event info"
-                          className="ml-2 inline-flex items-center justify-center w-6 h-6 rounded-full border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
-                          i
-                        </button>
-                      </div>
-                      {lifeEventInfoOpen && (
-                        <div className="mt-2 p-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white/80 dark:bg-gray-800/80 text-xs text-gray-700 dark:text-gray-300">
-                          <div className="font-semibold mb-1">What counts as a life event?</div>
-                          <ul className="list-disc pl-4 space-y-1">
-                            <li>None: regular day, routine changes.</li>
-                            <li>Minor: exam week, deadline, travel, minor illness, brief conflict.</li>
-                            <li>Major: bereavement, job loss, breakup/divorce, serious illness, major crisis.</li>
-                          </ul>
-                          <div className="mt-2 text-right">
-                            <button type="button" onClick={() => setLifeEventInfoOpen(false)} className="px-3 py-1 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200">Close</button>
-                          </div>
+                {(() => {
+                  // Reusable slider row (1–10). Stressor sliders use a warm gradient,
+                  // buffer sliders use a calming gradient. Pure presentational helper.
+                  const Slider = ({ field, label, leftHint, rightHint, tone }) => {
+                    const val = Number(stressForm[field]);
+                    const safe = Number.isFinite(val) ? val : 5;
+                    const pct = ((safe - 1) / 9) * 100;
+                    const track = tone === 'buffer'
+                      ? 'linear-gradient(90deg,#10b981,#06b6d4)'
+                      : 'linear-gradient(90deg,#a855f7,#ec4899)';
+                    const chip = tone === 'buffer'
+                      ? 'bg-emerald-500'
+                      : 'bg-pink-500';
+                    return (
+                      <div className="p-3 rounded-2xl bg-gray-50 dark:bg-gray-700/60 border border-gray-100 dark:border-gray-700">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">{label}</span>
+                          <span className={`text-xs font-bold text-white px-2 py-0.5 rounded-full ${chip}`}>{safe}</span>
                         </div>
-                      )}
-                      <select value={stressForm.lifeEvent}
-                        onChange={e=>setStressForm({...stressForm, lifeEvent:e.target.value})}
-                        className="mt-2 w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500">
-                        <option value="none">None — no multiplier</option>
-                        <option value="minor">Minor — 1.5× stress amplifier</option>
-                        <option value="major">Major — 2.0× stress amplifier</option>
-                      </select>
+                        <input
+                          type="range" min="1" max="10" step="1" value={safe}
+                          onChange={(e) => setStressForm({ ...stressForm, [field]: Number(e.target.value) })}
+                          className="fm-stress-slider w-full"
+                          style={{ background: `linear-gradient(90deg, ${tone==='buffer'?'#10b981':'#a855f7'} 0%, ${tone==='buffer'?'#06b6d4':'#ec4899'} ${pct}%, var(--fm-track,#e5e7eb) ${pct}%)` }}
+                        />
+                        <div className="flex justify-between text-[10px] md:text-[11px] text-gray-500 dark:text-gray-300 mt-1">
+                          <span>{leftHint}</span>
+                          <span>{rightHint}</span>
+                        </div>
+                      </div>
+                    );
+                  };
+
+                  return (
+                    <div className="space-y-5">
+                      {/* Stressors */}
+                      <div>
+                        <div className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-gray-300 mb-2">How was your day?</div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                          <Slider field="sleepQuality" label="😴 Sleep quality" leftHint="Poor" rightHint="Excellent" tone="buffer" />
+                          <Slider field="workPressure" label="💼 Work pressure" leftHint="Relaxed" rightHint="Intense" tone="stressor" />
+                          <Slider field="selfRating" label="🧠 How stressed do you feel?" leftHint="Calm" rightHint="Overwhelmed" tone="stressor" />
+                          <Slider field="mentalLoad" label="🌀 Mental load" leftHint="Clear" rightHint="Racing" tone="stressor" />
+                          <Slider field="screenTime" label="📱 Screen / scrolling" leftHint="Low" rightHint="Very high" tone="stressor" />
+                        </div>
+                      </div>
+
+                      {/* Buffers */}
+                      <div>
+                        <div className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-gray-300 mb-2">What helped you unwind?</div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                          <Slider field="exercise" label="🏃 Movement / exercise" leftHint="None" rightHint="Lots" tone="buffer" />
+                          <Slider field="relaxation" label="🧘 Relaxation / meditation" leftHint="None" rightHint="Lots" tone="buffer" />
+                          <Slider field="social" label="💬 Social connection" leftHint="None" rightHint="Strong" tone="buffer" />
+                        </div>
+                      </div>
+
+                      {/* Life event */}
+                      <div className="p-3 rounded-2xl bg-gray-50 dark:bg-gray-700/60 border border-gray-100 dark:border-gray-700">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">🌟 Any major life event?</span>
+                          <button type="button"
+                            onClick={() => setLifeEventInfoOpen(v => !v)}
+                            aria-label="Show life event info"
+                            className="inline-flex items-center justify-center w-6 h-6 rounded-full border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+                            i
+                          </button>
+                        </div>
+                        {lifeEventInfoOpen && (
+                          <div className="mb-2 p-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white/80 dark:bg-gray-800/80 text-xs text-gray-700 dark:text-gray-300">
+                            <div className="font-semibold mb-1">What counts as a life event?</div>
+                            <ul className="list-disc pl-4 space-y-1">
+                              <li>None: regular day, routine changes.</li>
+                              <li>Minor: exam week, deadline, travel, minor illness, brief conflict.</li>
+                              <li>Major: bereavement, job loss, breakup/divorce, serious illness, major crisis.</li>
+                            </ul>
+                            <div className="mt-2 text-right">
+                              <button type="button" onClick={() => setLifeEventInfoOpen(false)} className="px-3 py-1 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200">Close</button>
+                            </div>
+                          </div>
+                        )}
+                        <select value={stressForm.lifeEvent}
+                          onChange={e=>setStressForm({...stressForm, lifeEvent:e.target.value})}
+                          className="w-full p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500">
+                          <option value="none">None — just a normal day</option>
+                          <option value="minor">Minor — a stressful event</option>
+                          <option value="major">Major — a big life event</option>
+                        </select>
+                      </div>
                     </div>
-                  </div>
-                  
-                </div>
+                  );
+                })()}
 
-                {exceedsDayHours && (
-                  <div className="mt-2 text-[11px] md:text-xs text-red-600">Total time across Sleep, Work, Screen time, Exercise, Meditation, and Social must be ≤ 24 hours.</div>
-                )}
-
-                <div className="flex mt-4">
+                <div className="flex mt-5">
                   <button
-                          onClick={() => { const r = computeStressScore(stressForm); setStressResult(r); setStressInsight(generateStressInsight(r, stressForm)); try { localStorage.setItem('stressResult', JSON.stringify(r)); } catch (_) {} }}
-                    disabled={!String(stressForm.sleepHours || '').trim() || Number(stressForm.sleepHours) < 4 || !String(stressForm.workHours || '').trim() || exceedsDayHours}
-                    className="flex-grow bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold p-3 rounded-xl hover:from-purple-600 hover:to-pink-600 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed">
-                    Compute Stress Score
+                    onClick={async () => {
+                      if (stressAiLoading) return;
+                      setStressAiLoading(true);
+                      try {
+                        const r = await computeStressScoreAI(stressForm);
+                        setStressResult(r);
+                        setStressInsight(r && r.insight ? r.insight : generateStressInsight(r, deriveLegacyStressFields(stressForm)));
+                        try { localStorage.setItem('stressResult', JSON.stringify(r)); } catch (_) {}
+                      } catch (_) {
+                        // Hard fallback (should rarely happen; computeStressScoreAI already self-falls-back)
+                        const legacy = deriveLegacyStressFields(stressForm);
+                        const r = computeStressScore(legacy);
+                        setStressResult(r);
+                        setStressInsight(generateStressInsight(r, legacy));
+                        try { localStorage.setItem('stressResult', JSON.stringify(r)); } catch (_) {}
+                      } finally {
+                        setStressAiLoading(false);
+                      }
+                    }}
+                    disabled={stressAiLoading}
+                    className="flex-grow bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold p-3 rounded-xl hover:from-purple-600 hover:to-pink-600 transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                    {stressAiLoading ? (
+                      <>
+                        <span className="inline-block w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin"></span>
+                        Analyzing…
+                      </>
+                    ) : (
+                      <>✨ Analyze My Stress</>
+                    )}
                   </button>
                 </div>
 
-                <div className="mt-3 text-[11px] md:text-xs text-gray-500 dark:text-gray-400 text-center">
-                  Disclaimer: This is a simulated stress estimate. Real stress varies due to personal, financial, health, and work–life factors. This is not a medical tool.
+                <div className="mt-3 text-[11px] md:text-xs text-gray-500 dark:text-gray-300 text-center">
+                  Disclaimer: This is an AI-assisted stress estimate based on your inputs. Real stress varies due to personal, financial, health, and work–life factors. This is not a medical tool.
                 </div>
               </div>
 
               {stressResult && (
                 <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm p-6 rounded-3xl shadow-xl border border-white/20">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className={`w-20 h-20 bg-gradient-to-br ${
+                  {/* Score header */}
+                  <div className="flex items-center justify-between mb-5">
+                    <div className={`w-24 h-24 bg-gradient-to-br ${
                       stressResult.stressScore >= 76 ? 'from-red-500 to-red-600' : (
                       stressResult.stressScore >= 51 ? 'from-orange-500 to-orange-600' : (
                       stressResult.stressScore >= 26 ? 'from-amber-400 to-yellow-500' : 'from-emerald-400 to-green-600'))
-                    } rounded-3xl flex items-center justify-center text-white font-bold text-2xl shadow-lg`}>
-                      {stressResult.stressScore}
+                    } rounded-3xl flex flex-col items-center justify-center text-white shadow-lg`}>
+                      <span className="font-bold text-3xl leading-none">{stressResult.stressScore}</span>
+                      <span className="text-[10px] opacity-90 mt-0.5">/ 100</span>
                     </div>
                     <div className="text-right">
-            <div className="text-2xl font-bold text-gray-800 dark:text-gray-200">{stressResult.stressScore === 0 ? '😊' : (stressResult.stressScore === 100 ? ('🚨 ' + stressResult.category) : stressResult.category)}</div>
-                      <div className="text-sm text-gray-600 dark:text-gray-400">Confidence {stressResult.confidence}%</div>
-                      {stressResult.lifeEventMultiplier > 1.0 && (
-                        <div className="text-xs text-orange-600 dark:text-orange-400 mt-1">Life event: {stressResult.lifeEventMultiplier}× amplifier</div>
-                      )}
+                      <div className="text-2xl font-bold text-gray-800 dark:text-gray-200">{stressResult.category}</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-300 mt-1">
+                        AI confidence: <span className="font-semibold">{stressResult.confidence}%</span>
+                      </div>
+                      <div className="text-[11px] text-gray-500 dark:text-gray-300 mt-1">How sure the AI is, based on your inputs</div>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-2">
-                    {/* Sleep Driver */}
-                    <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-xl">
-                      <div className="flex justify-between items-center mb-1">
-                        <div className="text-xs font-semibold text-gray-500 dark:text-gray-400">Sleep Quality (25%)</div>
-                        <div className="text-lg font-bold text-pink-600 dark:text-pink-400">{stressResult.breakdown.drivers.sleep}/25</div>
-                      </div>
-                      <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2 mb-1">
-                        <div className="bg-gradient-to-r from-pink-400 to-pink-600 h-2 rounded-full" style={{width: `${Math.min(100, (stressResult.breakdown.drivers.sleep / 25) * 100)}%`}}></div>
-                      </div>
-                      <div className="text-xs text-gray-600 dark:text-gray-400">Deviation from 8h optimal sleep</div>
-                    </div>
-
-                    {/* Work Driver */}
-                    <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-xl">
-                      <div className="flex justify-between items-center mb-1">
-                        <div className="text-xs font-semibold text-gray-500 dark:text-gray-400">Work Hours (20%)</div>
-                        <div className="text-lg font-bold text-purple-600 dark:text-purple-400">{stressResult.breakdown.drivers.work}/20</div>
-                      </div>
-                      <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2 mb-1">
-                        <div className="bg-gradient-to-r from-purple-400 to-purple-600 h-2 rounded-full" style={{width: `${Math.min(100, (stressResult.breakdown.drivers.work / 20) * 100)}%`}}></div>
-                      </div>
-                      <div className="text-xs text-gray-600 dark:text-gray-400">Deviation from 8h optimal work</div>
-                    </div>
-
-                    {/* Self-rating + Episodes Group */}
-                    <div className="p-3 bg-gradient-to-br from-indigo-50 to-orange-50 dark:from-indigo-900/20 dark:to-orange-900/20 rounded-xl border border-indigo-200 dark:border-indigo-700">
-                      <div className="text-xs font-bold text-gray-700 dark:text-gray-300 mb-2">Psychological (20%)</div>
-                      
-                      <div className="mb-2">
-                        <div className="flex justify-between items-center mb-1">
-                          <div className="text-xs text-gray-600 dark:text-gray-400">Self‑rating (12%)</div>
-                          <div className="text-sm font-bold text-indigo-600 dark:text-indigo-400">{stressResult.breakdown.drivers.selfRating}/12</div>
-                        </div>
-                        <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-1.5">
-                          <div className="bg-gradient-to-r from-indigo-400 to-indigo-600 h-1.5 rounded-full" style={{width: `${Math.min(100, (stressResult.breakdown.drivers.selfRating / 12) * 100)}%`}}></div>
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex justify-between items-center mb-1">
-                          <div className="text-xs text-gray-600 dark:text-gray-400">Episodes (8%)</div>
-                          <div className="text-sm font-bold text-orange-600 dark:text-orange-400">{stressResult.breakdown.drivers.episodes}/8</div>
-                        </div>
-                        <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-1.5">
-                          <div className="bg-gradient-to-r from-orange-400 to-orange-600 h-1.5 rounded-full" style={{width: `${Math.min(100, (stressResult.breakdown.drivers.episodes / 8) * 100)}%`}}></div>
-                        </div>
-                      </div>
-                      
-                      <div className="text-xs text-gray-600 dark:text-gray-400 mt-2">How you feel + stress events</div>
-                    </div>
-
-                    {/* Screen Driver */}
-                    <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-xl">
-                      <div className="flex justify-between items-center mb-1">
-                        <div className="text-xs font-semibold text-gray-500 dark:text-gray-400">Screen Time (10%)</div>
-                        <div className="text-lg font-bold text-blue-600 dark:text-blue-400">{stressResult.breakdown.drivers.screen}/10</div>
-                      </div>
-                      <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2 mb-1">
-                        <div className="bg-gradient-to-r from-blue-400 to-blue-600 h-2 rounded-full" style={{width: `${Math.min(100, (stressResult.breakdown.drivers.screen / 10) * 100)}%`}}></div>
-                      </div>
-                      <div className="text-xs text-gray-600 dark:text-gray-400">Excessive screen use adds stress</div>
-                    </div>
-                  </div>
-
-                  <div className="text-xs font-bold text-gray-700 dark:text-gray-300 mb-2">Protective Buffers (higher = more stress reduction)</div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-                    {/* Exercise + Meditation Group */}
-                    <div className="p-3 bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-xl border border-emerald-200 dark:border-emerald-700">
-                      <div className="text-xs font-bold text-gray-700 dark:text-gray-300 mb-2">Wellness Activities (20%)</div>
-                      
-                      <div className="mb-2">
-                        <div className="flex justify-between items-center mb-1">
-                          <div className="text-xs text-gray-600 dark:text-gray-400">Exercise (15%)</div>
-                          <div className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{stressResult.breakdown.buffers.exercise}/15</div>
-                        </div>
-                        <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-1.5">
-                          <div className="bg-gradient-to-r from-emerald-400 to-emerald-600 h-1.5 rounded-full" style={{width: `${Math.min(100, (stressResult.breakdown.buffers.exercise / 15) * 100)}%`}}></div>
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex justify-between items-center mb-1">
-                          <div className="text-xs text-gray-600 dark:text-gray-400">Meditation (5%)</div>
-                          <div className="text-sm font-bold text-teal-600 dark:text-teal-400">{stressResult.breakdown.buffers.meditation}/5</div>
-                        </div>
-                        <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-1.5">
-                          <div className="bg-gradient-to-r from-teal-400 to-teal-600 h-1.5 rounded-full" style={{width: `${Math.min(100, (stressResult.breakdown.buffers.meditation / 5) * 100)}%`}}></div>
-                        </div>
-                      </div>
-                      
-                      <div className="text-xs text-gray-600 dark:text-gray-400 mt-2">Higher values reduce stress</div>
-                    </div>
-
-                    {/* Social Buffer */}
-                    <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-xl">
-                      <div className="flex justify-between items-center mb-1">
-                        <div className="text-xs font-semibold text-gray-500 dark:text-gray-400">Social Connection (5%)</div>
-                        <div className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{stressResult.breakdown.buffers.social}/5</div>
-                      </div>
-                      <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2 mb-1">
-                        <div className="bg-gradient-to-r from-emerald-400 to-green-600 h-2 rounded-full" style={{width: `${Math.min(100, (stressResult.breakdown.buffers.social / 5) * 100)}%`}}></div>
-                      </div>
-                      <div className="text-xs text-gray-600 dark:text-gray-400">Quality time with others buffers stress</div>
-                    </div>
-                  </div>
-
+                  {/* AI Insight */}
                   {stressInsight && (
-                    <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm p-4 rounded-2xl text-gray-800 dark:text-gray-200">
+                    <div className="bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 border border-purple-100 dark:border-purple-800/40 p-4 rounded-2xl text-gray-800 dark:text-gray-200 whitespace-pre-line leading-relaxed">
+                      <div className="text-xs font-bold uppercase tracking-wide text-purple-500 dark:text-purple-300 mb-1 flex items-center">
+                        <span className="mr-1">✨</span> AI Insight
+                      </div>
                       {stressInsight}
                     </div>
                   )}
 
-                  {stressResult && stressResult.stressScore >= 26 && (
-                    <div className="mt-4 mb-4 bg-gradient-to-r from-purple-500/10 to-pink-500/10 dark:from-purple-500/5 dark:to-pink-500/5 p-4 rounded-2xl border border-pink-200/50 dark:border-pink-700/40">
-                      <div className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2 flex items-center">
+                  {/* AI-generated, dynamic habit suggestions */}
+                  {Array.isArray(stressResult.suggestions) && stressResult.suggestions.length > 0 && (
+                    <div className="mt-4 mb-2 bg-gradient-to-r from-purple-500/10 to-pink-500/10 dark:from-purple-500/5 dark:to-pink-500/5 p-4 rounded-2xl border border-pink-200/50 dark:border-pink-700/40">
+                      <div className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-3 flex items-center">
                         <span className="mr-2">🪄</span>
-                        Stress‑Linked Habit Suggestions
+                        AI Habit Suggestions
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {generateStressHabitSuggestions(stressResult, stressForm).map((sug, idx) => {
-                          const exists = habits.some(h => (h.name || '').toLowerCase() === (sug.name || '').toLowerCase());
+                        {stressResult.suggestions.map((sug, idx) => {
+                          const name = (sug && sug.name) ? String(sug.name) : '';
+                          const note = (sug && sug.note) ? String(sug.note) : '';
+                          if (!name) return null;
+                          const exists = habits.some(h => (h.name || '').toLowerCase() === name.toLowerCase());
                           return (
                             <div key={idx} className="flex items-center justify-between bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm p-3 rounded-xl border border-gray-100 dark:border-gray-700">
                               <div className="min-w-0">
-                                <div className="text-sm font-semibold text-gray-800 dark:text-gray-200 whitespace-normal break-words">{sug.name}</div>
-                                <div className="text-xs text-gray-600 dark:text-gray-400 whitespace-normal break-words">{sug.note}</div>
+                                <div className="text-sm font-semibold text-gray-800 dark:text-gray-200 whitespace-normal break-words">{name}</div>
+                                {note && <div className="text-xs text-gray-600 dark:text-gray-300 whitespace-normal break-words">{note}</div>}
                               </div>
                               <button
                                 onClick={() => {
                                   if (exists) return;
-                                  setHabits([...habits, { id: Date.now().toString(), name: sug.name, streak: 0, completed: {}, created: new Date().toISOString() }]);
+                                  setHabits([...habits, { id: Date.now().toString(), name: name, streak: 0, completed: {}, created: new Date().toISOString() }]);
                                 }}
                                 disabled={exists}
                                 className="ml-3 px-3 py-1 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs font-bold hover:from-purple-600 hover:to-pink-600 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -14210,9 +14577,9 @@ ${habits.map(habit => {
 
                   {/* Breathing Exercise CTA when stress is elevated (>25) */}
                   {stressResult && stressResult.stressScore > 25 && (
-                    <div className="mt-2 bg-white dark:bg-gray-800 p-4 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-lg flex items-center justify-between">
+                    <div className="mt-3 bg-white dark:bg-gray-800 p-4 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-lg flex items-center justify-between">
                       <div className="min-w-0">
-                        <div className="text-xs font-semibold text-gray-600 dark:text-gray-400">Guided Breathing</div>
+                        <div className="text-xs font-semibold text-gray-600 dark:text-gray-300">Guided Breathing</div>
                         <div className="text-lg font-bold text-gray-800 dark:text-gray-200">Release Tension</div>
                         <div className="text-xs text-gray-500 dark:text-gray-400">4–7–8 cycle • ~3 minutes</div>
                       </div>
@@ -14405,8 +14772,8 @@ ${habits.map(habit => {
             );
             setPendingMins(mins);
             try {
-              if ('Notification' in window && Notification.permission === 'granted') {
-                new Notification('Activity Complete!', { body: `Session finished. Confirm to log ${mins} min.` });
+              if (window.fmNotify) {
+                window.fmNotify('Activity complete! 🏃', `Session finished. Confirm to log ${mins} min.`, { tag: 'activity-complete', type: 'success' });
               }
             } catch (_) {}
             setIsActive(false);
@@ -14447,9 +14814,7 @@ ${habits.map(habit => {
             );
           } catch (_) {}
           setPendingMins(mins);
-          if ('Notification' in window && Notification.permission === 'granted') {
-            try { new Notification('Activity Complete!', { body: `Session finished. Confirm to log ${mins} min.` }); } catch (_) {}
-          }
+          try { if (window.fmNotify) window.fmNotify('Activity complete! 🏃', `Session finished. Confirm to log ${mins} min.`, { tag: 'activity-complete', type: 'success' }); } catch (_) {}
         }
         return () => clearTimeout(timerRef.current);
       }, [timeLeft, isActive, duration, onLogActivity]);
@@ -14531,12 +14896,18 @@ ${habits.map(habit => {
     const WaterTracker = ({ onLogWater, dailyIntake, goals, masked = false }) => {
       useEffect(() => {
         const interval = setInterval(() => {
-          if ('Notification' in window && Notification.permission === "granted") {
-            new Notification("Stay Hydrated!", { body: "Time for a glass of water to keep you going." });
-          }
+          try {
+            // Only nudge if the user still has water left to drink today.
+            const water = Number(dailyIntake && dailyIntake.water) || 0;
+            const goal = Number(goals && goals.water) || 8;
+            if (water < goal && window.fmNotify) {
+              const left = Math.max(0, goal - water);
+              window.fmNotify('Stay hydrated 💧', `You're at ${water}/${goal} glasses — ${left} to go.`, { tag: 'hydration', type: 'info' });
+            }
+          } catch (_) {}
         }, 2 * 60 * 60 * 1000); // Remind every 2 hours
         return () => clearInterval(interval);
-      }, []);
+      }, [dailyIntake, goals]);
 
       return (
         <div>
