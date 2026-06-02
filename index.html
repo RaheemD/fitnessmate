@@ -407,6 +407,28 @@
     })();
   </script>
   <script>
+    // Dedicated, RELIABLE detection of "launched inside the Android TWA app".
+    // The dependable signal is document.referrer starting with 'android-app://'.
+    // This is SEPARATE from __isNativeAndroidApp (billing) so we don't disturb that logic.
+    // We persist it because referrer is only present on the very first launch navigation,
+    // and we must still know we're a TWA after returning from Google's OAuth redirect.
+    (function(){
+      try {
+        var ref = document.referrer || '';
+        var launchedFromTwa = ref.indexOf('android-app://') === 0;
+        if (launchedFromTwa) {
+          try { sessionStorage.setItem('fm_is_twa', '1'); } catch(_) {}
+          try { localStorage.setItem('fm_is_twa', '1'); } catch(_) {}
+        }
+        var persisted = false;
+        try { persisted = sessionStorage.getItem('fm_is_twa') === '1' || localStorage.getItem('fm_is_twa') === '1'; } catch(_) {}
+        window.__isTwaContext = !!(launchedFromTwa || persisted);
+      } catch(_) {
+        window.__isTwaContext = false;
+      }
+    })();
+  </script>
+  <script>
     // Android Play Billing bridge (no product IDs or web-side billing logic)
     (function(){
       try {
@@ -2175,10 +2197,10 @@ Respond ONLY with a valid JSON object in this exact format:
             ? window.location.origin
             : 'https://fitnessmate.netlify.app';
           // ONLY when launched from the installed Android app (TWA), tag the return URL
-          // so that, after Google finishes in Chrome, we can offer a one-tap deep link
-          // back into the app. Desktop/web/iOS keep the exact same redirect as before
-          // (no marker), so their flow is completely unchanged.
-          const isTWA = (typeof window !== 'undefined' && window.__isNativeAndroidApp === true);
+          // so that, after Google finishes in Chrome, we can hand the session back to the
+          // app. Desktop/web/iOS keep the exact same redirect as before (no marker), so
+          // their flow is completely unchanged.
+          const isTWA = (typeof window !== 'undefined' && window.__isTwaContext === true);
           const redirectTo = isTWA ? (base + '/?fromapp=1') : base;
           const { data, error } = await auth.signInWithOAuth({
             provider: 'google',
@@ -3563,6 +3585,31 @@ Respond ONLY with a valid JSON object in this exact format:
 
         (async () => {
           try {
+            // TWA SESSION HAND-OFF: if the app was opened via our deep link carrying
+            // session tokens (#fmsess=<access>.<refresh>), set the session directly.
+            // This is how the installed app (separate storage from Chrome) becomes signed
+            // in after Google OAuth completed in Chrome. No-op when the fragment is absent.
+            let handledFmSess = false;
+            try {
+              const rawHash = window.location.hash ? window.location.hash.replace(/^#/, '') : '';
+              const hp = new URLSearchParams(rawHash);
+              const fmsess = hp.get('fmsess');
+              if (fmsess && fmsess.indexOf('.') !== -1) {
+                const parts = fmsess.split('.');
+                const at = decodeURIComponent(parts[0] || '');
+                const rt = decodeURIComponent(parts[1] || '');
+                if (at && rt) {
+                  const { error } = await auth.setSession({ access_token: at, refresh_token: rt });
+                  if (error) console.error('TWA setSession (fmsess) error:', error.message);
+                  else handledFmSess = true;
+                }
+                // Strip the sensitive fragment from the URL immediately.
+                try { window.history.replaceState({}, document.title, url.origin + url.pathname + (searchParams.toString() ? `?${searchParams.toString()}` : '')); } catch (_) {}
+                try { window.location.hash = ''; } catch (_) {}
+              }
+            } catch (e) { console.warn('fmsess handling failed:', e); }
+            if (handledFmSess) { return; }
+
             // For all Supabase auth links, establish a session
             if (code) {
               const { error } = await auth.exchangeCodeForSession({ code });
@@ -3584,17 +3631,26 @@ Respond ONLY with a valid JSON object in this exact format:
             }
 
             // TWA RETURN: if this OAuth flow was started from the installed Android app
-            // (we tagged the redirect with ?fromapp=1), Google completed it in full Chrome.
-            // The session now lives in Chrome's storage for our domain. Offer a one-tap
-            // deep link to reopen the installed app, which (via verified assetlinks.json)
-            // shares the same storage and will already be signed in.
+            // (we tagged the redirect with ?fromapp=1), Google completed it in full Chrome
+            // and the session now lives in CHROME's storage (a separate partition from the
+            // app). To sign the app in, we deep-link back into the TWA carrying the session
+            // tokens, and the app sets the session directly on launch.
             // This block is a no-op for desktop/web/iOS (no fromapp marker present).
             try {
               const fromApp = searchParams.get('fromapp');
               if (fromApp === '1' && code) {
                 searchParams.delete('fromapp');
-                // Defer slightly so exchangeCodeForSession has persisted the session.
-                setTimeout(() => { try { if (window.showOpenAppOverlay) window.showOpenAppOverlay(); } catch (_) {} }, 300);
+                // Wait for exchangeCodeForSession to persist, then read tokens and hand off.
+                setTimeout(async () => {
+                  try {
+                    const { data: { session } } = await auth.getSession();
+                    const at = session && session.access_token ? session.access_token : '';
+                    const rt = session && session.refresh_token ? session.refresh_token : '';
+                    if (window.showOpenAppOverlay) window.showOpenAppOverlay(at, rt);
+                  } catch (_) {
+                    if (window.showOpenAppOverlay) window.showOpenAppOverlay('', '');
+                  }
+                }, 400);
               } else if (fromApp) {
                 searchParams.delete('fromapp');
               }
@@ -15469,17 +15525,27 @@ ${habits.map(habit => {
       var HOST = 'fitnessmate.netlify.app';
 
       // Build an Android intent URL that reopens the installed TWA at the app root.
-      // Because assetlinks.json is verified for this package+host, the app shares
-      // Chrome's storage for the domain and will already be signed in.
-      function buildIntentUrl() {
-        return 'intent://' + HOST + '/#Intent;scheme=https;' +
+      // We carry the session tokens in the URL hash (#fmsess=...) so the app — which runs
+      // in a SEPARATE storage partition from Chrome — can set the session directly and end
+      // up signed in. The hash is read and immediately stripped by the app on launch.
+      function buildIntentUrl(accessToken, refreshToken) {
+        var frag = '';
+        try {
+          if (accessToken && refreshToken) {
+            var payload = encodeURIComponent(accessToken) + '.' + encodeURIComponent(refreshToken);
+            frag = 'fmsess=' + payload;
+          }
+        } catch (_) {}
+        // Intent URL: scheme https, target package, optional hash fragment with tokens.
+        return 'intent://' + HOST + '/' + (frag ? ('#' + frag) : '#') + 'Intent;scheme=https;' +
           'package=' + PACKAGE + ';' +
-          'S.browser_fallback_url=' + encodeURIComponent('https://' + HOST + '/') + ';end';
+          'S.browser_fallback_url=' + encodeURIComponent('https://' + HOST + '/' + (frag ? ('#' + frag) : '')) + ';end';
       }
 
-      window.showOpenAppOverlay = function () {
+      window.showOpenAppOverlay = function (accessToken, refreshToken) {
         try {
           if (document.getElementById('openAppOverlay')) return;
+          var intentUrl = buildIntentUrl(accessToken, refreshToken);
           var overlay = document.createElement('div');
           overlay.id = 'openAppOverlay';
           overlay.style.cssText = 'position:fixed;inset:0;z-index:100002;background:rgba(15,23,42,0.92);display:flex;align-items:center;justify-content:center;padding:20px;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;';
@@ -15495,7 +15561,7 @@ ${habits.map(habit => {
               '<div style="font-size:14px;color:#cbd5e1;line-height:1.5;margin-bottom:18px;">' +
                 "You're signed in. Tap below to return to the FitnessMate app." +
               '</div>' +
-              '<a id="openAppBtn" href="' + buildIntentUrl() + '" ' +
+              '<a id="openAppBtn" href="' + intentUrl + '" ' +
                 'style="display:block;text-decoration:none;background:linear-gradient(135deg,#7c3aed,#2563eb);color:#fff;font-weight:800;padding:13px 16px;border-radius:12px;box-shadow:0 8px 20px rgba(37,99,235,0.35);">' +
                 'Open FitnessMate app</a>' +
               '<button id="stayBrowserBtn" type="button" ' +
@@ -15511,8 +15577,7 @@ ${habits.map(habit => {
           // Try to auto-launch the app immediately; if the OS blocks it, the visible
           // button lets the user tap manually (a real user gesture always works).
           try {
-            var btn = document.getElementById('openAppBtn');
-            setTimeout(function () { try { window.location.href = buildIntentUrl(); } catch (_) {} }, 400);
+            setTimeout(function () { try { window.location.href = intentUrl; } catch (_) {} }, 400);
           } catch (_) {}
         } catch (_) {}
       };
