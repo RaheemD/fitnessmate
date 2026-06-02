@@ -2171,9 +2171,15 @@ Respond ONLY with a valid JSON object in this exact format:
         setAuthError(null);
         try {
           // Return to the app root after Google completes the flow.
-          const redirectTo = (typeof window !== 'undefined' && window.location)
+          const base = (typeof window !== 'undefined' && window.location)
             ? window.location.origin
             : 'https://fitnessmate.netlify.app';
+          // ONLY when launched from the installed Android app (TWA), tag the return URL
+          // so that, after Google finishes in Chrome, we can offer a one-tap deep link
+          // back into the app. Desktop/web/iOS keep the exact same redirect as before
+          // (no marker), so their flow is completely unchanged.
+          const isTWA = (typeof window !== 'undefined' && window.__isNativeAndroidApp === true);
+          const redirectTo = isTWA ? (base + '/?fromapp=1') : base;
           const { data, error } = await auth.signInWithOAuth({
             provider: 'google',
             options: {
@@ -3576,6 +3582,24 @@ Respond ONLY with a valid JSON object in this exact format:
               setShowResetModal(true);
               searchParams.delete('type');
             }
+
+            // TWA RETURN: if this OAuth flow was started from the installed Android app
+            // (we tagged the redirect with ?fromapp=1), Google completed it in full Chrome.
+            // The session now lives in Chrome's storage for our domain. Offer a one-tap
+            // deep link to reopen the installed app, which (via verified assetlinks.json)
+            // shares the same storage and will already be signed in.
+            // This block is a no-op for desktop/web/iOS (no fromapp marker present).
+            try {
+              const fromApp = searchParams.get('fromapp');
+              if (fromApp === '1' && code) {
+                searchParams.delete('fromapp');
+                // Defer slightly so exchangeCodeForSession has persisted the session.
+                setTimeout(() => { try { if (window.showOpenAppOverlay) window.showOpenAppOverlay(); } catch (_) {} }, 300);
+              } else if (fromApp) {
+                searchParams.delete('fromapp');
+              }
+            } catch (_) {}
+
             // Clean URL (remove hash and processed params)
             const clean = url.origin + url.pathname + (searchParams.toString() ? `?${searchParams.toString()}` : '');
             window.history.replaceState({}, document.title, clean);
@@ -15431,6 +15455,67 @@ ${habits.map(habit => {
       } else {
         init();
       }
+    } catch (_) { /* never break the app */ }
+  })();
+</script>
+
+<!-- TWA RETURN HELPER: after Google sign-in completes in full Chrome, offer a one-tap
+     deep link back into the installed Android app. Defined globally so the React auth
+     handler can call window.showOpenAppOverlay(). Safe/no-op everywhere else. -->
+<script>
+  (function () {
+    try {
+      var PACKAGE = 'app.netlify.fitnessmate.twa';
+      var HOST = 'fitnessmate.netlify.app';
+
+      // Build an Android intent URL that reopens the installed TWA at the app root.
+      // Because assetlinks.json is verified for this package+host, the app shares
+      // Chrome's storage for the domain and will already be signed in.
+      function buildIntentUrl() {
+        return 'intent://' + HOST + '/#Intent;scheme=https;' +
+          'package=' + PACKAGE + ';' +
+          'S.browser_fallback_url=' + encodeURIComponent('https://' + HOST + '/') + ';end';
+      }
+
+      window.showOpenAppOverlay = function () {
+        try {
+          if (document.getElementById('openAppOverlay')) return;
+          var overlay = document.createElement('div');
+          overlay.id = 'openAppOverlay';
+          overlay.style.cssText = 'position:fixed;inset:0;z-index:100002;background:rgba(15,23,42,0.92);display:flex;align-items:center;justify-content:center;padding:20px;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;';
+
+          var box = document.createElement('div');
+          box.style.cssText = 'background:#111827;color:#fff;max-width:380px;width:100%;border-radius:18px;box-shadow:0 20px 50px rgba(0,0,0,0.5);overflow:hidden;text-align:center;border:1px solid rgba(255,255,255,0.08);';
+          box.innerHTML =
+            '<div style="background:linear-gradient(135deg,#ec4899,#8b5cf6);padding:22px 20px;">' +
+              '<div style="font-size:34px;line-height:1;">✅</div>' +
+              '<div style="font-size:19px;font-weight:800;margin-top:8px;">Signed in successfully</div>' +
+            '</div>' +
+            '<div style="padding:22px 20px;">' +
+              '<div style="font-size:14px;color:#cbd5e1;line-height:1.5;margin-bottom:18px;">' +
+                "You're signed in. Tap below to return to the FitnessMate app." +
+              '</div>' +
+              '<a id="openAppBtn" href="' + buildIntentUrl() + '" ' +
+                'style="display:block;text-decoration:none;background:linear-gradient(135deg,#7c3aed,#2563eb);color:#fff;font-weight:800;padding:13px 16px;border-radius:12px;box-shadow:0 8px 20px rgba(37,99,235,0.35);">' +
+                'Open FitnessMate app</a>' +
+              '<button id="stayBrowserBtn" type="button" ' +
+                'style="margin-top:12px;background:transparent;border:none;color:#94a3b8;font-size:13px;font-weight:600;cursor:pointer;text-decoration:underline;">' +
+                'Continue in browser</button>' +
+            '</div>';
+          overlay.appendChild(box);
+          document.body.appendChild(overlay);
+
+          var stay = document.getElementById('stayBrowserBtn');
+          if (stay) stay.addEventListener('click', function () { try { overlay.remove(); } catch (_) {} });
+
+          // Try to auto-launch the app immediately; if the OS blocks it, the visible
+          // button lets the user tap manually (a real user gesture always works).
+          try {
+            var btn = document.getElementById('openAppBtn');
+            setTimeout(function () { try { window.location.href = buildIntentUrl(); } catch (_) {} }, 400);
+          } catch (_) {}
+        } catch (_) {}
+      };
     } catch (_) { /* never break the app */ }
   })();
 </script>
