@@ -2042,8 +2042,11 @@ Respond ONLY with a valid JSON object in this exact format:
 
                       if (fetchError) throw fetchError;
 
-                      const remoteTimestamps = new Set(recentRemoteWorkouts?.map(w => w.timestamp) || []);
-                      const workoutsToSync = localHistory.filter(w => w.timestamp && !remoteTimestamps.has(w.timestamp));
+                      // DEDUPE-FIX: canonicalize so an already-synced workout isn't re-uploaded
+                      // just because the remote string format ("...+00:00") differs from local ("...Z").
+                      const tsKey = (t) => { const ms = new Date(t).getTime(); return Number.isNaN(ms) ? String(t) : String(ms); };
+                      const remoteTimestamps = new Set((recentRemoteWorkouts || []).map(w => tsKey(w.timestamp)));
+                      const workoutsToSync = localHistory.filter(w => w.timestamp && !remoteTimestamps.has(tsKey(w.timestamp)));
 
                       // Sync any missing workouts to Supabase
                       if (workoutsToSync.length > 0) {
@@ -2092,19 +2095,22 @@ Respond ONLY with a valid JSON object in this exact format:
                   }
 
                   // Merge both histories, preferring remote data in case of conflicts
+                  // DEDUPE-FIX: key by canonical epoch ms so "...Z" (local) and "...+00:00"
+                  // (remote echo) of the same workout collapse into one entry.
+                  const tsKey = (t) => { const ms = new Date(t).getTime(); return Number.isNaN(ms) ? String(t) : String(ms); };
                   const historyMap = new Map();
 
                   // Add remote workouts to map first (lower priority)
                   remoteHistory.forEach(workout => {
                     if (workout.timestamp) {
-                      historyMap.set(workout.timestamp, workout);
+                      historyMap.set(tsKey(workout.timestamp), workout);
                     }
                   });
 
                   // Add local workouts (will only add if timestamp doesn't exist in remote)
                   localHistory.forEach(workout => {
-                    if (workout.timestamp && !historyMap.has(workout.timestamp)) {
-                      historyMap.set(workout.timestamp, workout);
+                    if (workout.timestamp && !historyMap.has(tsKey(workout.timestamp))) {
+                      historyMap.set(tsKey(workout.timestamp), workout);
                     }
                   });
 
@@ -2278,12 +2284,15 @@ Respond ONLY with a valid JSON object in this exact format:
               try { localHist = JSON.parse(localStorage.getItem('workoutHistory') || '[]') || []; } catch (_) { localHist = []; }
               if (!Array.isArray(localHist)) localHist = [];
               // Union by timestamp; keep existing local entries (don't drop unsynced ones)
-              const seen = new Set(localHist.map(w => w && w.timestamp).filter(Boolean));
+              // DEDUPE-FIX: canonicalize timestamps to epoch ms so a local "...Z" string and
+              // the Postgres "...+00:00" echo of the SAME workout match and don't duplicate.
+              const tsKey = (t) => { const ms = new Date(t).getTime(); return Number.isNaN(ms) ? String(t) : String(ms); };
+              const seen = new Set(localHist.map(w => (w && w.timestamp) ? tsKey(w.timestamp) : null).filter(Boolean));
               let added = 0;
               todayRemote.forEach(w => {
-                if (w && w.timestamp && !seen.has(w.timestamp)) {
+                if (w && w.timestamp && !seen.has(tsKey(w.timestamp))) {
                   localHist.unshift(w);
-                  seen.add(w.timestamp);
+                  seen.add(tsKey(w.timestamp));
                   added++;
                 }
               });
@@ -14968,7 +14977,7 @@ RESPOND IN THIS EXACT STRUCTURE (each on its own line, ~12-20 words per line, no
                     });
                     numWorkouts = dayWorkouts.length;
                     if (numWorkouts > 0) {
-                      avgCompletion = Math.round(dayWorkouts.reduce((s, w) => s + (Number(w.completionRate) || 0), 0) / numWorkouts);
+                      avgCompletion = Math.round(dayWorkouts.reduce((s, w) => s + (Number(w.completionRate ?? w.completion_rate) || 0), 0) / numWorkouts);
                       totalTime = dayWorkouts.reduce((s, w) => s + (Number(w.duration) || 0), 0);
                     }
                   } catch { }
