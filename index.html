@@ -5591,7 +5591,7 @@ Respond ONLY with a valid JSON object in this exact format:
                   <p><span className="font-bold text-purple-500">15%</span> Activity</p>
                   <p><span className="font-bold text-purple-500">30%</span> Workout</p>
                   <p><span className="font-bold text-blue-500">15%</span> Hydration</p>
-                  <p className="opacity-75">Calories beyond ±10% tolerance applies a 25% penalty to total Nutrition points. After midnight, today's score may take up to 60 seconds to reset and sync.</p>
+                  <p className="opacity-75">Calories beyond ±10% tolerance applies a 25% penalty to total Nutrition points. After midnight, today's score may take up to 60–90 seconds to reset. Please switch screens to sync the latest data.</p>
                 </div>
               </div>
             </div>
@@ -9697,7 +9697,9 @@ Respond ONLY with a valid JSON object in this format:
                       <div>
                         <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-3">📋 All Menu Items:</h4>
                         <div className="space-y-2">
-                          {menuItems.map((item, index) => (
+                          {/* DISPLAY-ONLY: sort by health_score descending (best first: 10/10, 9/10, ...).
+                              Uses a copy so menuItems state/localStorage stays untouched. */}
+                          {[...menuItems].sort((a, b) => (Number(b.health_score) || 0) - (Number(a.health_score) || 0)).map((item, index) => (
                             <div key={index} className="bg-gray-50 dark:bg-gray-700 p-3 rounded-lg">
                               <div className="flex justify-between items-start">
                                 <div className="flex-1">
